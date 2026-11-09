@@ -1,0 +1,20 @@
+{
+  "note": "Curated anchors for the far view. Coordinates are from docs/research/05-bay-area-transit-projects.md section 5 (several are marked UNVERIFIED there). Entries with snapToStation take their position from the nearest OSM station whose name matches, within 500 m of the given point.",
+  "places": [
+    { "name": "Googleplex", "kind": "campus", "lat": 37.422, "lon": -122.084 },
+    { "name": "Google Bay View", "kind": "campus", "lat": 37.421, "lon": -122.064 },
+    { "name": "Meta Menlo Park", "kind": "campus", "lat": 37.485, "lon": -122.148 },
+    { "name": "Oracle Redwood Shores", "kind": "campus", "lat": 37.529, "lon": -122.266 },
+    { "name": "Apple Park", "kind": "campus", "lat": 37.3349, "lon": -122.009 },
+    { "name": "Nvidia", "kind": "campus", "lat": 37.371, "lon": -121.967 },
+    { "name": "Stanford", "kind": "campus", "lat": 37.4275, "lon": -122.1697 },
+    { "name": "Genentech", "kind": "campus", "lat": 37.657, "lon": -122.379 },
+    { "name": "Tesla Fremont", "kind": "campus", "lat": 37.495, "lon": -121.9425 },
+    { "name": "Salesforce Tower", "kind": "landmark", "lat": 37.7897, "lon": -122.3966 },
+    { "name": "SFO", "kind": "airport", "lat": 37.616, "lon": -122.392 },
+    { "name": "OAK", "kind": "airport", "lat": 37.713, "lon": -122.213 },
+    { "name": "SJC", "kind": "airport", "lat": 37.364, "lon": -121.929 },
+    { "name": "San Jose Diridon", "kind": "station", "lat": 37.3299, "lon": -121.9025, "snapToStation": "Diridon" },
+    { "name": "Oakland 12th St", "kind": "station", "lat": 37.8037, "lon": -122.2715, "snapToStation": "12th St" }
+  ]
+}

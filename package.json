@@ -17,7 +17,10 @@
     "e2e": "pnpm --filter @bayvox/e2e exec playwright test --project=gpu",
     "e2e:swgl": "pnpm --filter @bayvox/e2e exec playwright test --project=swgl",
     "bench": "vitest bench --run --reporter=verbose",
-    "data:build": "pnpm --filter @bayvox/pipeline run build"
+    "data:build": "pnpm --filter @bayvox/pipeline run build",
+    "data:build:vectors": "pnpm --filter @bayvox/pipeline run build:vectors",
+    "data:build:terrain": "pnpm --filter @bayvox/pipeline run build:terrain",
+    "data:build:manifest": "pnpm --filter @bayvox/pipeline run build:manifest"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

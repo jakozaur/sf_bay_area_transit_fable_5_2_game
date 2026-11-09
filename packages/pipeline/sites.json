@@ -1,0 +1,16 @@
+{
+  "siteTileSizeM": 2048,
+  "boxRule": "A site is a square of k = sizeM / siteTileSizeM site tiles per axis. With (east, north) the grid metres of the centre (UTM 10N minus the grid origin, packages/core frame.ts), tx0 = round(east / siteTileSizeM - k / 2) and ty0 = round(north / siteTileSizeM - k / 2); tiles tx0 .. tx0 + k - 1 east, ty0 .. ty0 + k - 1 north. Implemented by siteTileBox in packages/pipeline/src/terrain/sites.ts.",
+  "sites": [
+    {
+      "id": "portal",
+      "title": "The Portal: 4th and King to Salesforce Transit Center",
+      "centerLat": 37.783,
+      "centerLon": -122.397,
+      "sizeM": 6144
+    },
+    { "id": "googleplex", "title": "Googleplex, Mountain View", "centerLat": 37.422, "centerLon": -122.084, "sizeM": 4096 },
+    { "id": "meta", "title": "Meta, Menlo Park", "centerLat": 37.4848, "centerLon": -122.1484, "sizeM": 4096 },
+    { "id": "oracle", "title": "Oracle, Redwood Shores", "centerLat": 37.5294, "centerLon": -122.2659, "sizeM": 4096 }
+  ]
+}

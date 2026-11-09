@@ -19,6 +19,9 @@
     "@types/pngjs": "6.0.5"
   },
   "scripts": {
-    "build": "node src/cli.ts build"
+    "build": "node src/cli.ts build",
+    "build:terrain": "node src/cli.ts terrain",
+    "build:vectors": "node src/cli.ts vectors",
+    "build:manifest": "node src/cli.ts manifest"
   }
 }
