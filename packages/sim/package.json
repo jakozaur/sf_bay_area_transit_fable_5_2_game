@@ -1,0 +1,17 @@
+{
+  "name": "@bayvox/sim",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic sim: cost, schedule, demand, policy/tech.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*",
+    "@bayvox/world": "workspace:*"
+  },
+  "devDependencies": {
+    "@bayvox/testkit": "workspace:*"
+  }
+}

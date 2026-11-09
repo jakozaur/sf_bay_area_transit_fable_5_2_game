@@ -1,0 +1,29 @@
+{
+  "name": "bayvox",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @bayvox/game dev",
+    "build": "pnpm --filter @bayvox/game build",
+    "check": "node scripts/typecheck.mjs && biome check --error-on-warnings . && node scripts/repo-lint.mjs && vitest run --silent=passed-only --reporter=dot",
+    "typecheck": "node scripts/typecheck.mjs",
+    "lint": "biome check --error-on-warnings . && node scripts/repo-lint.mjs",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "e2e": "pnpm --filter @bayvox/e2e exec playwright test --project=gpu",
+    "e2e:swgl": "pnpm --filter @bayvox/e2e exec playwright test --project=swgl",
+    "bench": "vitest bench --run --reporter=verbose",
+    "data:build": "pnpm --filter @bayvox/pipeline run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.1.0"
+  }
+}

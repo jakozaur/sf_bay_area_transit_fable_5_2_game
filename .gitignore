@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-data
+data/raw
+.cache
+test-results
+playwright-report
+bench-results
+.DS_Store
+*.tsbuildinfo
+apps/game/public/data/*
+!apps/game/public/data/README.md

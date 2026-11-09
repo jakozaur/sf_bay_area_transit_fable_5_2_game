@@ -1,0 +1,122 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": { "includes": ["**", "!**/dist", "!**/pnpm-lock.yaml", "!docs", "!apps/game/public/data"] },
+  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 140 },
+  "javascript": { "formatter": { "quoteStyle": "single" } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noNonNullAssertion": "error",
+        "useImportType": "error",
+        "noEnum": "error"
+      },
+      "suspicious": { "noExplicitAny": "error" }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/core/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@bayvox/*", "three", "three/*", "preact", "preact/*"],
+                    "message": "packages/core has zero dependencies (doc 10 section 6)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/world/**",
+        "packages/mesher/**",
+        "packages/sim/**",
+        "packages/tools/**",
+        "packages/scenarios/**",
+        "packages/testkit/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["three", "three/*", "preact", "preact/*", "@bayvox/render", "@bayvox/ui", "@bayvox/input"],
+                    "message": "No three, DOM UI or render imports here (doc 10 section 6 dependency rules)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/ui/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["three", "three/*", "@bayvox/render", "@bayvox/world"],
+                    "message": "ui must not import three or world internals (doc 10 section 6)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/render/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  { "group": ["@bayvox/sim", "@bayvox/ui"], "message": "render must not import sim internals or ui (doc 10 section 6)." }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/pipeline/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  { "group": ["@bayvox/*", "!@bayvox/core"], "message": "pipeline may import only @bayvox/core (doc 10 section 6)." }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

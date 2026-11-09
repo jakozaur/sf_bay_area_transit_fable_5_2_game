@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+  - "e2e"
+# Mirror the owner's npm cooldown (min-release-age = 7 days): nothing younger installs, direct or transitive.
+minimumReleaseAge: 10080
+minimumReleaseAgeStrict: true

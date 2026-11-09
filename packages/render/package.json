@@ -1,0 +1,21 @@
+{
+  "name": "@bayvox/render",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "three.js scene, ChunkRenderer, floating origin, overlays.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*",
+    "@bayvox/world": "workspace:*",
+    "@bayvox/mesher": "workspace:*",
+    "three": "0.187.0",
+    "camera-controls": "3.1.2"
+  },
+  "devDependencies": {
+    "@bayvox/testkit": "workspace:*",
+    "@types/three": "0.187.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@bayvox/testkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fixtures, fake world generators, naive reference mesher.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*"
+  }
+}

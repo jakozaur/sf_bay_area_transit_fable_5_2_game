@@ -1,0 +1,17 @@
+{
+  "name": "@bayvox/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Preact panels and HUD.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*",
+    "@bayvox/sim": "workspace:*",
+    "preact": "11.1.1",
+    "@preact/signals": "2.11.4",
+    "lil-gui": "0.21.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@bayvox/world",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Chunk store, palette compression, edits, region loader.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "@bayvox/testkit": "workspace:*"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@bayvox/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared types, coords, PRNG, hash, materials, world frame. Zero deps.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

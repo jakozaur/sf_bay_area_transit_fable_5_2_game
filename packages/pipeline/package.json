@@ -1,0 +1,24 @@
+{
+  "name": "@bayvox/pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Build-time data pipeline (Node). Never imported by the app.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*",
+    "@duckdb/node-api": "2.0.0-r.1",
+    "pngjs": "7.0.0",
+    "proj4": "2.22.0",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/pngjs": "6.0.5"
+  },
+  "scripts": {
+    "build": "node src/cli.ts build"
+  }
+}

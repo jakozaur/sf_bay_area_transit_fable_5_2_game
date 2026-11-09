@@ -1,0 +1,17 @@
+{
+  "name": "@bayvox/mesher",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Voxels to packed quad buffers, worker entry.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*",
+    "comlink": "4.4.2"
+  },
+  "devDependencies": {
+    "@bayvox/testkit": "workspace:*"
+  }
+}

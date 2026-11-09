@@ -1,0 +1,17 @@
+{
+  "name": "@bayvox/scenarios",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scenario data and loaders (The Portal first).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*",
+    "@bayvox/sim": "workspace:*"
+  },
+  "devDependencies": {
+    "@bayvox/testkit": "workspace:*"
+  }
+}
