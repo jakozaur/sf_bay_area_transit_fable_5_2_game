@@ -1,3 +1,5 @@
+export * from './assets/terrain.ts';
+export * from './assets/vectors.ts';
 export * from './chunk.ts';
 export * from './frame.ts';
 export * from './hash.ts';

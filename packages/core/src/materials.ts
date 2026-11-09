@@ -36,6 +36,8 @@ export const Material = {
   BUILDING_TOWER: 17,
   /** Stations, depots and other transit structures. */
   BUILDING_TRANSIT: 18,
+  /** Paved urban ground that is not a carriageway: sidewalks, plazas, yards (surface class). */
+  PAVEMENT: 19,
 } as const;
 
 export type MaterialId = (typeof Material)[keyof typeof Material];
@@ -78,6 +80,7 @@ export const MATERIALS: readonly MaterialDef[] = [
   def(Material.BUILDING_CIVIC, 'BUILDING_CIVIC', 'Building: civic', 0xcdbfa6),
   def(Material.BUILDING_TOWER, 'BUILDING_TOWER', 'Building: tower', 0x7fa3bd),
   def(Material.BUILDING_TRANSIT, 'BUILDING_TRANSIT', 'Building: transit', 0xe8e4da),
+  def(Material.PAVEMENT, 'PAVEMENT', 'Pavement', 0x8f8d88),
 ];
 
 export const MATERIAL_COUNT = MATERIALS.length;

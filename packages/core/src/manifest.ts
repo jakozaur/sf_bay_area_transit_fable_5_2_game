@@ -4,10 +4,13 @@
  *
  * Runtime data is served from apps/game/public/data/ (URL prefix `data/`, relative to the app base):
  *
- *   data/manifest.json                      WorldManifest (this file's type)
- *   data/far/<name>.<hash>.bin              far raster, tier F: 64 m columns for the whole grid, one file
- *   data/rail/<name>.<hash>.bin|json        existing rail network plus scenario alignments, one file
- *   data/sites/<siteId>/<tx>_<ty>.<hash>.bin  site tiles: DEM plus vectors for a work site, 2,048 m tiles
+ *   data/manifest.json                                 WorldManifest (this file's type), merged by the pipeline
+ *                                                      from manifest.terrain.json and manifest.vectors.json
+ *   data/far/terrain.<hash>.bin                        far raster, tier F: 64 m columns for the whole grid (assets/terrain.ts)
+ *   data/net/rail.<hash>.bin                           existing rail network (assets/vectors.ts)
+ *   data/net/far.<hash>.bin                            region-wide water, highways and places (assets/vectors.ts)
+ *   data/sites/<siteId>/dem_<tx>_<ty>.<hash>.bin       site DEM tile, 2,048 m, 8 m nodes (assets/terrain.ts)
+ *   data/sites/<siteId>/<tx>_<ty>.vectors.<hash>.bin   site vector tile: buildings, roads, water, land use (assets/vectors.ts)
  *
  * `<hash>` is a content hash so files are immutable and cacheable forever; only manifest.json is
  * fetched uncached. Every path in the manifest is relative to data/. Raw downloads live in
@@ -24,8 +27,11 @@ export const SITE_TILE_SIZE_M = 2048;
 export const FAR_CELL_M = 64;
 
 export type FarRasterPath = `far/${string}.bin`;
-export type RailNetworkPath = `rail/${string}`;
-export type SiteTilePath = `sites/${string}/${number}_${number}.${string}`;
+export type RailNetworkPath = `net/rail.${string}.bin`;
+export type FarVectorsPath = `net/far.${string}.bin`;
+/** Site vector tile. */
+export type SiteTilePath = `sites/${string}/${number}_${number}.vectors.${string}.bin`;
+export type SiteDemPath = `sites/${string}/dem_${number}_${number}.${string}.bin`;
 
 /** One served file. */
 export interface AssetRef<P extends string = string> {
@@ -45,14 +51,26 @@ export interface FarRasterAsset extends AssetRef<FarRasterPath> {
   rows: number;
 }
 
-/** Existing rail network plus scenario alignments. */
+/** Existing rail network. */
 export interface RailNetworkAsset extends AssetRef<RailNetworkPath> {
-  /** Layout discriminator owned by the pipeline, for example `rail-json-v1`. */
+  /** Layout discriminator owned by the pipeline: `bvv1-rail` (assets/vectors.ts RailNetwork). */
   kind: string;
 }
 
-/** One 2,048 m site tile. (tx, ty) index the site-tile grid: tx east from the grid origin, ty north. */
+/** Region-wide vector layers: water, highways, places. */
+export interface FarVectorsAsset extends AssetRef<FarVectorsPath> {
+  /** `bvv1-far` (assets/vectors.ts FarVectors). */
+  kind: string;
+}
+
+/** One 2,048 m site vector tile. (tx, ty) index the site-tile grid: tx east from the grid origin, ty north. */
 export interface SiteTileAsset extends AssetRef<SiteTilePath> {
+  tx: number;
+  ty: number;
+}
+
+/** One 2,048 m site DEM tile, same indexing as SiteTileAsset. */
+export interface SiteDemTileAsset extends AssetRef<SiteDemPath> {
   tx: number;
   ty: number;
 }
@@ -64,16 +82,24 @@ export interface SiteAsset {
   title: string;
   /** World metres: [minX, minZ, maxX, maxZ]. */
   bbox: [number, number, number, number];
+  /** Site-tile range: tiles tx0 .. tx0 + nx - 1 east, ty0 .. ty0 + ny - 1 north. */
+  tileBox: { tx0: number; ty0: number; nx: number; ny: number };
+  /** Vector tiles, one per site tile of tileBox. */
   tiles: SiteTileAsset[];
+  /** DEM tiles, one per site tile of tileBox. */
+  dem: SiteDemTileAsset[];
 }
 
 export interface SourceAttribution {
   name: string;
   license: string;
   attribution: string;
-  /** sha256 of the raw input. */
+  /** Checksum of the raw input: sha256, or the publisher's own digest prefixed with its name (`md5:...`). */
   sha256: string;
 }
+
+/** Version of the binary layouts named by a WorldManifest; the app refuses any other value. */
+export const WORLD_FORMAT_VERSION = 1;
 
 export interface WorldManifest {
   format: 'bayvox-world';
@@ -95,6 +121,7 @@ export interface WorldManifest {
   chunkSize: number;
   far: FarRasterAsset;
   rail: RailNetworkAsset;
+  farVectors: FarVectorsAsset;
   sites: SiteAsset[];
   sources: SourceAttribution[];
 }
