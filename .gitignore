@@ -8,5 +8,3 @@ playwright-report
 bench-results
 .DS_Store
 *.tsbuildinfo
-apps/game/public/data/*
-!apps/game/public/data/README.md

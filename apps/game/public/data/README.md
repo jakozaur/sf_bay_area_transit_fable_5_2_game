@@ -1,1 +1,1 @@
-Runtime world data, written by `pnpm data:build` (layout: `packages/core/src/manifest.ts`). Generated files here are not committed.
+Runtime world data, written by `pnpm data:build` (layout: `packages/core/src/manifest.ts`, binary formats: `packages/core/src/assets/`). The files are committed (about 4 MB) so the app runs from a fresh clone; hashed names make them immutable. `manifest.json` is what the app fetches; `manifest.terrain.json` and `manifest.vectors.json` are the per-stage fragments it is merged from. Sources and licenses: `ATTRIBUTION.md` at the repo root.

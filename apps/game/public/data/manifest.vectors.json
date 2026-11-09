@@ -1,0 +1,514 @@
+{
+  "format": "bayvox-vectors",
+  "formatVersion": 1,
+  "frame": {
+    "crs": "EPSG:32610",
+    "originEasting": 532480,
+    "originNorthing": 4116480,
+    "siteTileSizeM": 2048
+  },
+  "sources": {
+    "osm": {
+      "provider": "Geofabrik NorCal extract of OpenStreetMap",
+      "url": "https://download.geofabrik.de/north-america/us/california/norcal-261108.osm.pbf",
+      "snapshot": "261108",
+      "snapshotDate": "2026-11-08",
+      "bytes": 655544424,
+      "md5": "ec4668d3afeef4fe4c53cc076e47e9a5",
+      "license": "ODbL 1.0"
+    },
+    "overture": {
+      "release": "2026-10-21.0",
+      "types": [
+        "buildings/building",
+        "buildings/building_part",
+        "base/water",
+        "base/land_use"
+      ],
+      "license": "ODbL 1.0 (buildings, base)"
+    },
+    "curated": {
+      "file": "packages/pipeline/src/vectors/places.json",
+      "note": "anchor points from docs/research/05-bay-area-transit-projects.md section 5"
+    }
+  },
+  "net": {
+    "rail": {
+      "file": "net/rail.b7941ae68faf.bin",
+      "bytes": 229098,
+      "rawBytes": 391731,
+      "sha256": "b7941ae68faf5f0d349d09bcb40bfa9c6057588f7f3f974197345022884f0c94",
+      "counts": {
+        "tracks": 5516,
+        "stations": 532,
+        "routes": 85,
+        "routeStops": 1675
+      },
+      "trackKm": 2365.4,
+      "trackKmByClass": {
+        "light_rail": 292.3,
+        "light_rail:running": 257.6,
+        "rail": 1567.3,
+        "rail:running": 789.1,
+        "subway": 469.5,
+        "subway:running": 386.8,
+        "tram": 36.3,
+        "tram:running": 34.3
+      },
+      "truncatedTracks": 0,
+      "routesBySystem": {
+        "ACE": 2,
+        "Amtrak": 6,
+        "BART": 14,
+        "Caltrain": 24,
+        "Capitol Corridor": 6,
+        "Muni": 22,
+        "SMART": 2,
+        "VTA": 8,
+        "other": 1
+      },
+      "singlePartRoutes": 85,
+      "stationsBySystem": {
+        "ACE": 7,
+        "Amtrak": 12,
+        "BART": 51,
+        "Caltrain": 28,
+        "Muni": 356,
+        "SMART": 4,
+        "VTA": 59,
+        "other": 21
+      }
+    },
+    "far": {
+      "file": "net/far.a9a8fc576b4d.bin",
+      "bytes": 124498,
+      "rawBytes": 199780,
+      "sha256": "a9a8fc576b4d84130cdd276bdaee92fbfdc691bcbe8ccf1be5de0f01dafbb911",
+      "counts": {
+        "water": 201,
+        "highways": 7702,
+        "places": 89
+      },
+      "crossingKm": {
+        "Bay Bridge": 13.8,
+        "Golden Gate Bridge": 5.3,
+        "San Mateo Bridge": 21.8,
+        "Dumbarton Bridge": 5.3,
+        "Richmond-San Rafael Bridge": 13
+      }
+    }
+  },
+  "sites": [
+    {
+      "id": "portal",
+      "title": "The Portal: 4th and King to Salesforce Transit Center",
+      "center": {
+        "lat": 37.783,
+        "lon": -122.397
+      },
+      "sizeM": 6144,
+      "bbox": [
+        18432,
+        -67584,
+        24576,
+        -61440
+      ],
+      "tiles": [
+        {
+          "tx": 9,
+          "ty": 30,
+          "file": "sites/portal/9_30.vectors.df8a50bc9dcb.bin",
+          "bytes": 208345,
+          "rawBytes": 328081,
+          "sha256": "df8a50bc9dcb60ba5126105a34b325a76c3c11c1211713d66bd66670816f283f",
+          "counts": {
+            "buildings": 7177,
+            "buildingParts": 55,
+            "roads": 1170,
+            "water": 0,
+            "landuse": 213
+          }
+        },
+        {
+          "tx": 10,
+          "ty": 30,
+          "file": "sites/portal/10_30.vectors.da3ad026f59c.bin",
+          "bytes": 62513,
+          "rawBytes": 95435,
+          "sha256": "da3ad026f59cd3367797a3dc1299f15f7f7c380083cb2efe2041840de48a6a0a",
+          "counts": {
+            "buildings": 1788,
+            "buildingParts": 0,
+            "roads": 816,
+            "water": 6,
+            "landuse": 96
+          }
+        },
+        {
+          "tx": 11,
+          "ty": 30,
+          "file": "sites/portal/11_30.vectors.976d2e5b0644.bin",
+          "bytes": 261,
+          "rawBytes": 452,
+          "sha256": "976d2e5b0644759e35b3c253aa27255207a4d2debcb80a1531ea16fcc592bb4a",
+          "counts": {
+            "buildings": 0,
+            "buildingParts": 0,
+            "roads": 0,
+            "water": 1,
+            "landuse": 1
+          }
+        },
+        {
+          "tx": 9,
+          "ty": 31,
+          "file": "sites/portal/9_31.vectors.2163266cc30b.bin",
+          "bytes": 129747,
+          "rawBytes": 195577,
+          "sha256": "2163266cc30bee911761c43a068f0f0dc36356658b3c123098163b7731289e16",
+          "counts": {
+            "buildings": 2871,
+            "buildingParts": 423,
+            "roads": 2032,
+            "water": 3,
+            "landuse": 329
+          }
+        },
+        {
+          "tx": 10,
+          "ty": 31,
+          "file": "sites/portal/10_31.vectors.94e0ab4ef2d3.bin",
+          "bytes": 50596,
+          "rawBytes": 73985,
+          "sha256": "94e0ab4ef2d38782cd16f7abeaf8335724bcf1254b93ffcab5eb193c6e734d3c",
+          "counts": {
+            "buildings": 650,
+            "buildingParts": 152,
+            "roads": 901,
+            "water": 2,
+            "landuse": 191
+          }
+        },
+        {
+          "tx": 11,
+          "ty": 31,
+          "file": "sites/portal/11_31.vectors.30054707b4a4.bin",
+          "bytes": 220,
+          "rawBytes": 406,
+          "sha256": "30054707b4a482d375f7fef9eacb61f5304c3ac8f4e59f2b040d261248a30c5c",
+          "counts": {
+            "buildings": 0,
+            "buildingParts": 0,
+            "roads": 0,
+            "water": 1,
+            "landuse": 0
+          }
+        },
+        {
+          "tx": 9,
+          "ty": 32,
+          "file": "sites/portal/9_32.vectors.1f1676b4ad02.bin",
+          "bytes": 220184,
+          "rawBytes": 334958,
+          "sha256": "1f1676b4ad021fb9b7b6184de04a9ca1d2a614adf632be8e34f461dbf46a489d",
+          "counts": {
+            "buildings": 6307,
+            "buildingParts": 371,
+            "roads": 1462,
+            "water": 8,
+            "landuse": 351
+          }
+        },
+        {
+          "tx": 10,
+          "ty": 32,
+          "file": "sites/portal/10_32.vectors.dd15e7c364e2.bin",
+          "bytes": 40189,
+          "rawBytes": 60068,
+          "sha256": "dd15e7c364e27929ac23654cfb8ee889a5a3880886e38e82da6eb8812e244523",
+          "counts": {
+            "buildings": 352,
+            "buildingParts": 232,
+            "roads": 636,
+            "water": 5,
+            "landuse": 173
+          }
+        },
+        {
+          "tx": 11,
+          "ty": 32,
+          "file": "sites/portal/11_32.vectors.ab30bed9ed73.bin",
+          "bytes": 376,
+          "rawBytes": 569,
+          "sha256": "ab30bed9ed73d0943fc071c7c9b0afc7e8eeb537225f9882fd154f3799b7c6ec",
+          "counts": {
+            "buildings": 1,
+            "buildingParts": 0,
+            "roads": 2,
+            "water": 1,
+            "landuse": 0
+          }
+        }
+      ],
+      "counts": {
+        "buildings": 19146,
+        "buildingParts": 1233,
+        "roads": 7019,
+        "water": 27,
+        "landuse": 1354
+      }
+    },
+    {
+      "id": "googleplex",
+      "title": "Googleplex, Mountain View",
+      "center": {
+        "lat": 37.422,
+        "lon": -122.084
+      },
+      "sizeM": 4096,
+      "bbox": [
+        47104,
+        -28672,
+        51200,
+        -24576
+      ],
+      "tiles": [
+        {
+          "tx": 23,
+          "ty": 12,
+          "file": "sites/googleplex/23_12.vectors.a3bb63c19584.bin",
+          "bytes": 67018,
+          "rawBytes": 97619,
+          "sha256": "a3bb63c1958492b931bc500b07664a136bf921273cd04f7d76002473a9b5738f",
+          "counts": {
+            "buildings": 1202,
+            "buildingParts": 52,
+            "roads": 1267,
+            "water": 10,
+            "landuse": 264
+          }
+        },
+        {
+          "tx": 24,
+          "ty": 12,
+          "file": "sites/googleplex/24_12.vectors.c460b8bdf33c.bin",
+          "bytes": 38215,
+          "rawBytes": 55625,
+          "sha256": "c460b8bdf33c74e55a87b9d393a7bdcbab9c0609f03502e8ffea59e10accd92a",
+          "counts": {
+            "buildings": 842,
+            "buildingParts": 2,
+            "roads": 556,
+            "water": 11,
+            "landuse": 124
+          }
+        },
+        {
+          "tx": 23,
+          "ty": 13,
+          "file": "sites/googleplex/23_13.vectors.e048a000293b.bin",
+          "bytes": 11035,
+          "rawBytes": 13689,
+          "sha256": "e048a000293b098ede76d814619676f31c77486abbb48796c4f4fe8e69ae50d7",
+          "counts": {
+            "buildings": 37,
+            "buildingParts": 0,
+            "roads": 82,
+            "water": 14,
+            "landuse": 82
+          }
+        },
+        {
+          "tx": 24,
+          "ty": 13,
+          "file": "sites/googleplex/24_13.vectors.605d1631bdcb.bin",
+          "bytes": 3590,
+          "rawBytes": 4352,
+          "sha256": "605d1631bdcb4b8de6a7e793440b726355363e1f7d5282bb9ede7151e0868cbd",
+          "counts": {
+            "buildings": 30,
+            "buildingParts": 0,
+            "roads": 7,
+            "water": 6,
+            "landuse": 4
+          }
+        }
+      ],
+      "counts": {
+        "buildings": 2111,
+        "buildingParts": 54,
+        "roads": 1912,
+        "water": 41,
+        "landuse": 474
+      }
+    },
+    {
+      "id": "meta",
+      "title": "Meta, Menlo Park",
+      "center": {
+        "lat": 37.4848,
+        "lon": -122.1484
+      },
+      "sizeM": 4096,
+      "bbox": [
+        40960,
+        -34816,
+        45056,
+        -30720
+      ],
+      "tiles": [
+        {
+          "tx": 20,
+          "ty": 15,
+          "file": "sites/meta/20_15.vectors.73d710a88475.bin",
+          "bytes": 111137,
+          "rawBytes": 176752,
+          "sha256": "73d710a884757b915ed8375e4513b0c1f041c746d4cf224efd947ba35cfdcd2c",
+          "counts": {
+            "buildings": 3133,
+            "buildingParts": 44,
+            "roads": 2394,
+            "water": 6,
+            "landuse": 210
+          }
+        },
+        {
+          "tx": 21,
+          "ty": 15,
+          "file": "sites/meta/21_15.vectors.e2060a0c2d84.bin",
+          "bytes": 49473,
+          "rawBytes": 74012,
+          "sha256": "e2060a0c2d847b245f3bbe716f192305fd6b1012c38645f32fff96482a38580d",
+          "counts": {
+            "buildings": 1630,
+            "buildingParts": 15,
+            "roads": 530,
+            "water": 9,
+            "landuse": 86
+          }
+        },
+        {
+          "tx": 20,
+          "ty": 16,
+          "file": "sites/meta/20_16.vectors.c547066a1e48.bin",
+          "bytes": 973,
+          "rawBytes": 1428,
+          "sha256": "c547066a1e485db221644c563bf32603922017b6498b76d73bf98c32397bd17a",
+          "counts": {
+            "buildings": 0,
+            "buildingParts": 0,
+            "roads": 0,
+            "water": 4,
+            "landuse": 6
+          }
+        },
+        {
+          "tx": 21,
+          "ty": 16,
+          "file": "sites/meta/21_16.vectors.859758507787.bin",
+          "bytes": 3051,
+          "rawBytes": 4135,
+          "sha256": "859758507787fb1b9fd4a754d45efbd52296e36747c64d2b78201c88f3d35427",
+          "counts": {
+            "buildings": 5,
+            "buildingParts": 0,
+            "roads": 25,
+            "water": 6,
+            "landuse": 11
+          }
+        }
+      ],
+      "counts": {
+        "buildings": 4768,
+        "buildingParts": 59,
+        "roads": 2949,
+        "water": 25,
+        "landuse": 313
+      }
+    },
+    {
+      "id": "oracle",
+      "title": "Oracle, Redwood Shores",
+      "center": {
+        "lat": 37.5294,
+        "lon": -122.2659
+      },
+      "sizeM": 4096,
+      "bbox": [
+        30720,
+        -38912,
+        34816,
+        -34816
+      ],
+      "tiles": [
+        {
+          "tx": 15,
+          "ty": 17,
+          "file": "sites/oracle/15_17.vectors.81bf457b00c5.bin",
+          "bytes": 98947,
+          "rawBytes": 142352,
+          "sha256": "81bf457b00c51eedd3aadbd8b461d67892275a5ceb94677abe15db935b51a696",
+          "counts": {
+            "buildings": 3206,
+            "buildingParts": 0,
+            "roads": 1044,
+            "water": 1,
+            "landuse": 77
+          }
+        },
+        {
+          "tx": 16,
+          "ty": 17,
+          "file": "sites/oracle/16_17.vectors.1765b7e01efe.bin",
+          "bytes": 38967,
+          "rawBytes": 55751,
+          "sha256": "1765b7e01efe878e37dc0e26ba040e506762fa4e3b0223044667989f1c3a26ba",
+          "counts": {
+            "buildings": 834,
+            "buildingParts": 4,
+            "roads": 784,
+            "water": 5,
+            "landuse": 72
+          }
+        },
+        {
+          "tx": 15,
+          "ty": 18,
+          "file": "sites/oracle/15_18.vectors.26b11e9e893f.bin",
+          "bytes": 100835,
+          "rawBytes": 145040,
+          "sha256": "26b11e9e893f79032c8b88fc119e07954d17cac493187b5dcb431e24d658dc49",
+          "counts": {
+            "buildings": 3408,
+            "buildingParts": 0,
+            "roads": 641,
+            "water": 14,
+            "landuse": 84
+          }
+        },
+        {
+          "tx": 16,
+          "ty": 18,
+          "file": "sites/oracle/16_18.vectors.be1c994a686a.bin",
+          "bytes": 85015,
+          "rawBytes": 119090,
+          "sha256": "be1c994a686a0a47f3ab00a5d8478b57d0b7ee52684a7b88b6ff36cb0c4db1ad",
+          "counts": {
+            "buildings": 2249,
+            "buildingParts": 0,
+            "roads": 630,
+            "water": 21,
+            "landuse": 104
+          }
+        }
+      ],
+      "counts": {
+        "buildings": 9697,
+        "buildingParts": 4,
+        "roads": 3099,
+        "water": 41,
+        "landuse": 337
+      }
+    }
+  ]
+}

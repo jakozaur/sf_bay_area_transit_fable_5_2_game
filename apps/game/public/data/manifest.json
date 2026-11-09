@@ -1,0 +1,438 @@
+{
+  "format": "bayvox-world",
+  "formatVersion": 1,
+  "worldVersion": "843937c6aa27171a",
+  "frame": {
+    "crs": "EPSG:32610",
+    "originEasting": 532480,
+    "originNorthing": 4116480,
+    "tileSizeM": 4096,
+    "tilesX": 20,
+    "tilesY": 24,
+    "seaLevelM": 1
+  },
+  "voxelSizeM": 1,
+  "chunkSize": 32,
+  "far": {
+    "file": "far/terrain.d440ec672442.bin",
+    "bytes": 1795134,
+    "sha256": "d440ec672442926de2589d999f062e62a9e8396bf365a88c033f55fb9e8399ba",
+    "cellM": 64,
+    "cols": 1280,
+    "rows": 1536
+  },
+  "rail": {
+    "file": "net/rail.b7941ae68faf.bin",
+    "bytes": 229098,
+    "sha256": "b7941ae68faf5f0d349d09bcb40bfa9c6057588f7f3f974197345022884f0c94",
+    "kind": "bvv1-rail"
+  },
+  "farVectors": {
+    "file": "net/far.a9a8fc576b4d.bin",
+    "bytes": 124498,
+    "sha256": "a9a8fc576b4d84130cdd276bdaee92fbfdc691bcbe8ccf1be5de0f01dafbb911",
+    "kind": "bvv1-far"
+  },
+  "sites": [
+    {
+      "id": "portal",
+      "title": "The Portal: 4th and King to Salesforce Transit Center",
+      "bbox": [
+        18432,
+        -67584,
+        24576,
+        -61440
+      ],
+      "tileBox": {
+        "tx0": 9,
+        "ty0": 30,
+        "nx": 3,
+        "ny": 3
+      },
+      "tiles": [
+        {
+          "file": "sites/portal/9_30.vectors.df8a50bc9dcb.bin",
+          "bytes": 208345,
+          "sha256": "df8a50bc9dcb60ba5126105a34b325a76c3c11c1211713d66bd66670816f283f",
+          "tx": 9,
+          "ty": 30
+        },
+        {
+          "file": "sites/portal/10_30.vectors.da3ad026f59c.bin",
+          "bytes": 62513,
+          "sha256": "da3ad026f59cd3367797a3dc1299f15f7f7c380083cb2efe2041840de48a6a0a",
+          "tx": 10,
+          "ty": 30
+        },
+        {
+          "file": "sites/portal/11_30.vectors.976d2e5b0644.bin",
+          "bytes": 261,
+          "sha256": "976d2e5b0644759e35b3c253aa27255207a4d2debcb80a1531ea16fcc592bb4a",
+          "tx": 11,
+          "ty": 30
+        },
+        {
+          "file": "sites/portal/9_31.vectors.2163266cc30b.bin",
+          "bytes": 129747,
+          "sha256": "2163266cc30bee911761c43a068f0f0dc36356658b3c123098163b7731289e16",
+          "tx": 9,
+          "ty": 31
+        },
+        {
+          "file": "sites/portal/10_31.vectors.94e0ab4ef2d3.bin",
+          "bytes": 50596,
+          "sha256": "94e0ab4ef2d38782cd16f7abeaf8335724bcf1254b93ffcab5eb193c6e734d3c",
+          "tx": 10,
+          "ty": 31
+        },
+        {
+          "file": "sites/portal/11_31.vectors.30054707b4a4.bin",
+          "bytes": 220,
+          "sha256": "30054707b4a482d375f7fef9eacb61f5304c3ac8f4e59f2b040d261248a30c5c",
+          "tx": 11,
+          "ty": 31
+        },
+        {
+          "file": "sites/portal/9_32.vectors.1f1676b4ad02.bin",
+          "bytes": 220184,
+          "sha256": "1f1676b4ad021fb9b7b6184de04a9ca1d2a614adf632be8e34f461dbf46a489d",
+          "tx": 9,
+          "ty": 32
+        },
+        {
+          "file": "sites/portal/10_32.vectors.dd15e7c364e2.bin",
+          "bytes": 40189,
+          "sha256": "dd15e7c364e27929ac23654cfb8ee889a5a3880886e38e82da6eb8812e244523",
+          "tx": 10,
+          "ty": 32
+        },
+        {
+          "file": "sites/portal/11_32.vectors.ab30bed9ed73.bin",
+          "bytes": 376,
+          "sha256": "ab30bed9ed73d0943fc071c7c9b0afc7e8eeb537225f9882fd154f3799b7c6ec",
+          "tx": 11,
+          "ty": 32
+        }
+      ],
+      "dem": [
+        {
+          "file": "sites/portal/dem_9_30.9a3f66997cd6.bin",
+          "bytes": 29845,
+          "sha256": "9a3f66997cd603dca510875e881b2118a37fb927f213567ffd44c436905641fe",
+          "tx": 9,
+          "ty": 30
+        },
+        {
+          "file": "sites/portal/dem_10_30.5328325f7c14.bin",
+          "bytes": 29754,
+          "sha256": "5328325f7c14fe47ea4d3b37f277574840718da66e6e48e4a0acc284d9f7a5ee",
+          "tx": 10,
+          "ty": 30
+        },
+        {
+          "file": "sites/portal/dem_11_30.4bb5e0368767.bin",
+          "bytes": 15198,
+          "sha256": "4bb5e03687678b08087eeb48ae138bd66f95069578a8182d1e69be9502658cbf",
+          "tx": 11,
+          "ty": 30
+        },
+        {
+          "file": "sites/portal/dem_9_31.14e6f294b1b2.bin",
+          "bytes": 27900,
+          "sha256": "14e6f294b1b20eada7b3e0494e8cdf8541ab434921f34a3df1714b460e0bf1d2",
+          "tx": 9,
+          "ty": 31
+        },
+        {
+          "file": "sites/portal/dem_10_31.79ca918140ce.bin",
+          "bytes": 26959,
+          "sha256": "79ca918140cea9247dbf2468b9cc8ce13ff014568483d30579ab2dbba997413d",
+          "tx": 10,
+          "ty": 31
+        },
+        {
+          "file": "sites/portal/dem_11_31.73f87503d696.bin",
+          "bytes": 14935,
+          "sha256": "73f87503d696491ecdd71e339bc062a4c57af87d10a83a61d28e0e122d74c226",
+          "tx": 11,
+          "ty": 31
+        },
+        {
+          "file": "sites/portal/dem_9_32.c2d3fcc62755.bin",
+          "bytes": 32733,
+          "sha256": "c2d3fcc62755260c4162ef1ec906241f01b89d1b4087713c772f10be68f41cc5",
+          "tx": 9,
+          "ty": 32
+        },
+        {
+          "file": "sites/portal/dem_10_32.b01ff0068b9d.bin",
+          "bytes": 28891,
+          "sha256": "b01ff0068b9d36772f068606d0a3e944c509002503a25dfa1a9e340c129f70af",
+          "tx": 10,
+          "ty": 32
+        },
+        {
+          "file": "sites/portal/dem_11_32.e7798ce59ba3.bin",
+          "bytes": 20486,
+          "sha256": "e7798ce59ba309a5bb5b0502937da9fa4c21654234fe39a918943f9ec132894c",
+          "tx": 11,
+          "ty": 32
+        }
+      ]
+    },
+    {
+      "id": "googleplex",
+      "title": "Googleplex, Mountain View",
+      "bbox": [
+        47104,
+        -28672,
+        51200,
+        -24576
+      ],
+      "tileBox": {
+        "tx0": 23,
+        "ty0": 12,
+        "nx": 2,
+        "ny": 2
+      },
+      "tiles": [
+        {
+          "file": "sites/googleplex/23_12.vectors.a3bb63c19584.bin",
+          "bytes": 67018,
+          "sha256": "a3bb63c1958492b931bc500b07664a136bf921273cd04f7d76002473a9b5738f",
+          "tx": 23,
+          "ty": 12
+        },
+        {
+          "file": "sites/googleplex/24_12.vectors.c460b8bdf33c.bin",
+          "bytes": 38215,
+          "sha256": "c460b8bdf33c74e55a87b9d393a7bdcbab9c0609f03502e8ffea59e10accd92a",
+          "tx": 24,
+          "ty": 12
+        },
+        {
+          "file": "sites/googleplex/23_13.vectors.e048a000293b.bin",
+          "bytes": 11035,
+          "sha256": "e048a000293b098ede76d814619676f31c77486abbb48796c4f4fe8e69ae50d7",
+          "tx": 23,
+          "ty": 13
+        },
+        {
+          "file": "sites/googleplex/24_13.vectors.605d1631bdcb.bin",
+          "bytes": 3590,
+          "sha256": "605d1631bdcb4b8de6a7e793440b726355363e1f7d5282bb9ede7151e0868cbd",
+          "tx": 24,
+          "ty": 13
+        }
+      ],
+      "dem": [
+        {
+          "file": "sites/googleplex/dem_23_12.726b14c68d0a.bin",
+          "bytes": 29054,
+          "sha256": "726b14c68d0a30252b1e9bdd80a2a15a44e1cd1a2965e3b3a311830a4e38fdb6",
+          "tx": 23,
+          "ty": 12
+        },
+        {
+          "file": "sites/googleplex/dem_24_12.89d6b460bb4c.bin",
+          "bytes": 25281,
+          "sha256": "89d6b460bb4cdc4e41c4e4321ec267d5fd363d5a5dd9443e21af2855c5afa3dc",
+          "tx": 24,
+          "ty": 12
+        },
+        {
+          "file": "sites/googleplex/dem_23_13.d2a1d5be5c8f.bin",
+          "bytes": 21303,
+          "sha256": "d2a1d5be5c8ff02c2fd04b1522a697fcc163ce5b6861ec372d748dfe7d8392fe",
+          "tx": 23,
+          "ty": 13
+        },
+        {
+          "file": "sites/googleplex/dem_24_13.d06e0a49f953.bin",
+          "bytes": 14661,
+          "sha256": "d06e0a49f953f612a9e71616024086711189d79bb9227336da5825c16824ca91",
+          "tx": 24,
+          "ty": 13
+        }
+      ]
+    },
+    {
+      "id": "meta",
+      "title": "Meta, Menlo Park",
+      "bbox": [
+        40960,
+        -34816,
+        45056,
+        -30720
+      ],
+      "tileBox": {
+        "tx0": 20,
+        "ty0": 15,
+        "nx": 2,
+        "ny": 2
+      },
+      "tiles": [
+        {
+          "file": "sites/meta/20_15.vectors.73d710a88475.bin",
+          "bytes": 111137,
+          "sha256": "73d710a884757b915ed8375e4513b0c1f041c746d4cf224efd947ba35cfdcd2c",
+          "tx": 20,
+          "ty": 15
+        },
+        {
+          "file": "sites/meta/21_15.vectors.e2060a0c2d84.bin",
+          "bytes": 49473,
+          "sha256": "e2060a0c2d847b245f3bbe716f192305fd6b1012c38645f32fff96482a38580d",
+          "tx": 21,
+          "ty": 15
+        },
+        {
+          "file": "sites/meta/20_16.vectors.c547066a1e48.bin",
+          "bytes": 973,
+          "sha256": "c547066a1e485db221644c563bf32603922017b6498b76d73bf98c32397bd17a",
+          "tx": 20,
+          "ty": 16
+        },
+        {
+          "file": "sites/meta/21_16.vectors.859758507787.bin",
+          "bytes": 3051,
+          "sha256": "859758507787fb1b9fd4a754d45efbd52296e36747c64d2b78201c88f3d35427",
+          "tx": 21,
+          "ty": 16
+        }
+      ],
+      "dem": [
+        {
+          "file": "sites/meta/dem_20_15.be6e474a92c9.bin",
+          "bytes": 20010,
+          "sha256": "be6e474a92c90441e29aae32126afcbc84c2a24e73e6cc03db1c0ef9a0bbcf89",
+          "tx": 20,
+          "ty": 15
+        },
+        {
+          "file": "sites/meta/dem_21_15.f08af6ec2449.bin",
+          "bytes": 21272,
+          "sha256": "f08af6ec24495f2bdb2fa5a39a38f3c43e1faab5ac461416279f5ae150d8f2e1",
+          "tx": 21,
+          "ty": 15
+        },
+        {
+          "file": "sites/meta/dem_20_16.c015546255c2.bin",
+          "bytes": 21793,
+          "sha256": "c015546255c2a4aefc8f890f005876e2d064f2f804b1e4043401c9e13ebb5c9b",
+          "tx": 20,
+          "ty": 16
+        },
+        {
+          "file": "sites/meta/dem_21_16.1c26dd54c3f4.bin",
+          "bytes": 17514,
+          "sha256": "1c26dd54c3f4b8d0920f15829d9c84a0d9acc40ffdd3d94cc0270beb4934e398",
+          "tx": 21,
+          "ty": 16
+        }
+      ]
+    },
+    {
+      "id": "oracle",
+      "title": "Oracle, Redwood Shores",
+      "bbox": [
+        30720,
+        -38912,
+        34816,
+        -34816
+      ],
+      "tileBox": {
+        "tx0": 15,
+        "ty0": 17,
+        "nx": 2,
+        "ny": 2
+      },
+      "tiles": [
+        {
+          "file": "sites/oracle/15_17.vectors.81bf457b00c5.bin",
+          "bytes": 98947,
+          "sha256": "81bf457b00c51eedd3aadbd8b461d67892275a5ceb94677abe15db935b51a696",
+          "tx": 15,
+          "ty": 17
+        },
+        {
+          "file": "sites/oracle/16_17.vectors.1765b7e01efe.bin",
+          "bytes": 38967,
+          "sha256": "1765b7e01efe878e37dc0e26ba040e506762fa4e3b0223044667989f1c3a26ba",
+          "tx": 16,
+          "ty": 17
+        },
+        {
+          "file": "sites/oracle/15_18.vectors.26b11e9e893f.bin",
+          "bytes": 100835,
+          "sha256": "26b11e9e893f79032c8b88fc119e07954d17cac493187b5dcb431e24d658dc49",
+          "tx": 15,
+          "ty": 18
+        },
+        {
+          "file": "sites/oracle/16_18.vectors.be1c994a686a.bin",
+          "bytes": 85015,
+          "sha256": "be1c994a686a0a47f3ab00a5d8478b57d0b7ee52684a7b88b6ff36cb0c4db1ad",
+          "tx": 16,
+          "ty": 18
+        }
+      ],
+      "dem": [
+        {
+          "file": "sites/oracle/dem_15_17.0a17a86c43ad.bin",
+          "bytes": 35505,
+          "sha256": "0a17a86c43ad0b9152932362e961cc595d4d426970b91120a2fb3179b758822e",
+          "tx": 15,
+          "ty": 17
+        },
+        {
+          "file": "sites/oracle/dem_16_17.bfa4ed81f10d.bin",
+          "bytes": 26628,
+          "sha256": "bfa4ed81f10db6bd383d6067f3abd2f8bc7116cbaad280afb4124b639f3edff9",
+          "tx": 16,
+          "ty": 17
+        },
+        {
+          "file": "sites/oracle/dem_15_18.dd846815fccd.bin",
+          "bytes": 27319,
+          "sha256": "dd846815fccd66f9e9ca3420cecdc73ad48dc92f3b2a27a21a4159969affae8b",
+          "tx": 15,
+          "ty": 18
+        },
+        {
+          "file": "sites/oracle/dem_16_18.f1c98c6dc87f.bin",
+          "bytes": 25010,
+          "sha256": "f1c98c6dc87f3a138da3ef1e3665fdcc1d17ff70b5bf574da39ae44c49af951d",
+          "tx": 16,
+          "ty": 18
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "name": "AWS Terrain Tiles, terrarium z12, 168 tiles",
+      "license": "Public domain (USGS 3DEP, SRTM, GMTED2010; NOAA ETOPO1); attribution requested",
+      "attribution": "United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey. Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration.",
+      "sha256": "d5840eb8a1d810714af9ef356b53a4a6d907f12360d6cc8988dfd833676ce9bc"
+    },
+    {
+      "name": "AWS Terrain Tiles, terrarium z14, 46 tiles over 4 sites",
+      "license": "Public domain (USGS 3DEP, SRTM, GMTED2010; NOAA ETOPO1); attribution requested",
+      "attribution": "United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey. Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration.",
+      "sha256": "1865185397433ff2358fe1ad5dea16949661787897c3dba10541190a4cdd41ef"
+    },
+    {
+      "name": "Geofabrik NorCal extract of OpenStreetMap, snapshot 261108 (2026-11-08)",
+      "license": "ODbL 1.0",
+      "attribution": "(c) OpenStreetMap contributors, https://www.openstreetmap.org/copyright",
+      "sha256": "md5:ec4668d3afeef4fe4c53cc076e47e9a5"
+    },
+    {
+      "name": "Overture Maps Foundation, release 2026-10-21.0 (buildings/building, buildings/building_part, base/water, base/land_use)",
+      "license": "ODbL 1.0 (buildings, base)",
+      "attribution": "(c) OpenStreetMap contributors, Overture Maps Foundation, https://docs.overturemaps.org/attribution/",
+      "sha256": "release:2026-10-21.0"
+    }
+  ]
+}

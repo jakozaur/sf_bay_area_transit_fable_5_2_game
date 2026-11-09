@@ -1,0 +1,293 @@
+{
+  "format": "bayvox-terrain",
+  "formatVersion": 1,
+  "frame": {
+    "crs": "EPSG:32610",
+    "originEasting": 532480,
+    "originNorthing": 4116480,
+    "tileSizeM": 4096,
+    "tilesX": 20,
+    "tilesY": 24,
+    "seaLevelM": 1
+  },
+  "heightUnitsPerM": 10,
+  "far": {
+    "file": "far/terrain.d440ec672442.bin",
+    "bytes": 1795134,
+    "sha256": "d440ec672442926de2589d999f062e62a9e8396bf365a88c033f55fb9e8399ba",
+    "cellM": 64,
+    "cols": 1280,
+    "rows": 1536,
+    "rawBytes": 5898240,
+    "minHeightM": -113.3,
+    "maxHeightM": 1163.2,
+    "waterFraction": 0.2698
+  },
+  "sites": [
+    {
+      "id": "portal",
+      "title": "The Portal: 4th and King to Salesforce Transit Center",
+      "bbox": [
+        18432,
+        -67584,
+        24576,
+        -61440
+      ],
+      "tileBox": {
+        "tx0": 9,
+        "ty0": 30,
+        "nx": 3,
+        "ny": 3
+      },
+      "dem": {
+        "cellM": 8,
+        "nodes": 257,
+        "tiles": [
+          {
+            "tx": 9,
+            "ty": 30,
+            "file": "sites/portal/dem_9_30.9a3f66997cd6.bin",
+            "bytes": 29845,
+            "sha256": "9a3f66997cd603dca510875e881b2118a37fb927f213567ffd44c436905641fe"
+          },
+          {
+            "tx": 10,
+            "ty": 30,
+            "file": "sites/portal/dem_10_30.5328325f7c14.bin",
+            "bytes": 29754,
+            "sha256": "5328325f7c14fe47ea4d3b37f277574840718da66e6e48e4a0acc284d9f7a5ee"
+          },
+          {
+            "tx": 11,
+            "ty": 30,
+            "file": "sites/portal/dem_11_30.4bb5e0368767.bin",
+            "bytes": 15198,
+            "sha256": "4bb5e03687678b08087eeb48ae138bd66f95069578a8182d1e69be9502658cbf"
+          },
+          {
+            "tx": 9,
+            "ty": 31,
+            "file": "sites/portal/dem_9_31.14e6f294b1b2.bin",
+            "bytes": 27900,
+            "sha256": "14e6f294b1b20eada7b3e0494e8cdf8541ab434921f34a3df1714b460e0bf1d2"
+          },
+          {
+            "tx": 10,
+            "ty": 31,
+            "file": "sites/portal/dem_10_31.79ca918140ce.bin",
+            "bytes": 26959,
+            "sha256": "79ca918140cea9247dbf2468b9cc8ce13ff014568483d30579ab2dbba997413d"
+          },
+          {
+            "tx": 11,
+            "ty": 31,
+            "file": "sites/portal/dem_11_31.73f87503d696.bin",
+            "bytes": 14935,
+            "sha256": "73f87503d696491ecdd71e339bc062a4c57af87d10a83a61d28e0e122d74c226"
+          },
+          {
+            "tx": 9,
+            "ty": 32,
+            "file": "sites/portal/dem_9_32.c2d3fcc62755.bin",
+            "bytes": 32733,
+            "sha256": "c2d3fcc62755260c4162ef1ec906241f01b89d1b4087713c772f10be68f41cc5"
+          },
+          {
+            "tx": 10,
+            "ty": 32,
+            "file": "sites/portal/dem_10_32.b01ff0068b9d.bin",
+            "bytes": 28891,
+            "sha256": "b01ff0068b9d36772f068606d0a3e944c509002503a25dfa1a9e340c129f70af"
+          },
+          {
+            "tx": 11,
+            "ty": 32,
+            "file": "sites/portal/dem_11_32.e7798ce59ba3.bin",
+            "bytes": 20486,
+            "sha256": "e7798ce59ba309a5bb5b0502937da9fa4c21654234fe39a918943f9ec132894c"
+          }
+        ]
+      }
+    },
+    {
+      "id": "googleplex",
+      "title": "Googleplex, Mountain View",
+      "bbox": [
+        47104,
+        -28672,
+        51200,
+        -24576
+      ],
+      "tileBox": {
+        "tx0": 23,
+        "ty0": 12,
+        "nx": 2,
+        "ny": 2
+      },
+      "dem": {
+        "cellM": 8,
+        "nodes": 257,
+        "tiles": [
+          {
+            "tx": 23,
+            "ty": 12,
+            "file": "sites/googleplex/dem_23_12.726b14c68d0a.bin",
+            "bytes": 29054,
+            "sha256": "726b14c68d0a30252b1e9bdd80a2a15a44e1cd1a2965e3b3a311830a4e38fdb6"
+          },
+          {
+            "tx": 24,
+            "ty": 12,
+            "file": "sites/googleplex/dem_24_12.89d6b460bb4c.bin",
+            "bytes": 25281,
+            "sha256": "89d6b460bb4cdc4e41c4e4321ec267d5fd363d5a5dd9443e21af2855c5afa3dc"
+          },
+          {
+            "tx": 23,
+            "ty": 13,
+            "file": "sites/googleplex/dem_23_13.d2a1d5be5c8f.bin",
+            "bytes": 21303,
+            "sha256": "d2a1d5be5c8ff02c2fd04b1522a697fcc163ce5b6861ec372d748dfe7d8392fe"
+          },
+          {
+            "tx": 24,
+            "ty": 13,
+            "file": "sites/googleplex/dem_24_13.d06e0a49f953.bin",
+            "bytes": 14661,
+            "sha256": "d06e0a49f953f612a9e71616024086711189d79bb9227336da5825c16824ca91"
+          }
+        ]
+      }
+    },
+    {
+      "id": "meta",
+      "title": "Meta, Menlo Park",
+      "bbox": [
+        40960,
+        -34816,
+        45056,
+        -30720
+      ],
+      "tileBox": {
+        "tx0": 20,
+        "ty0": 15,
+        "nx": 2,
+        "ny": 2
+      },
+      "dem": {
+        "cellM": 8,
+        "nodes": 257,
+        "tiles": [
+          {
+            "tx": 20,
+            "ty": 15,
+            "file": "sites/meta/dem_20_15.be6e474a92c9.bin",
+            "bytes": 20010,
+            "sha256": "be6e474a92c90441e29aae32126afcbc84c2a24e73e6cc03db1c0ef9a0bbcf89"
+          },
+          {
+            "tx": 21,
+            "ty": 15,
+            "file": "sites/meta/dem_21_15.f08af6ec2449.bin",
+            "bytes": 21272,
+            "sha256": "f08af6ec24495f2bdb2fa5a39a38f3c43e1faab5ac461416279f5ae150d8f2e1"
+          },
+          {
+            "tx": 20,
+            "ty": 16,
+            "file": "sites/meta/dem_20_16.c015546255c2.bin",
+            "bytes": 21793,
+            "sha256": "c015546255c2a4aefc8f890f005876e2d064f2f804b1e4043401c9e13ebb5c9b"
+          },
+          {
+            "tx": 21,
+            "ty": 16,
+            "file": "sites/meta/dem_21_16.1c26dd54c3f4.bin",
+            "bytes": 17514,
+            "sha256": "1c26dd54c3f4b8d0920f15829d9c84a0d9acc40ffdd3d94cc0270beb4934e398"
+          }
+        ]
+      }
+    },
+    {
+      "id": "oracle",
+      "title": "Oracle, Redwood Shores",
+      "bbox": [
+        30720,
+        -38912,
+        34816,
+        -34816
+      ],
+      "tileBox": {
+        "tx0": 15,
+        "ty0": 17,
+        "nx": 2,
+        "ny": 2
+      },
+      "dem": {
+        "cellM": 8,
+        "nodes": 257,
+        "tiles": [
+          {
+            "tx": 15,
+            "ty": 17,
+            "file": "sites/oracle/dem_15_17.0a17a86c43ad.bin",
+            "bytes": 35505,
+            "sha256": "0a17a86c43ad0b9152932362e961cc595d4d426970b91120a2fb3179b758822e"
+          },
+          {
+            "tx": 16,
+            "ty": 17,
+            "file": "sites/oracle/dem_16_17.bfa4ed81f10d.bin",
+            "bytes": 26628,
+            "sha256": "bfa4ed81f10db6bd383d6067f3abd2f8bc7116cbaad280afb4124b639f3edff9"
+          },
+          {
+            "tx": 15,
+            "ty": 18,
+            "file": "sites/oracle/dem_15_18.dd846815fccd.bin",
+            "bytes": 27319,
+            "sha256": "dd846815fccd66f9e9ca3420cecdc73ad48dc92f3b2a27a21a4159969affae8b"
+          },
+          {
+            "tx": 16,
+            "ty": 18,
+            "file": "sites/oracle/dem_16_18.f1c98c6dc87f.bin",
+            "bytes": 25010,
+            "sha256": "f1c98c6dc87f3a138da3ef1e3665fdcc1d17ff70b5bf574da39ae44c49af951d"
+          }
+        ]
+      }
+    }
+  ],
+  "sources": [
+    {
+      "name": "AWS Terrain Tiles, terrarium z12, 168 tiles",
+      "license": "Public domain (USGS 3DEP, SRTM, GMTED2010; NOAA ETOPO1); attribution requested",
+      "attribution": "United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey. Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration.",
+      "sha256": "d5840eb8a1d810714af9ef356b53a4a6d907f12360d6cc8988dfd833676ce9bc"
+    },
+    {
+      "name": "AWS Terrain Tiles, terrarium z14, 46 tiles over 4 sites",
+      "license": "Public domain (USGS 3DEP, SRTM, GMTED2010; NOAA ETOPO1); attribution requested",
+      "attribution": "United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey. Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration.",
+      "sha256": "1865185397433ff2358fe1ad5dea16949661787897c3dba10541190a4cdd41ef"
+    }
+  ],
+  "checks": {
+    "twinPeaksZ14WindowMaxM": 280.47,
+    "twinPeaksFarMaxM": 271.1,
+    "salesforceTransitCenterDemM": 5.23,
+    "salesforceTransitCenterFarM": 5,
+    "fourthAndKingDemM": 3.67,
+    "fourthAndKingFarM": 3.5,
+    "bayBridgeWestSpanMidDemM": -25.1,
+    "bayBridgeWestSpanMidFarM": -25.5,
+    "bayBridgeWestSpanDeepestFarM": -38,
+    "googleplexCentreDemM": 7.38,
+    "metaCentreDemM": 3.72,
+    "oracleCentreDemM": 1.92,
+    "farMinM": -113.3,
+    "farMaxM": 1163.2
+  }
+}
