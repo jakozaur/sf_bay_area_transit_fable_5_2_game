@@ -6,11 +6,11 @@ import type { AlignmentEntity, LaunchPitEntity, StationEntity, WorldPos } from '
 import { minRadiusFor } from './checks.ts';
 import { CONSTANTS as K } from './constants.ts';
 import { hasBox, stationBoxOf, stationSize } from './design.ts';
-import { planPointAt } from './drive.ts';
+import { isRecovering, planPointAt } from './drive.ts';
 import { isDrivable } from './engine.ts';
 import { plannedConstructionDays, plannedHeadingDays, plannedStationDays } from './estimate.ts';
 import { chainages, nearestChainage, planDistance, pointAt, segmentIndexAt, subPath } from './geometry.ts';
-import { advanceRate, carveShape, effectiveMethod, GEOLOGY, isUnderground, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
+import { advanceRate, carveShape, GEOLOGY, headingSpans, isTbm, isUnderground, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
 import type { Profile } from './reforms.ts';
 import { serviceCycleS } from './trains.ts';
 import type {
@@ -21,6 +21,7 @@ import type {
   GameCommand,
   Method,
   MissionStage,
+  MissionTarget,
   NextAction,
   ObjectiveDef,
   ProjectState,
@@ -72,7 +73,8 @@ export function tbmView(project: ProjectState, f: FrontState, p: Profile, flags:
     if (f.downDays > 0) stopReason = f.downReason === 'event' ? 'event' : 'breakdown';
     else if (project.delayDays > 0) stopReason = 'projectDelay';
     else if (d && !d.autopilot && d.thrust <= 0) stopReason = 'zeroThrust';
-    else if (d?.blocked) stopReason = 'corridor';
+    // Held at the corridor edge while the shield re-steers in place. Once the cruise law bores it back, it runs.
+    else if (d?.blocked && !isRecovering(d, minRadiusFor(f.method))) stopReason = 'corridor';
   }
   const running = !done && stopReason === null;
   const thrust = running ? (d && !d.autopilot ? d.thrust : 1) : 0;
@@ -152,16 +154,18 @@ export function tunnelProgress(project: ProjectState, f: FrontState, pathM: numb
 /** Heading runs a project will be built in: one per run of segments with the same effective method. */
 export function headingRuns(project: ProjectState, flags: DesignFlags): { id: string; method: Method; fromM: number }[] {
   if (project.fronts.length > 0) return project.fronts.map((f) => ({ id: f.id, method: f.method, fromM: f.fromM }));
-  const out: { id: string; method: Method; fromM: number }[] = [];
-  let i = 0;
-  while (i < project.methods.length) {
-    const method = effectiveMethod(project.methods[i], flags);
-    let j = i;
-    while (j + 1 < project.methods.length && effectiveMethod(project.methods[j + 1], flags) === method) j++;
-    out.push({ id: `${project.id}/f${out.length + 1}`, method, fromM: project.cum[i] });
-    i = j + 1;
-  }
-  return out;
+  return headingSpans(project, flags).map((span, i) => ({ id: `${project.id}/f${i + 1}`, method: span.method, fromM: span.fromM }));
+}
+
+/**
+ * What the launch gate starts, in the words of the button: a boring machine, a mined heading, or surface works.
+ * The first playtest had "Launch the TBM" on a mined cavern and on a track gang.
+ */
+export function launchLabel(project: ProjectState, flags: DesignFlags): { label: string; verb: string; what: string } {
+  const runs = headingRuns(project, flags);
+  if (runs.some((r) => isTbm(r.method))) return { label: 'Launch the TBM', verb: 'Launch', what: 'the machine' };
+  if (runs.some((r) => r.method === 'mined')) return { label: 'Start mining', verb: 'Start', what: 'the mined heading' };
+  return { label: 'Start construction', verb: 'Start', what: 'the works' };
 }
 
 /** Launch pits of the underground headings of an approved project. Surface headings need none. */
@@ -298,9 +302,14 @@ export function serviceView(project: ProjectState): ServiceView | null {
 
 // ---------------------------------------------------------------- clock
 
-/** Real-time pace of a driven heading: the contract's game hours per second, sped up for slow headings. */
-function driveDaysPerSecond(method: Method, p: Profile): number {
-  const nominal = advanceRate(method, 'softGround', p, Number.POSITIVE_INFINITY);
+/**
+ * Real-time pace of a driven heading: the contract's game hours per second, sped up for slow headings.
+ * The start-up metres of a machine are slow in game days, not on screen: the pace is set from the rate the
+ * machine has in soft ground where it stands, so the face moves at FACE_MPS from the first ring on and only
+ * the ground (mud slower, rock faster) changes what the driver sees.
+ */
+function driveDaysPerSecond(method: Method, p: Profile, boredM: number): number {
+  const nominal = advanceRate(method, 'softGround', p, boredM);
   return Math.max(DRIVE_DAYS_PER_SECOND, FACE_MPS / nominal);
 }
 
@@ -331,7 +340,7 @@ export function clockView(state: SimState, p: Profile): ClockView {
         running = true;
         if (f.drive) {
           driven = true;
-          drive = Math.min(drive, driveDaysPerSecond(f.method, p));
+          drive = Math.min(drive, driveDaysPerSecond(f.method, p, f.boredM));
         }
       }
     }
@@ -375,7 +384,8 @@ export function planProjectId(state: SimState): string {
 export function missionStage(project: ProjectState | null): MissionStage {
   if (!project || project.status === 'draft') return 'plan';
   if (project.status === 'open') return 'done';
-  if (project.phase === 'construction') return 'build';
+  // At the launch gate the approvals are behind the player: the stepper shows the build.
+  if (project.phase === 'construction' || project.awaiting === 'launchTBM') return 'build';
   if (project.phase === 'fitOut') return 'open';
   return 'approvals';
 }
@@ -428,9 +438,11 @@ export function projectNextAction(
   checks: AlignmentChecks,
   cheaper: { label: string; savingCents: number } | null,
   canAffordReform: boolean,
+  flags: DesignFlags,
 ): NextAction {
   const id = project.id;
   const name = project.name;
+  const pc = state.politicalCapital;
   if (project.status === 'open')
     return action(
       'viewScorecard',
@@ -447,18 +459,27 @@ export function projectNextAction(
         'addStation',
         id,
         `Put a station at ${missing.name}`,
-        `Add a station within ${missing.radiusM} m of ${missing.name}.`,
+        `Add a station inside the ring at ${missing.name} (within ${missing.radiusM} m).`,
         'station',
       );
     if (project.stations.length < 2)
       return action('addStation', id, `Give ${name} two stations`, 'A line needs a station at each end.', 'station');
     const tip = cheaper
-      ? ` A cheaper design is unlocked: ${cheaper.label} saves $${(cheaper.savingCents / 1e8).toFixed(0)}M. The design can change until tender.`
-      : ' The design can change until tender.';
-    return action('approveProject', id, `Approve ${name}`, `Approve the plan to start the clock.${tip}`, 'project', {
-      t: 'approveProject',
-      projectId: id,
-    });
+      ? ` A cheaper design is unlocked: ${cheaper.label} saves $${(cheaper.savingCents / 1e8).toFixed(0)}M.`
+      : canAffordReform
+        ? ` You have ${pc} political capital: reforms change the price before you commit.`
+        : '';
+    return action(
+      'approveProject',
+      id,
+      `Approve ${name}`,
+      `Approve the plan to start the clock. The design can change until tender.${tip}`,
+      'project',
+      {
+        t: 'approveProject',
+        projectId: id,
+      },
+    );
   }
   if (state.pendingEvents.some((e) => e.projectId === id))
     return action(
@@ -473,22 +494,26 @@ export function projectNextAction(
       'advancePhase',
       id,
       `Send ${name} to tender`,
-      'Going to tender freezes the design. Enact design reforms and pick the tunnel and station design first.',
+      canAffordReform
+        ? `Tender freezes the design. You have ${pc} political capital: enact design reforms and pick the design first.`
+        : 'Tender freezes the design. Pick the tunnel and station design first.',
       'project',
       { t: 'advancePhase', projectId: id },
     );
-  if (project.awaiting === 'launchTBM')
+  if (project.awaiting === 'launchTBM') {
+    const launch = launchLabel(project, flags);
+    const spend = canAffordReform ? ` You have ${pc} political capital: reforms only change what is bought after them.` : '';
     return action(
       'launchTBM',
       id,
-      `Launch the machines of ${name}`,
-      'The launch pit is ready. Launch, then drive the TBM or leave it on autopilot.',
+      `${launch.verb} ${launch.what} of ${name}`,
+      launch.label === 'Launch the TBM'
+        ? `The launch pit is ready. Launch, then drive the TBM or leave it on autopilot.${spend}`
+        : `The site is ready.${spend}`,
       'project',
-      {
-        t: 'launchTBM',
-        projectId: id,
-      },
+      { t: 'launchTBM', projectId: id },
     );
+  }
   if (project.awaiting === 'openLine')
     return action('openLine', id, `Open ${name}`, 'Testing is done. Open the line.', 'project', { t: 'openLine', projectId: id });
   if (project.phase === 'construction') {
@@ -496,34 +521,56 @@ export function projectNextAction(
     const machine = live.find((f) => isDrivable(f.method));
     if (machine) {
       const d = machine.drive;
+      const verb = isTbm(machine.method) ? 'Bore' : 'Mine';
       if (machine.downDays > 0)
-        return action('wait', id, `Bore ${name}`, `${machine.name} is stopped for ${machine.downDays} more days.`, 'speed');
+        return action('wait', id, `${verb} ${name}`, `${machine.name} is stopped for ${machine.downDays} more days.`, 'speed');
       if (d && !d.autopilot && d.thrust <= 0)
-        return action('drive', id, `Bore ${name}`, `${machine.name} is holding. W for thrust, or Space for autopilot.`, 'drive');
+        return action('drive', id, `${verb} ${name}`, `${machine.name} is holding. W for thrust, or Space for autopilot.`, 'drive');
       if (d && !d.autopilot)
         return action(
           'drive',
           id,
-          `Bore ${name}`,
-          `You are driving ${machine.name}. Follow the guidance line. Space hands it back to the autopilot.`,
+          `${verb} ${name}`,
+          `You are driving ${machine.name}. A and D steer, R and F pitch, Space hands it back to the autopilot.`,
           'drive',
         );
       return action(
         'drive',
         id,
-        `Bore ${name}`,
-        `${machine.name} is boring on autopilot. Take the controls with the drive tool, or watch.`,
+        `${verb} ${name}`,
+        `${machine.name} is on autopilot. Take the controls, or speed time up: 9 is 10x, 0 is 100x.`,
         'drive',
       );
     }
-    if (live.length > 0) return action('wait', id, `Build ${name}`, `${live[0].name} is at work. Nothing to drive here.`, 'speed');
+    if (live.length > 0)
+      return action('wait', id, `Build ${name}`, `${live[0].name} is at work. Speed time up: 9 is 10x, 0 is 100x.`, 'speed');
     return action('wait', id, `Build ${name}`, 'The tunnels are through. The station boxes are being finished.', 'speed');
   }
   const goal = PHASE_GOAL[project.phase];
   const hint = canAffordReform
-    ? `${PHASE_LABELS[project.phase]} runs as a time-lapse. You have political capital: spend it on reforms while you wait.`
+    ? `${PHASE_LABELS[project.phase]} runs as a time-lapse. You have ${pc} political capital: open Reforms (time waits while you read).`
     : `${PHASE_LABELS[project.phase]} runs as a time-lapse.`;
   return action('wait', id, `Get ${name} ${goal}`, hint, canAffordReform ? 'reforms' : 'speed');
+}
+
+/** End points of the connect objectives, for the markers on the map: where they are and whether a station of the mission project serves them. */
+export function missionTargets(state: SimState, project: ProjectState | null): MissionTarget[] {
+  const out: MissionTarget[] = [];
+  for (const o of state.scenario.objectives) {
+    if (o.kind !== 'connect') continue;
+    for (const end of [o.a, o.b]) {
+      if (out.some((t) => t.x === end.x && t.z === end.z)) continue;
+      let served = false;
+      if (project && project.methods.length > 0) {
+        for (const s of project.stations) {
+          const at = pointAt(project.waypoints, project.cum, s.chainageM);
+          if (planDistance(at.x, at.z, end.x, end.z) <= o.radiusM) served = true;
+        }
+      }
+      out.push({ name: end.name, x: end.x, z: end.z, radiusM: o.radiusM, stretch: o.stretch === true, served });
+    }
+  }
+  return out;
 }
 
 /** The most urgent thing to do in the whole game. */

@@ -14,7 +14,7 @@ export {
   ESCALATION_DAILY,
   SUBSTEPS_PER_DAY,
 } from './constants.ts';
-export { dateAtTick, daysToIso, isoToDays } from './dates.ts';
+export { dateAtTick, daysToIso, isoToDays, monthYear } from './dates.ts';
 export { FEEDERS, type Feeder, feederById, type RidershipBreakdown, ridership, ZONES, type Zone } from './demand.ts';
 export {
   DESIGN_OPTIONS,
@@ -27,7 +27,17 @@ export {
   stationSize,
   tunnelOf,
 } from './design.ts';
-export { cruiseControls, type DriveLimits, driveSubstep, fixOnPlan, type PlanFix, type PlanPoint, planPointAt } from './drive.ts';
+export {
+  cruiseControls,
+  type DriveLimits,
+  driveSubstep,
+  fixOnPlan,
+  holdControls,
+  isRecovering,
+  type PlanFix,
+  type PlanPoint,
+  planPointAt,
+} from './drive.ts';
 export {
   autopilotCommands,
   eventHazardPerYear,
@@ -51,7 +61,7 @@ export {
   quickOption,
   quickProject,
 } from './estimate.ts';
-export { EVENTS, type EventDef, type EventOption, eventById } from './events.ts';
+export { EVENTS, type EventDef, type EventOption, eventById, eventTitle } from './events.ts';
 export {
   comparison,
   type DesignRun,
@@ -72,11 +82,15 @@ export {
   effectiveMethod,
   GEOLOGY,
   hardCost,
+  headingSpans,
   isTbm,
   isUnderground,
+  maxHeadingM,
   PHASE_LABELS,
   type ProjectGeometry,
   phaseDays,
+  polishGeometry,
+  polishMethods,
   projectFlags,
   sectionAreaM2,
   standardsFor,
@@ -91,6 +105,7 @@ export {
   EVENT_IDS,
   type EventId,
   POLAND_PROFILE,
+  POLISH_PRICE_LEVEL,
   type Profile,
   type ProfileKey,
   profileFor,
@@ -104,5 +119,6 @@ export {
 } from './reforms.ts';
 export { evaluateObjectives, validateScenario } from './scenario.ts';
 export { createSim, EVENT_CARDS, type GameSim, hashState, loadSim, type SaveOptions, type SimOptions, type WorldSink } from './sim.ts';
+export { playerSource } from './sources.ts';
 export { serviceCycleS, trainsAt } from './trains.ts';
 export * from './types.ts';

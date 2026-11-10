@@ -38,3 +38,12 @@ export function daysToIso(days: number): string {
 export function dateAtTick(startIso: string, ticks: number): string {
   return daysToIso(isoToDays(startIso) + ticks);
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Feb 2036" for an ISO date: how dates read in banners, hints and the scorecard. */
+export function monthYear(iso: string): string {
+  // Validates the date as a side effect.
+  isoToDays(iso);
+  return `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+}

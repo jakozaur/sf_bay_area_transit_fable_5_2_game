@@ -94,13 +94,13 @@ export const THE_PORTAL: ScenarioDef = {
   siteId: 'portal',
   title: 'The Portal',
   description:
-    'The trainbox under the Salesforce Transit Center opened in 2018. Trains: 0. Caltrain stops 2.1 km short, at 4th and King. Connect them. The official plan costs $6.84 billion more and opens in 2036.',
+    'The trainbox under the Salesforce Transit Center opened in 2018. Trains: 0. Caltrain stops 2.1 km short, at 4th and King. Connect them. The official plan: $6.84 billion, open in 2036.',
   briefing: {
     what: 'Caltrain ends at 4th and King. The Portal is 2.1 km of tunnel under Townsend and 2nd Street to the trainbox that has sat empty under the Salesforce Transit Center since 2018.',
     officialCost: '$6.84 billion for 2.1 km, not counting the trainbox already built: about $3.3 billion per km (TJPA, July 2025).',
     officialDate: 'Open for use in the first quarter of 2036, if the federal grant is signed in July 2027.',
-    why: 'It is the most expensive railway per km on the continent, and it carries the Bay Area into its own downtown. Warsaw builds metro for about $140 million per km.',
-    source: 'doc 05 section 3.1 (SFCTA memo, January 2026); doc 11 section 6.3 (Warsaw M2 extensions)',
+    why: 'It is the most expensive railway per km on the continent, and it carries the Bay Area into its own downtown. Warsaw builds metro for about $140 million per km in 2026 money, stations included.',
+    source: 'doc 05 section 3.1 (SFCTA memo, January 2026); doc 11 section 6.3 (Warsaw M2 extensions, 2015 to 2022, in 2026 money)',
   },
   start: {
     date: '2026-11-09',
@@ -126,13 +126,9 @@ export const THE_PORTAL: ScenarioDef = {
         release: 'procurement',
         source: 'doc 05 section 3.1 (about $1.05B planned from the state)',
       },
-      {
-        id: 'local-gap',
-        name: 'Local and land-based sources, to be identified',
-        amountCents: usd(1.15e9),
-        release: 'utilities',
-        source: 'doc 05 section 3.1 (remaining need about $2.2B, less the state share)',
-      },
+      // The remaining $1.15B of the official plan of finance is "local and land-based sources, to be identified"
+      // (doc 05 section 3.1: about $2.2B still needed, less the state share). Money nobody has identified is not
+      // funding: at status-quo prices the project runs out before it opens (PLAN 6.6) and the cash call comes up.
     ],
     headStart: {
       phase: 'permitting',

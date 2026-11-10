@@ -3,22 +3,26 @@
  * official figure (the ghost) and Poland, per route-km in nominal USD, with the gap split into design scope,
  * institutional levers, delay and the price-level gap. Every ratio is computed from the columns; nothing is a literal.
  *
- * Waterfall of one column, in RECEIPT_LINES order:
- *   base      Polish design at Polish prices, no delay, for the column's alignment
- *   design    the column's design at Polish prices, by component (tunnel, stations, systems)
- *   levers    x procurement x staffing x utilities, systems supply (systems only), x soft costs, x contingency
+ * Waterfall of one column:
+ *   base      the Polish design (twin bores, compact boxes) at Polish prices, no delay, for the column's route.
+ *             It does not depend on what the column builds, so columns on the same route start from the same figure
+ *   price     x the price-level factor, applied first: what the Polish design costs at Bay Area prices. No reform
+ *             moves it, and applied here the line is the same dollars whatever else is reformed
+ *   design    the column's design against the Polish design, by component (tunnel, stations, systems)
+ *   levers    x procurement x staffing x utilities, systems supply (systems only), x soft costs, x contingency,
+ *             then the cash paid for reforms and machines
  *   delay     overhead, event overruns, off-plan driving and hand digging as booked; escalation is the remainder
- *   price     x the price-level factor, applied last, so the delay lines above are in pre-price-level dollars
  * Design and levers come from the project's paid ledger (ProjectState.paid): every hard spend is re-priced
  * lever by lever on the day it is made, at the profile in force that day. A reform enacted half way through
  * therefore only shrinks its line for the money spent after it, and the factors shown are spend-weighted.
- * The cumulative figures are rounded to cents, so base plus the lines is the column's cost exactly.
+ * The cumulative figures are rounded to cents, so base plus the lines is the column's cost exactly. A line under
+ * a thousand dollars is float and rounding residue: it is shown as zero and its cents go to the next line.
  */
 import type { MissionResult } from '@bayvox/core';
 import { DAYS_PER_YEAR } from './constants.ts';
-import { dateAtTick, isoToDays } from './dates.ts';
+import { dateAtTick, isoToDays, monthYear } from './dates.ts';
 import type { DesignRun, Forecast } from './forecast.ts';
-import { designFlags, hardCost, type ProjectGeometry } from './model.ts';
+import { designFlags, hardCost, type ProjectGeometry, polishGeometry } from './model.ts';
 import { POLAND_PROFILE, type ProfileKey, profileFor, REFORMS } from './reforms.ts';
 import {
   type GhostView,
@@ -90,6 +94,11 @@ export const RECEIPT_LINE_DEFS: Record<ReceiptLineId, LineDef> = {
     label: 'Contingency, always spent',
     evidence: 'doc 06 section 3.3 ("all money in the budget will be spent"; 30 to 40 percent held)',
   },
+  reformCash: {
+    group: 'institutional',
+    label: 'Reforms and machines bought with cash',
+    evidence: 'your own purchases in the reform tree: surveys, plant and machines are paid by the project they are bought for',
+  },
   escalation: {
     group: 'delay',
     label: 'Escalation over the schedule',
@@ -118,8 +127,8 @@ export const RECEIPT_LINE_DEFS: Record<ReceiptLineId, LineDef> = {
   },
   priceLevel: {
     group: 'priceLevel',
-    label: 'Price level: nominal dollars against Polish prices',
-    evidence: 'doc 11 sections 4.2 and 5.1 (3.71 PLN/USD market rate over 2.3 construction PPP: 1.61). Doc 11 says no reform removes it',
+    label: 'Price level: Bay Area wages and prices against Polish ones',
+    evidence: 'doc 11 sections 4.2 and 5.1 (3.71 PLN/USD market rate over 2.3 construction PPP: 1.61). Not a lever: no reform removes it',
   },
 };
 
@@ -172,6 +181,7 @@ export interface ColumnInput {
   /** All-in cost, cents. */
   totalCents: number;
   /** Booked amounts inside the total. */
+  reformCents: number;
   overheadCents: number;
   eventsCents: number;
   offPlanCents: number;
@@ -183,43 +193,65 @@ export interface ColumnInput {
 
 interface Waterfall {
   baseCents: number;
-  /** Cumulative cost after each line, RECEIPT_LINES order, rounded to cents. */
-  after: number[];
+  /** Dollars each line adds, by line id, rounded to cents; with baseCents they sum to the column's cost exactly. */
+  cents: Record<ReceiptLineId, number>;
+  /** Cumulative cost before each line in the order the waterfall is computed, for the line factors. */
+  before: Record<ReceiptLineId, number>;
 }
+
+/** The order the waterfall is computed in: the price level first, then RECEIPT_LINES. */
+const WATERFALL_ORDER: readonly ReceiptLineId[] = ['priceLevel', ...RECEIPT_LINES.filter((id) => id !== 'priceLevel')];
+/** A line smaller than this is residue of float arithmetic and daily rounding, not money: a thousand dollars. */
+const DUST_CENTS = 100_000;
 
 function waterfall(c: ColumnInput): Waterfall {
   const pl = profileFor(POLAND_PROFILE);
   const softPl = (1 + pl['soft.fixed']) * (1 + pl['soft.contingency']);
-  const h0 = hardCost(c.geometry, pl, designFlags(pl), true);
+  const h0 = hardCost(polishGeometry(c.geometry), pl, designFlags(pl), true);
   const paid = c.paid;
-  const steps: number[] = [];
   const base = h0.totalCents * softPl;
+  // Spend-weighted price level of the column: 1 for Poland, the Bay Area factor for everything built here.
+  const price = paid.steps[6] > 0 && paid.steps[7] > 0 ? paid.steps[7] / paid.steps[6] : 1;
+  const after = {} as Record<ReceiptLineId, number>;
+  after.priceLevel = base * price;
   // Design: what was built against the Polish design, both at Polish prices, by component.
   let v = base + (paid.civil - h0.civilCents) * softPl;
-  steps.push(v);
+  after.designTunnel = v * price;
   v += (paid.stations - h0.stationsCents) * softPl;
-  steps.push(v);
+  after.designStations = v * price;
   // paid.steps[0] is the whole hard spend at Polish prices with the Polish rider: the end of the design lines.
-  steps.push(paid.steps[0]);
-  // Levers, each at the profile in force when the money was spent.
-  for (let i = 1; i <= 6; i++) steps.push(paid.steps[i]);
-  v = paid.steps[6];
-  // Spend-weighted price level. Delay lines are stated in pre-price-level dollars; escalation is what is
-  // left of the total once the booked lines are out.
-  const price = v > 0 && paid.steps[7] > 0 ? paid.steps[7] / v : 1;
-  const overhead = c.overheadCents / price;
-  const events = c.eventsCents / price;
-  const offPlan = c.offPlanCents / price;
-  const handDig = c.handDigCents / price;
-  const escalation = c.totalCents / price - v - overhead - events - offPlan - handDig;
-  for (const add of [escalation, overhead, events, offPlan, handDig]) {
-    v += add;
-    steps.push(v);
+  after.designSystems = paid.steps[0] * price;
+  // Levers, each at the profile in force when the money was spent. The last is the unescalated spend itself.
+  after.procurement = paid.steps[1] * price;
+  after.staffing = paid.steps[2] * price;
+  after.utilities = paid.steps[3] * price;
+  after.systemsSupply = paid.steps[4] * price;
+  after.softCosts = paid.steps[5] * price;
+  after.contingency = paid.steps[7];
+  after.reformCash = paid.steps[7] + c.reformCents;
+  // The booked delay lines are exact cents, counted back from the total; escalation is what is left between.
+  after.handDig = c.totalCents;
+  after.offPlan = after.handDig - c.handDigCents;
+  after.events = after.offPlan - c.offPlanCents;
+  after.overhead = after.events - c.eventsCents;
+  after.escalation = after.overhead - c.overheadCents;
+  const baseCents = Math.round(base);
+  const cents = {} as Record<ReceiptLineId, number>;
+  const before = {} as Record<ReceiptLineId, number>;
+  let prev = baseCents;
+  for (let i = 0; i < WATERFALL_ORDER.length; i++) {
+    const id = WATERFALL_ORDER[i];
+    const last = i === WATERFALL_ORDER.length - 1;
+    // The cash paid for reforms is a booked amount: the line is that amount to the cent, on top of what came before.
+    let now = last ? c.totalCents : id === 'reformCash' ? prev + c.reformCents : Math.round(after[id]);
+    // Residue is carried to the next line; escalation, a remainder by definition, takes what is left. The delay
+    // lines after it are booked amounts, exact to the cent, and are never touched.
+    if (!last && id !== 'reformCash' && RECEIPT_LINE_DEFS[id].group !== 'delay' && Math.abs(now - prev) < DUST_CENTS) now = prev;
+    before[id] = prev;
+    cents[id] = now - prev;
+    prev = now;
   }
-  steps.push(c.totalCents);
-  const after = steps.map((x) => Math.round(x));
-  after[after.length - 1] = c.totalCents;
-  return { baseCents: Math.round(base), after };
+  return { baseCents, cents, before };
 }
 
 function ratio(a: number, b: number): number {
@@ -241,8 +273,6 @@ function column(c: ColumnInput, w: Waterfall, start: string): ReceiptColumn {
     yearsToOpen: c.days / DAYS_PER_YEAR,
   };
 }
-
-const REMOVED_BELOW_CENTS = 100_000;
 
 export interface GhostInput {
   label: string;
@@ -279,23 +309,21 @@ export function buildReceipt(
     falls[id] = waterfall(inputs[id]);
     columns[id] = column(inputs[id], falls[id], start);
   }
-  const lines: ReceiptLine[] = RECEIPT_LINES.map((id, i) => {
+  const lines: ReceiptLine[] = RECEIPT_LINES.map((id) => {
     const def = RECEIPT_LINE_DEFS[id];
     const factor = {} as Record<ReceiptColumnId, number>;
     const cents = {} as Record<ReceiptColumnId, number>;
     for (const col of RECEIPT_COLUMNS) {
-      const before = i === 0 ? falls[col].baseCents : falls[col].after[i - 1];
-      cents[col] = falls[col].after[i] - before;
-      factor[col] = before > 0 ? falls[col].after[i] / before : 1;
+      const before = falls[col].before[id];
+      cents[col] = falls[col].cents[id];
+      factor[col] = before > 0 && cents[col] !== 0 ? (before + cents[col]) / before : 1;
     }
     const reforms = REFORMS.filter((r) => reformReceiptLines(r.id).includes(id)).map((r) => ({
       id: r.id,
       title: r.title,
       enacted: enacted.has(r.id),
     }));
-    // Daily rounding leaves a few cents on a line that is gone: under a thousand dollars counts as removed.
-    const status: ReceiptLine['status'] =
-      Math.abs(cents.yours) < REMOVED_BELOW_CENTS ? 'removed' : reforms.some((r) => r.enacted) ? 'reduced' : 'paid';
+    const status: ReceiptLine['status'] = cents.yours === 0 ? 'removed' : reforms.some((r) => r.enacted) ? 'reduced' : 'paid';
     return { id, group: def.group, label: def.label, factor, cents, reforms, status, evidence: def.evidence };
   });
   const groups = RECEIPT_GROUPS.map((id) => {
@@ -392,6 +420,7 @@ export function runColumn(id: ReceiptColumnId, basis: string, run: DesignRun, ti
     geometry: run.project,
     paid: run.project.paid,
     totalCents: run.costCents,
+    reformCents: run.spent.reforms,
     overheadCents: run.spent.overhead,
     eventsCents: run.spent.events,
     offPlanCents: 0,
@@ -418,6 +447,7 @@ export function yoursColumn(
     geometry,
     paid: eac.paid,
     totalCents: eac.costCents,
+    reformCents: eac.spent.reforms,
     overheadCents: eac.spent.overhead,
     eventsCents: eac.spent.events,
     offPlanCents: booked.offPlanCents,
@@ -476,8 +506,9 @@ export function buildScorecard(i: ScoreInput): Scorecard {
         costCents: r.ghost.costCents,
         costPerKmCents: r.ghost.costPerKmCents,
         lengthKm: r.ghost.lengthKm,
-        openDate: r.ghost.openDate || q.openDate,
-        yearsToOpen: r.ghost.openDate ? (isoToDays(r.ghost.openDate) - isoToDays(i.start)) / DAYS_PER_YEAR : q.yearsToOpen,
+        // A sponsor figure without a date (Dumbarton) has none here either: '' and 0, and the date axis is scored on the model.
+        openDate: r.ghost.openDate,
+        yearsToOpen: r.ghost.openDate ? (isoToDays(r.ghost.openDate) - isoToDays(i.start)) / DAYS_PER_YEAR : 0,
         source: r.ghost.source,
       }
     : {
@@ -488,7 +519,7 @@ export function buildScorecard(i: ScoreInput): Scorecard {
         lengthKm: q.lengthKm,
         openDate: q.openDate,
         yearsToOpen: q.yearsToOpen,
-        source: `no official figure exists; this is the model under the rules of the starting year: ${q.basis}`,
+        source: `No official figure exists. This is the model under the rules of the starting year: ${q.basis}`,
       };
   const poland: ScoreColumn = {
     label: 'Poland',
@@ -510,12 +541,14 @@ export function buildScorecard(i: ScoreInput): Scorecard {
   else costStars = rYours <= 1.05 ? 3 : rYours <= 1.5 ? 2 : rYours <= 2 ? 1 : 0;
   const costReason = `${money(yours.costPerKmCents)} per km: ${rYours.toFixed(1)}x Poland, where ${ghost.label} is ${rGhost.toFixed(1)}x`;
 
-  // Date: position between Poland's years to open and the ghost's.
-  const span = ghost.yearsToOpen - poland.yearsToOpen;
+  // Date: position between Poland's years to open and the ghost's; without a sponsor date, the model's status quo.
+  const dated = ghost.openDate !== '';
+  const slowYears = dated ? ghost.yearsToOpen : q.yearsToOpen;
+  const span = slowYears - poland.yearsToOpen;
   let dateStars: number;
   if (span > 0.25) dateStars = starsAt((yours.yearsToOpen - poland.yearsToOpen) / span);
   else dateStars = yours.yearsToOpen <= poland.yearsToOpen + 0.5 ? 3 : yours.yearsToOpen <= poland.yearsToOpen + 1.5 ? 2 : 1;
-  const dateReason = `Opens ${yours.openDate}, ${yours.yearsToOpen.toFixed(1)} years: Poland ${poland.yearsToOpen.toFixed(1)}, ${ghost.label} ${ghost.yearsToOpen.toFixed(1)}`;
+  const dateReason = `${r.final ? 'Opened' : 'Opens'} ${monthYear(yours.openDate)}, ${yours.yearsToOpen.toFixed(1)} years: Poland ${poland.yearsToOpen.toFixed(1)}, ${dated ? ghost.label : 'the status quo'} ${slowYears.toFixed(1)}`;
 
   // Riders: against the reference plan when there is one, else per route-km.
   let riderStars: number;

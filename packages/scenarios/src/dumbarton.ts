@@ -85,7 +85,7 @@ export const DUMBARTON_TO_META: ScenarioDef = {
     officialCost: '$1.6 billion, phased, for the whole 33 km corridor to Union City with a new bridge (2017). It was $50 million in 1998.',
     officialDate: 'No date. The current study is for a busway, with construction after 2031.',
     why: 'Meta sits on the tracks. Surface rail on an existing right-of-way is the cheapest railway there is, and it still has not been built.',
-    source: 'doc 05 section 3.5 (SamTrans Reimagine Dumbarton; Wikipedia, Dumbarton Rail Corridor)',
+    source: 'doc 05 section 3.5 (SamTrans, Reimagine Dumbarton; cost history of the Dumbarton Rail Corridor, 1998 to 2017)',
   },
   start: {
     date: '2026-11-09',

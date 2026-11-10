@@ -11,15 +11,16 @@ import { DAYS_PER_YEAR, CONSTANTS as K } from './constants.ts';
 import { dateAtTick } from './dates.ts';
 import { defaultMethod, optionLocks } from './design.ts';
 import { expectedAvailability, projectSpentCents } from './engine.ts';
-import { chainages } from './geometry.ts';
+import { chainages, segmentIndexAt } from './geometry.ts';
 import {
   advanceRate,
   designFlags,
-  effectiveMethod,
   hardCost,
+  headingSpans,
   isTbm,
   type ProjectGeometry,
   phaseDays,
+  polishGeometry,
   projectFlags,
   standardsFor,
   stationBuildDays,
@@ -48,20 +49,19 @@ const MAX_ESTIMATE_WAYPOINTS = 512;
 /** Days the longest run of one effective method takes at its steady rate: the headings' share of construction. */
 export function plannedHeadingDays(g: ProjectGeometry, p: Profile, flags: DesignFlags): number {
   let days = 0;
-  let i = 0;
-  while (i < g.methods.length) {
-    const m = effectiveMethod(g.methods[i], flags);
+  for (const span of headingSpans(g, flags)) {
+    const share = isTbm(span.method) ? expectedAvailability(p) : 1;
     let runDays = 0;
-    let j = i;
-    while (j < g.methods.length && effectiveMethod(g.methods[j], flags) === m) {
-      const len = g.cum[j + 1] - g.cum[j];
-      const rate =
-        advanceRate(m, g.waypoints[j].geology ?? 'softGround', p, Number.POSITIVE_INFINITY) * (isTbm(m) ? expectedAvailability(p) : 1);
-      runDays += len / rate;
-      j++;
+    let i = segmentIndexAt(g.cum, span.fromM);
+    let s = span.fromM;
+    while (s < span.toM - 1e-9 && i < g.methods.length) {
+      const end = Math.min(span.toM, g.cum[i + 1]);
+      const rate = advanceRate(span.method, g.waypoints[i].geology ?? 'softGround', p, Number.POSITIVE_INFINITY) * share;
+      runDays += (end - s) / rate;
+      s = end;
+      i++;
     }
     days = Math.max(days, runDays);
-    i = j;
   }
   return days;
 }
@@ -221,7 +221,7 @@ export function estimateAlignment(state: SimState, req: AlignmentEstimateRequest
   const standing = project ? standingOf(state, project) : draftStanding(state);
   const yours = quickEstimate(geometry, p, flags, standing);
   const pl = profileFor(POLAND_PROFILE);
-  const poland = quickEstimate(geometry, pl, designFlags(pl), draftStanding(state));
+  const poland = quickEstimate(polishGeometry(geometry), pl, designFlags(pl), draftStanding(state));
   const lengthKm = lengthM / 1000;
   const perKm = (cents: number) => (lengthKm > 0 ? Math.round(cents / lengthKm) : 0);
   return {

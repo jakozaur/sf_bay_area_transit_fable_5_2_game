@@ -13,6 +13,7 @@ import {
   PC_PHASE_DONE,
   POLAND_PROFILE,
   type ProjectView,
+  playerSource,
   REFORMS,
   type ReceiptLineId,
   type ScenarioDef,
@@ -75,7 +76,11 @@ describe('missions', () => {
         expect(line.length, `${c.id}: ${line}`).toBeLessThan(260);
         expect(line.includes(EM_DASH)).toBe(false);
       }
+      // The data cites the research docs; the player reads the same line without the citations.
       expect(c.briefing.source).toMatch(/doc \d+/);
+      const shown = playerSource(c.briefing.source);
+      expect(shown, c.id).not.toMatch(/\bdoc \d|section \d|UNVERIFIED|ASSUMED/);
+      expect(shown.length, `${c.id}: ${shown}`).toBeGreaterThan(8);
     }
     // Real projects quote their figure; fantasy lines say there is none.
     expect(cards[0].briefing.officialCost).toMatch(/\$6\.84 billion/);
@@ -293,9 +298,12 @@ describe('every mission plays start to finish on autopilot through the clock con
     });
     expect(card.stars).toBeGreaterThanOrEqual(0);
     expect(card.stars).toBeLessThanOrEqual(3);
-    // Nothing was reformed, so the player paid what the status quo pays, to within the event cards and breakdowns of this seed.
+    // Nothing was reformed, so the player paid what the status quo pays plus what this seed's cards cost in full,
+    // and a year of standing still where the funding ran out (the cash call, default answer: wait for a ballot measure).
     expect(project.receipt.ratios.yoursToStatusQuo).toBeGreaterThan(0.98);
-    expect(project.receipt.ratios.yoursToStatusQuo).toBeLessThan(1.15);
+    expect(project.receipt.ratios.yoursToStatusQuo).toBeLessThan(1.35);
+    // Money is a constraint: a status-quo run of a mission ends in the black only because it was called for.
+    expect(snap.moneyCents).toBeGreaterThanOrEqual(0);
     expect(project.receipt.ratios.yoursToPoland).toBeGreaterThan(5);
     // A train runs back and forth between the first and the last station, carrying the demand model's riders.
     expect(snap.services).toHaveLength(1);
@@ -313,16 +321,18 @@ describe('every mission plays start to finish on autopilot through the clock con
     expect(trainsAt(service, 0)[0].atStationId).toBe(service.stops[0].stationId);
   });
 
-  test(`real time at speed 1x: ${autopilot.map(([id, p]) => `${id} ${mmss(p.run.seconds)}`).join(', ')}; The Portal is 5 to 10 minutes`, () => {
+  test(`real time at speed 1x with nobody at the controls: ${autopilot.map(([id, p]) => `${id} ${mmss(p.run.seconds)}`).join(', ')}; no mission is over five minutes of watching`, () => {
     const portal = byId('the-portal').run;
-    expect(portal.seconds).toBeGreaterThan(300);
-    expect(portal.seconds).toBeLessThan(600);
-    // Most of it is the build: approvals and fit-out are four short time-lapses.
-    expect(portal.secondsByMode.build).toBeGreaterThan(240);
-    expect(portal.secondsByMode.lapse).toBeLessThan(60);
+    // The first playtest sat through five minutes of autopilot at 1x. Watching is now two minutes of build at most,
+    // and the hint names the speed keys; a player who drives spends longer by choice (see the hands-on run below).
+    expect(portal.seconds).toBeGreaterThan(120);
+    expect(portal.seconds).toBeLessThan(300);
+    expect(portal.secondsByMode.build).toBeGreaterThan(60);
+    expect(portal.secondsByMode.build).toBeLessThan(CONSTANTS.buildTargetSeconds.value * 1.25);
+    expect(portal.secondsByMode.lapse).toBeLessThan(75);
     for (const [id, p] of autopilot) {
-      expect(p.run.seconds, id).toBeGreaterThan(240);
-      expect(p.run.seconds, id).toBeLessThan(600);
+      expect(p.run.seconds, id).toBeGreaterThan(90);
+      expect(p.run.seconds, id).toBeLessThan(300);
     }
   });
 
@@ -349,8 +359,8 @@ describe('every mission plays start to finish on autopilot through the clock con
     const run = playMission(sim, { plan });
     expect(run.complete).toBe(true);
     const p = sim.snapshot().projects[0];
-    // Status quo and nobody chose a design: a mined cavern under the three-track mandate.
-    expect(p.design.tunnel).toBe('minedCavern');
+    // Free build starts as a two-track metro (the three-track mandate is The Portal's): nobody chose a design, so twin bores.
+    expect(p.design.tunnel).toBe('twinBore');
     expect(p.scorecard.ghost.kind).toBe('model');
     expect(sim.snapshot().services).toHaveLength(1);
   });
@@ -711,12 +721,15 @@ describe('each reform moves the receipt the documented way', () => {
     expect(bought.notices).toEqual([]);
     expect(bought.reforms.find((r) => r.id === id)?.status).toBe('enacted');
     const after = bought.projects[0].receipt;
-    const cost = after.columns.yours.costCents;
-    // Nothing gets dearer: no line rises by more than rounding, and the total does not rise.
+    // What the reform cost in cash is paid by the project, on its own line; nothing else gets dearer.
+    const price = REFORMS.find((r) => r.id === id)?.cost.cents ?? 0;
+    expect(after.lines.find((l) => l.id === 'reformCash')?.cents.yours).toBe(price);
+    const cost = after.columns.yours.costCents - price;
     expect(cost).toBeLessThanOrEqual(baseCost);
     let own = 0;
     let ownBefore = 0;
     for (const l of after.lines) {
+      if (l.id === 'reformCash') continue;
       expect(l.cents.yours - baseLines[l.id], `${l.id} does not rise`).toBeLessThan(baseCost * 1e-6);
       if (view.receiptLines.includes(l.id)) {
         own += l.cents.yours;
@@ -732,21 +745,54 @@ describe('each reform moves the receipt the documented way', () => {
     expect(after.columns.poland.costCents).toBe(base.projects[0].receipt.columns.poland.costCents);
     if (QUIET.includes(id)) {
       expect(cost).toBe(baseCost);
-      // Its effect is on hazards or machine rates: the preview says zero rather than inventing a saving.
-      expect(view.preview?.costDeltaCents).toBe(0);
+      // Its effect is on hazards or machine rates: the preview invents no saving, and says what the reform costs in cash.
+      expect(view.preview?.costDeltaCents).toBe(price);
       return;
     }
     // The lines the reform claims fall, by at least half a percent of the project, and the preview pointed the same way.
-    expect(ownBefore - own, 'its own lines fall').toBeGreaterThan(baseCost * 0.005);
+    // The Buy America waiver acts on track, power and signalling only, a twentieth of this project: a third of a percent.
+    expect(ownBefore - own, 'its own lines fall').toBeGreaterThan(baseCost * (id === 'importSupplyChain' ? 0.003 : 0.005));
     expect(view.preview?.costDeltaCents).toBeLessThan(0);
+    // The preview is what enacting did, cash price included, to within 5 percent of the change (the closed form
+    // is worst on reforms that change the length of construction: 4 percent on master permitting).
+    expect(Math.abs((view.preview?.costDeltaCents ?? 0) / (after.columns.yours.costCents - baseCost) - 1), 'preview').toBeLessThan(0.05);
     expect(after.ratios.yoursToStatusQuo).toBeLessThan(base.projects[0].receipt.ratios.yoursToStatusQuo);
   });
 
-  test('all Polish-practice reforms together leave only delay on the receipt', () => {
+  test('the Polish design under every Polish-practice rule at Polish prices leaves only delay on the receipt', () => {
     const sim = createSim(withStartReforms(scratch, POLAND_PROFILE), 1, null, { events: false });
     sim.dispatch([{ t: 'useOfficialPlan' }]);
+    // The official methods under Polish rules come out a little under the par: cut-and-cover below Townsend Street
+    // is cheaper than the two bores of the Polish design, and the receipt says so on the tunnel line.
+    const official = sim.snapshot().projects[0].receipt;
+    expect(official.ratios.yoursToPoland).toBeGreaterThan(0.9);
+    expect(official.ratios.yoursToPoland).toBeLessThan(1);
+    expect(official.lines.find((l) => l.id === 'designTunnel')?.cents.yours).toBeLessThan(0);
+    for (const l of official.lines) if (l.group === 'institutional' || l.group === 'priceLevel') expect(l.status, l.id).toBe('removed');
+    sim.dispatch([{ t: 'setDesign', projectId: PORTAL_PROJECT_ID, tunnel: 'twinBore' }]);
     const r = sim.snapshot().projects[0].receipt;
     expect(r.ratios.yoursToPoland).toBeCloseTo(1, 3);
     for (const l of r.lines) if (l.group !== 'delay') expect(l.status, l.id).toBe('removed');
+  });
+
+  test('the player can enact everything and the price level is still there: 1.61 times the Polish design, no reform listed', () => {
+    const sim = createSim({ ...scratch, start: { ...scratch.start, politicalCapital: 1000 } }, 1, null, { events: false });
+    const all = REFORMS.filter((r) => !r.beyondPoland).map((r) => ({ t: 'enactReform' as const, id: r.id }));
+    sim.dispatch([{ t: 'useOfficialPlan' }, ...all, ...all, { t: 'setDesign', projectId: PORTAL_PROJECT_ID, tunnel: 'twinBore' }]);
+    const r = sim.snapshot().projects[0].receipt;
+    const price = r.lines.find((l) => l.id === 'priceLevel');
+    expect(price?.factor.yours).toBeCloseTo(1.61, 6);
+    expect(price?.reforms).toEqual([]);
+    expect(price?.cents.yours).toBe(r.lines.find((l) => l.id === 'priceLevel')?.cents.statusQuo);
+    // Every lever is gone; what is left under "institutional" is the cash the reforms themselves cost, to the cent.
+    const cash = REFORMS.filter((x) => !x.beyondPoland).reduce((a, x) => a + x.cost.cents, 0);
+    for (const l of r.lines) {
+      if (l.id === 'reformCash') expect(l.cents.yours).toBe(cash);
+      else if (l.group === 'institutional' || l.group === 'designScope') expect(l.cents.yours, l.id).toBe(0);
+    }
+    // What is left over Poland: the price level (on the escalation and the standing organisation too) and the
+    // $80M of surveys and plant bought on a project whose Polish price is $366M.
+    expect(r.ratios.yoursToPoland).toBeGreaterThan(1.6);
+    expect(r.ratios.yoursToPoland).toBeLessThan(1.9);
   });
 });

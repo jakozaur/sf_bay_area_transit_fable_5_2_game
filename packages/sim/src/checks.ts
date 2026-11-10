@@ -86,7 +86,10 @@ export function checkAlignment(waypoints: readonly Waypoint[], methods?: readonl
     if (grade > maxGradePct) maxGradePct = grade;
     if (grade > MAX_GRADE_PCT + 1e-9) {
       segmentIssues[i] = 'grade';
-      problems.push(`Segment ${i + 1} climbs ${grade.toFixed(1)} percent, maximum ${MAX_GRADE_PCT} percent`);
+      // Just over the limit, one decimal would print the limit itself ("climbs 3.0 percent, maximum 3").
+      problems.push(
+        `Segment ${i + 1} climbs ${grade.toFixed(grade < MAX_GRADE_PCT + 0.1 ? 2 : 1)} percent, maximum ${MAX_GRADE_PCT} percent`,
+      );
     }
   }
   for (let i = 1; i + 1 < n; i++) {

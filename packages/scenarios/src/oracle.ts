@@ -56,7 +56,7 @@ export const ORACLE_SHUTTLE: ScenarioDef = {
     officialCost: 'No official figure exists. The game prices the same line under 2026 rules and shows that as the status quo.',
     officialDate: 'No official date exists.',
     why: 'Oracle moved its headquarters to Austin in 2020 and announced Nashville in 2024. The campus is still there. Is a tunnel to it?',
-    source: 'doc 05 section 5 (campus anchor, headquarters moves)',
+    source: 'doc 05 section 5 (campus location; headquarters moves announced in 2020 and 2024); a fictional project',
   },
   start: {
     date: '2026-11-09',

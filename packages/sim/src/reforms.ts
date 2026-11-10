@@ -17,7 +17,15 @@ export const BRANCHES: { id: Branch; title: string }[] = [
   { id: 'tunnelling', title: 'Tunnelling technology' },
 ];
 
-export const EVENT_IDS = ['lawsuit', 'utilitySurprise', 'tbmStuck', 'changeOrder', 'fundingGap', 'contractorBankruptcy'] as const;
+export const EVENT_IDS = [
+  'lawsuit',
+  'utilitySurprise',
+  'tbmStuck',
+  'changeOrder',
+  'fundingGap',
+  'contractorBankruptcy',
+  'cashCall',
+] as const;
 export type EventId = (typeof EVENT_IDS)[number];
 
 /** Status-quo profile. Reformed targets are in constants.ts; the tree below is built to reach them exactly. */
@@ -60,6 +68,8 @@ export const STATUS_QUO_PROFILE = {
   'event.changeOrder.rate': 1,
   'event.fundingGap.rate': 1,
   'event.contractorBankruptcy.rate': 1,
+  /** The cash call is raised by the books, not by a hazard; the key exists so every card has one. */
+  'event.cashCall.rate': 1,
 } as const satisfies Record<string, number>;
 
 export type ProfileKey = keyof typeof STATUS_QUO_PROFILE;
@@ -141,7 +151,7 @@ export const REFORMS: readonly ReformDef[] = [
   node(
     'railSpecustawa',
     'permitting',
-    'Rail specustawa',
+    'One-permit rail act (the Polish specustawa)',
     pc(45),
     ['megaprojectCertification'],
     [mul('time.planning', 0.5), mul('time.permitting', 0.6), mul('event.lawsuit.rate', 0.25)],
@@ -236,7 +246,8 @@ export const REFORMS: readonly ReformDef[] = [
     pc(10),
     ['inHouseEngineering', 'bestValueAward'],
     [
-      mul('unit.procurement', 1 / 1.25),
+      // Best-value award (1.2) and open tenders (1.1) take the first part of the 1.5; this takes the rest.
+      mul('unit.procurement', 1.32 / 1.5),
       add('soft.contingency', -0.175),
       mul('event.changeOrder.rate', 0.5),
       mul('time.procurement', 12 / 16.56),
@@ -250,19 +261,19 @@ export const REFORMS: readonly ReformDef[] = [
     'Small lots, world bidders',
     pc(25),
     [],
-    [mul('unit.priceLevel', 0.8)],
+    [mul('unit.procurement', 1 / 1.1)],
     'Split the job so more than three firms on Earth can bid for it.',
-    'doc 07 P3 (Madrid, Chile; bid prices -10 percent); doc 11 section 4.2 (Port of Miami within 2x of Poland)',
+    'doc 07 P3 (Madrid, Chile; bid prices -10 percent)',
   ),
   node(
     'importSupplyChain',
     'procurement',
     'Buy at world prices',
-    pc(20),
+    pc(10),
     ['openTenders'],
-    [mul('unit.priceLevel', 1.25 / 1.61), mul('systems.factor', 1 / 1.15)],
-    'Segments, steel and signalling at the exchange rate. Doc 11 says no reform removes this gap; the owner asked for Polish prices, so the game lets you try.',
-    'doc 07 F1 (Buy America waiver rule); doc 11 section 4.2 (nominal over PPP, x1.6)',
+    [mul('systems.factor', 1 / 1.15)],
+    'Track, power and signalling from whoever makes them best. Wages and rents in the Bay Area stay what they are: no reform moves the price level.',
+    'doc 07 F1 (Buy America waiver rule; rolling stock and systems only)',
   ),
   node(
     'roundTheClock',
@@ -400,14 +411,31 @@ export const REFORMS: readonly ReformDef[] = [
   ),
 ];
 
-const REFORM_BY_ID = new Map<string, ReformDef>(REFORMS.map((r) => [r.id, r]));
+/**
+ * Not a reform: the Polish price level. Wages, rents and materials cost 1.61 times more in the Bay Area at the
+ * market exchange rate (doc 11 sections 4.2 and 5.1), and nothing the player can enact changes that. It is part
+ * of POLAND_PROFILE so that "what Poland would have paid" is priced in Poland; the tree never offers it and
+ * enactReform refuses it.
+ */
+export const POLISH_PRICE_LEVEL: ReformDef = node(
+  'polishPriceLevel',
+  'procurement',
+  'Polish price level',
+  pc(0),
+  [],
+  [set('unit.priceLevel', 1)],
+  'Build it in Poland.',
+  'doc 11 sections 4.2 and 5.1 (3.71 PLN/USD market rate over 2.3 construction PPP: 1.61)',
+);
+
+const REFORM_BY_ID = new Map<string, ReformDef>([...REFORMS, POLISH_PRICE_LEVEL].map((r) => [r.id, r]));
 
 export function reformById(id: string): ReformDef | undefined {
   return REFORM_BY_ID.get(id);
 }
 
 /** "What Poland would do": every reform that reflects documented Polish practice. */
-export const POLAND_PROFILE: readonly string[] = REFORMS.filter((r) => !r.beyondPoland).map((r) => r.id);
+export const POLAND_PROFILE: readonly string[] = [...REFORMS.filter((r) => !r.beyondPoland).map((r) => r.id), POLISH_PRICE_LEVEL.id];
 
 /** Reform ids that start enacted under a named cost profile. Unknown names fail loudly. */
 export function profileReforms(costProfile: string): readonly string[] {
@@ -426,7 +454,7 @@ export function profileFor(enacted: readonly string[]): Profile {
   const have = new Set(enacted);
   for (const id of have) if (!REFORM_BY_ID.has(id)) throw new Error(`sim: unknown reform id "${id}"`);
   const p: Profile = { ...STATUS_QUO_PROFILE };
-  for (const r of REFORMS) {
+  for (const r of [...REFORMS, POLISH_PRICE_LEVEL]) {
     if (!have.has(r.id)) continue;
     for (const e of r.effects) {
       if (e.op === 'mul') p[e.key] *= e.value;

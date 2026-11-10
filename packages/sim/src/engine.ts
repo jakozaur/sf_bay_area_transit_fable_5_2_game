@@ -2,13 +2,13 @@
  * Sim engine: initial state, command application, and the one-day step.
  * Pure over a JSON-serializable SimState. No DOM, no three, no wall clock; randomness only from the seeded core PRNG.
  */
-import { type Command, createRng, isInGrid, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
+import { type Command, createRng, isInGrid, Material, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
 import { checkAlignment, minRadiusFor } from './checks.ts';
 import { DAYS_PER_YEAR, ESCALATION_DAILY, CONSTANTS as K, SUBSTEPS_PER_DAY } from './constants.ts';
 import { ridership } from './demand.ts';
 import { defaultMethod, designOption, optionLocks, stationBoxOf, stationSize } from './design.ts';
 import { driveFromPlan, driveSubstep } from './drive.ts';
-import { EVENTS, type EventDef, type EventOption, eventById } from './events.ts';
+import { EVENTS, type EventDef, type EventOption, eventById, eventTitle } from './events.ts';
 import { capsuleBetween, carveCapsules, chainages, nearestChainage, pointAt, segmentIndexAt } from './geometry.ts';
 import { faceGeology, type GroundQuery } from './ground.ts';
 import {
@@ -17,6 +17,7 @@ import {
   civilCentsPerM,
   effectiveMethod,
   hardCost,
+  headingSpans,
   isTbm,
   isUnderground,
   PHASE_LABELS,
@@ -27,7 +28,7 @@ import {
   stationCostCents,
   systemsCostCents,
 } from './model.ts';
-import { type Profile, profileFor, profileReforms, reformById, unitFactor } from './reforms.ts';
+import { POLISH_PRICE_LEVEL, type Profile, profileFor, profileReforms, reformById, unitFactor } from './reforms.ts';
 import {
   type DesignFlags,
   FEED_LENGTH,
@@ -40,6 +41,7 @@ import {
   type LedgerCategory,
   METHODS,
   type Method,
+  PAID_STEPS,
   type PaidLedger,
   type PhaseId,
   type ProjectState,
@@ -83,11 +85,12 @@ const STATION_CARVE_STEP_M = 5;
 const STATION_EXCAVATION_SHARE = K.stationExcavationShare.value;
 /**
  * Political capital: a small monthly mandate plus milestones (doc 07 section 5: earned by delivering). Tuning,
- * round 2: The Portal starts with 40, enough for two or three reforms; a first run earns about 130 more by
- * opening day, so with the reforms that cost money about half the tree is within reach.
+ * round 2: The Portal starts with 40, enough for two or three reforms. Every finished phase pays 15, so each
+ * gate (tender, launch, opening) arrives with something to spend before the money that reform would have
+ * saved is committed. The first playtest had 8 per phase and the capital piled up unspent after the build.
  */
 export const PC_PER_MONTH = 1;
-export const PC_PHASE_DONE = 8;
+export const PC_PHASE_DONE = 15;
 export const PC_BREAKTHROUGH = 10;
 export const PC_OPENING = 20;
 const PC_RIDERS_PER_POINT = 10_000;
@@ -96,6 +99,10 @@ const MAX_GRADE = K.maxGradePct.value / 100;
 const OFF_PLAN_FACTOR = K.driveOffPlanCostFactor.value;
 const TRAIL_STEP_M = K.trailStepM.value;
 const FREE_DEVIATION_M = K.driveFreeDeviationM.value;
+const COVER_M = K.driveCoverM.value;
+/** Smallest cash call, and the grain it is rounded up to: ten million dollars. */
+const CASH_CALL_GRAIN = 1_000_000_000;
+const CASH_CALL_STANDING_YEARS = 3;
 /** A station this close to the end of a heading's run is the box the heading breaks into. */
 const RECEPTION_REACH_M = 150;
 /** A heading repeats its off-plan or corridor banner at most once in this many game days. */
@@ -184,6 +191,7 @@ export function initState(scenario: ScenarioDef, seed: number, opts: { costProfi
     objectiveStatus: {},
     missionCompleteTick: -1,
     cashShort: false,
+    cashRaisedCents: 0,
   };
 }
 
@@ -197,7 +205,8 @@ function feed(state: SimState, ctx: StepContext, kind: FeedKind, projectId: stri
 
 function usd(cents: number): string {
   const abs = Math.abs(cents);
-  return abs >= 1e11 ? `$${(cents / 1e11).toFixed(2)}B` : `$${(cents / 1e8).toFixed(0)}M`;
+  const sign = cents < 0 ? '-' : '';
+  return abs >= 1e11 ? `${sign}$${(abs / 1e11).toFixed(2)}B` : `${sign}$${(abs / 1e8).toFixed(0)}M`;
 }
 
 // ---------------------------------------------------------------- command parsing
@@ -371,8 +380,8 @@ function spend(state: SimState, project: ProjectState, category: LedgerCategory,
 
 /**
  * Hard cost with its soft-cost and contingency riders. The contingency is charged as it accrues
- * ("all money in the budget will be spent", doc 06 section 3.3) and forms a pool that event costs draw
- * on first; event costs paid before the pool existed are netted against later accruals.
+ * ("all money in the budget will be spent", doc 06 section 3.3). Event costs are charged on top of it
+ * (eventSpend): a contingency that is always spent absorbs nothing.
  */
 function hardSpend(
   state: SimState,
@@ -391,11 +400,8 @@ function hardSpend(
   const contBase = round((base + soft) * p['soft.contingency']);
   if (contBase > 0) {
     const cont = round(contBase * state.escalation);
-    const offset = Math.min(cont, project.contingencyCreditCents);
-    project.contingencyCreditCents -= offset;
-    const net = cont - offset;
-    project.contingencyPoolCents += net;
-    charge(state, project, 'contingency', net, round((net * (cont - contBase)) / cont));
+    project.contingencyPoolCents += cont;
+    charge(state, project, 'contingency', cont, cont - contBase);
   }
 }
 
@@ -423,17 +429,34 @@ export function addPaid(paid: PaidLedger, p: Profile, category: 'civil' | 'stati
   steps[7] += v;
 }
 
+/**
+ * The price of a card option, charged in full at today's prices. The first playtest found the old rule (draw on
+ * the contingency pool first) made "Pay it. $15M" move the funds by nothing: under the status quo the pool is
+ * spent whatever happens, so the card's two prices were not a choice.
+ */
 function eventSpend(state: SimState, project: ProjectState, baseCents: number): void {
   const base = round(baseCents);
   if (base <= 0) return;
   const cents = round(base * state.escalation);
-  const fromPool = Math.min(cents, project.contingencyPoolCents);
-  project.contingencyPoolCents -= fromPool;
-  const rest = cents - fromPool;
-  if (rest > 0) {
-    project.contingencyCreditCents += rest;
-    charge(state, project, 'events', rest, round((rest * (cents - base)) / cents));
-  }
+  charge(state, project, 'events', cents, cents - base);
+}
+
+/**
+ * Money a cash call raises: what the works still to do cost at today's prices and rules, plus the overdraft,
+ * rounded up to ten million dollars. One call is meant to be enough; a second one means the estimate grew
+ * after the first (a card, a delay, a dearer design).
+ */
+export function cashCallCents(state: SimState, project: ProjectState, p: Profile): number {
+  const riders = (1 + p['soft.fixed']) * (1 + p['soft.contingency']);
+  // What is built and paid so far, unescalated with its riders, is the last step of the paid ledger.
+  const toDo = Math.max(0, project.hardEstimateCents * riders - project.paid.steps[PAID_STEPS.length - 1]);
+  // Escalation over the years still to come: a quarter on top of today's index (tuning). And the standing
+  // organisation for three more years, so that the year a "wait" costs is inside the money it raises: a call
+  // that did not cover its own delay would come straight back.
+  const standing = project.hardEstimateCents * p['soft.overheadPerYear'] * CASH_CALL_STANDING_YEARS;
+  const remaining = (toDo * 1.25 + standing) * state.escalation;
+  const need = Math.max(CASH_CALL_GRAIN, remaining - state.cashCents);
+  return Math.ceil(need / CASH_CALL_GRAIN) * CASH_CALL_GRAIN;
 }
 
 // ---------------------------------------------------------------- projects
@@ -514,31 +537,26 @@ function makeFronts(state: SimState, project: ProjectState): void {
   const flags = project.frozen;
   if (!flags) throw new Error(`sim: project "${project.id}" has no frozen design at launch`);
   const fronts: FrontState[] = [];
-  let i = 0;
-  while (i < project.methods.length) {
-    const method = effectiveMethod(project.methods[i], flags);
-    let j = i;
-    while (j + 1 < project.methods.length && effectiveMethod(project.methods[j + 1], flags) === method) j++;
+  for (const span of headingSpans(project, flags)) {
     const n = fronts.length + 1;
-    let name = `${HEADING_LABEL[method]} ${n}`;
-    if (isTbm(method)) {
+    let name = `${HEADING_LABEL[span.method]} ${n}`;
+    if (isTbm(span.method)) {
       name = `TBM ${TBM_NAMES[state.nextFrontName % TBM_NAMES.length]}`;
       state.nextFrontName++;
     }
     fronts.push({
       id: `${project.id}/f${n}`,
       name,
-      method,
-      fromM: project.cum[i],
-      toM: project.cum[j + 1],
-      chainageM: project.cum[i],
+      method: span.method,
+      fromM: span.fromM,
+      toM: span.toM,
+      chainageM: span.fromM,
       downDays: 0,
       downReason: null,
       boredM: 0,
       breakthroughTick: -1,
       drive: null,
     });
-    i = j + 1;
   }
   project.fronts = fronts;
 }
@@ -847,7 +865,15 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       makeFronts(state, project);
       state.version++;
       for (const front of project.fronts) {
-        if (isDrivable(front.method)) feed(state, ctx, 'tbmLaunched', project.id, front.id, `${front.name} is launched`);
+        if (isDrivable(front.method))
+          feed(
+            state,
+            ctx,
+            'tbmLaunched',
+            project.id,
+            front.id,
+            isTbm(front.method) ? `${front.name} is launched` : `${front.name} has started`,
+          );
       }
       return;
     }
@@ -882,15 +908,20 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
     case 'enactReform': {
       const def = reformById(cmd.id);
       if (!def) return reject(state, cmd, `no reform "${cmd.id}"`);
-      if (state.reforms.includes(def.id)) return reject(state, cmd, `reform "${def.id}" is already enacted`);
-      const missing = def.prereqs.filter((id) => !state.reforms.includes(id));
-      if (missing.length > 0) return reject(state, cmd, `reform "${def.id}" needs ${missing.join(', ')} first`);
+      if (def.id === POLISH_PRICE_LEVEL.id) return reject(state, cmd, 'No reform changes the price level of the Bay Area');
+      // A second click on the same button before the snapshot caught up: the reform is enacted, nothing to say.
+      if (state.reforms.includes(def.id)) return;
+      const missing = def.prereqs.filter((id) => !state.reforms.includes(id)).map((id) => `"${reformById(id)?.title ?? id}"`);
+      if (missing.length > 0) return reject(state, cmd, `"${def.title}" needs ${missing.join(' and ')} first`);
       if (state.politicalCapital < def.cost.pc)
-        return reject(state, cmd, `reform "${def.id}" costs ${def.cost.pc} political capital, you have ${state.politicalCapital}`);
+        return reject(state, cmd, `"${def.title}" costs ${def.cost.pc} political capital, you have ${state.politicalCapital}`);
       if (def.cost.cents > 0 && state.cashCents < def.cost.cents)
-        return reject(state, cmd, `reform "${def.id}" costs $${(def.cost.cents / 1e8).toFixed(0)}M, cash is short`);
+        return reject(state, cmd, `"${def.title}" costs $${(def.cost.cents / 1e8).toFixed(0)}M, cash is short`);
       state.politicalCapital -= def.cost.pc;
-      charge(state, null, 'reforms', def.cost.cents, 0);
+      // What a reform costs in cash is paid by the project it is bought for, so it is inside "all-in".
+      const planId = state.scenario.reference?.projectId ?? 'line';
+      const payer = state.projects.find((x) => x.id === planId && x.status !== 'open') ?? state.projects.find((x) => x.status !== 'open');
+      charge(state, payer ?? null, 'reforms', def.cost.cents, 0);
       state.reforms.push(def.id);
       const next = _profileFor(state.reforms);
       for (const project of state.projects) if (project.status !== 'open') refreshEstimate(project, next);
@@ -1054,6 +1085,15 @@ function resolveEvent(
   if (!project) throw new Error(`sim: event ${uid} points at missing project "${projectId}"`);
   state.politicalCapital -= option.pc;
   eventSpend(state, project, project.hardEstimateCents * option.hardShare);
+  if (def.id === 'cashCall') {
+    const raised = cashCallCents(state, project, p);
+    state.cashCents += raised;
+    state.cashRaisedCents = (state.cashRaisedCents ?? 0) + raised;
+    const fee = round(raised * (option.feeShare ?? 0));
+    // The fee is in today's dollars already.
+    if (fee > 0) charge(state, project, 'events', fee, 0);
+    feed(state, ctx, 'fundingReleased', projectId, def.id, `${usd(raised)} raised${fee > 0 ? `, ${usd(fee)} in fees` : ''}`);
+  }
   let delay = option.delayDays;
   if (def.id === 'lawsuit') delay = Math.min(delay, p['event.lawsuit.delayCapDays']);
   const front = frontId ? project.fronts.find((f) => f.id === frontId) : undefined;
@@ -1066,7 +1106,7 @@ function resolveEvent(
   } else project.delayDays += delay;
   state.eventLog.push({ uid, defId: def.id, projectId, optionId: option.id, tick: state.tick, byDefault });
   state.version++;
-  feed(state, ctx, 'eventResolved', projectId, def.id, `${def.title}: ${option.label}`);
+  feed(state, ctx, 'eventResolved', projectId, def.id, `${eventTitle(def, project.eventCounts[def.id] ?? 1)}: ${option.label}`);
 }
 
 /** Annual hazard of a card for a project under a profile, or 0 when it cannot be drawn. Exposed for tests and tooltips. */
@@ -1103,8 +1143,29 @@ function rollEvents(state: SimState, project: ProjectState, p: Profile, rng: Uin
     });
     state.nextEventUid++;
     state.version++;
-    feed(state, ctx, 'eventRaised', project.id, def.id, def.title);
+    feed(state, ctx, 'eventRaised', project.id, def.id, eventTitle(def, project.eventCounts[def.id]));
   }
+}
+
+/** The books are in the red and nobody has been asked for money yet: raise the cash call on the project that is spending. */
+function raiseCashCall(state: SimState, ctx: StepContext): void {
+  if (state.pendingEvents.some((e) => e.defId === 'cashCall')) return;
+  const planId = state.scenario.reference?.projectId ?? 'line';
+  const project = state.projects.find((x) => x.id === planId && x.status === 'active') ?? state.projects.find((x) => x.status === 'active');
+  const def = eventById('cashCall');
+  if (!project || !def) return;
+  project.eventCounts[def.id] = (project.eventCounts[def.id] ?? 0) + 1;
+  state.pendingEvents.push({
+    uid: state.nextEventUid,
+    defId: def.id,
+    projectId: project.id,
+    frontId: null,
+    raisedTick: state.tick,
+    deadlineTick: state.tick + def.deadlineDays,
+  });
+  state.nextEventUid++;
+  state.version++;
+  feed(state, ctx, 'eventRaised', project.id, def.id, def.title);
 }
 
 // ---------------------------------------------------------------- the daily step
@@ -1317,10 +1378,21 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
   const rate = _advanceRate(front.method, d.geology, p, front.boredM);
   const wasOffPlan = d.offPlan;
   const wasBlocked = d.blocked;
-  const step = driveSubstep(d, waypoints, cum, front.toM, rate, limits, freeDeviationM(waypoints, cum, d.planM, limits.minRadiusM));
+  const shape = carveShape(front.method, flags);
+  // Cover over the crown, read from the world. Without a ground query (headless runs) the rule is off.
+  let thin = false;
+  if (ctx.ground && d.verticalM > 0) {
+    const above = ctx.ground(d.x, d.y + shape.radiusM + COVER_M, d.z);
+    thin = above === Material.AIR || above === Material.WATER;
+  }
+  const step = driveSubstep(d, waypoints, cum, front.toM, rate, limits, freeDeviationM(waypoints, cum, d.planM, limits.minRadiusM), thin);
   if (d.blocked && !wasBlocked && state.tick - d.corridorNoticeTick >= NOTICE_GAP_DAYS) {
     d.corridorNoticeTick = state.tick;
     feed(state, ctx, 'tbmStopped', project.id, front.id, `${front.name} is at the edge of its corridor and re-steers towards the plan`);
+  }
+  if (step.dived && state.tick - (d.coverNoticeTick ?? -1_000_000) >= NOTICE_GAP_DAYS) {
+    d.coverNoticeTick = state.tick;
+    feed(state, ctx, 'tbmOffPlan', project.id, front.id, `${front.name} is too close to the surface: the shield dives back under cover`);
   }
   if (step.advancedM <= 0) return;
   front.boredM += step.advancedM;
@@ -1340,7 +1412,6 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
     );
   }
 
-  const shape = carveShape(front.method, flags);
   const dx = d.x - d.carveX;
   const dy = d.y - d.carveY;
   const dz = d.z - d.carveZ;
@@ -1526,8 +1597,10 @@ export function advanceDay(state: SimState, ctx: StepContext): void {
   if (ctx.forecast) return;
   if (state.cashCents < 0 && !state.cashShort) {
     state.cashShort = true;
-    feed(state, ctx, 'cashShort', null, null, `The plan of finance has a hole: cash is ${usd(state.cashCents)}`);
+    feed(state, ctx, 'cashShort', null, null, 'The money has run out');
   } else if (state.cashCents >= 0) state.cashShort = false;
+  // An empty account stops the work: the card holds the clock until the player has found the money.
+  if (state.cashCents < 0 && state.eventsEnabled) raiseCashCall(state, ctx);
   if (ctx.evaluate) {
     const statuses = ctx.evaluate(state);
     for (const o of statuses) {

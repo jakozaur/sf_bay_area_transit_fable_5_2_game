@@ -432,10 +432,10 @@ describe('driving a TBM', () => {
     expect(taken).toMatchObject({ driven: true, autopilot: false, thrust: 1, steer: 0, status: 'running', stopReason: null });
     expect(taken.position).toEqual(before.position);
     expect(taken.yaw).toBeCloseTo(before.yaw, 9);
-    // 20 game hours a second; a 10.5 m/day machine then moves 8.75 m of tunnel a second, above the 8 m/s floor.
-    expect(sim.snapshot().clock).toMatchObject({ mode: 'drive', daysPerSecond: CONSTANTS.driveGameHoursPerSecond.value / 24 });
     // Start-up stretch in soft ground: 30 m/day peak x 0.35 utilisation x 0.4.
     const full = 30 * 0.35 * 0.4;
+    // The start-up is slow in game days, not on screen: the clock runs faster so the face still moves 8 m a second.
+    expect(sim.snapshot().clock).toMatchObject({ mode: 'drive', daysPerSecond: CONSTANTS.driveFaceMetresPerSecond.value / full });
     expect(taken.maxRateMPerDay).toBeCloseTo(full, 9);
     substeps(sim, SUBSTEPS_PER_DAY);
     expect(tbm(sim).boredM - before.boredM).toBeCloseTo(full, 6);
@@ -865,7 +865,9 @@ describe('estimate while drawing', () => {
     expect(by('twoTracks').receiptLines).toEqual(['designTunnel', 'designStations', 'designSystems']);
     expect(by('nepaPageLimits').preview?.daysDelta).toBeLessThan(-300);
     expect(by('nepaPageLimits').receiptLines).toEqual(['escalation', 'overhead']);
-    expect(by('openTenders').receiptLines).toEqual(['priceLevel']);
+    expect(by('openTenders').receiptLines).toEqual(['procurement']);
+    // No reform touches the price level.
+    expect(s.reforms.some((r) => r.receiptLines.includes('priceLevel'))).toBe(false);
     expect(by('bestValueAward').receiptLines).toEqual(['procurement', 'events']);
     expect(by('stageGates').preview).toMatchObject({ projectId: TEST_PROJECT, daysDelta: 0 });
     const before = s.projects[0].receipt.columns.yours.costCents;
@@ -919,18 +921,30 @@ describe('receipt and scorecard', () => {
     // Nothing enacted yet: your column is the status quo, and Poland pays for neither design nor levers.
     expect(draft.ratios.yoursToStatusQuo).toBeCloseTo(1, 3);
     for (const l of draft.lines) {
+      // Nothing was bought with cash yet.
+      if (l.id === 'reformCash') {
+        expect(l.cents).toEqual({ yours: 0, statusQuo: 0, poland: 0 });
+        continue;
+      }
       if (l.group === 'designScope' || l.group === 'institutional' || l.group === 'priceLevel') {
-        expect(Math.abs(l.cents.poland), l.id).toBeLessThan(100_000);
+        // Residue under a thousand dollars is not printed as money: a line Poland does not pay is exactly zero.
+        expect(l.cents.poland, l.id).toBe(0);
+        expect(l.factor.poland, l.id).toBe(1);
         expect(l.cents.yours, l.id).toBeGreaterThan(0);
-        expect(l.reforms.length, l.id).toBeGreaterThan(0);
         expect(l.status, l.id).toBe('paid');
+        if (l.id !== 'priceLevel') expect(l.reforms.length, l.id).toBeGreaterThan(0);
       }
     }
+    // The price level is its own line, applied first, and no reform is listed against it.
     const price = draft.lines.find((l) => l.id === 'priceLevel');
     expect(price?.group).toBe('priceLevel');
     expect(price?.factor.yours).toBeCloseTo(1.61, 6);
-    expect(price?.factor.poland).toBeCloseTo(1, 9);
-    expect(price?.reforms.map((r) => r.id)).toEqual(['openTenders', 'importSupplyChain']);
+    expect(price?.factor.poland).toBe(1);
+    expect(price?.reforms).toEqual([]);
+    expect(price?.cents.yours).toBe(Math.round(draft.columns.yours.baseCents * 1.61) - draft.columns.yours.baseCents);
+    // Same route: every column starts from the same Polish design at Polish prices.
+    expect(draft.columns.yours.baseCents).toBe(draft.columns.poland.baseCents);
+    expect(draft.columns.statusQuo.baseCents).toBe(draft.columns.poland.baseCents);
     expect(draft.lines.find((l) => l.id === 'procurement')?.factor.yours).toBeCloseTo(1.5, 6);
     expect(draft.lines.find((l) => l.id === 'escalation')?.cents.poland).toBeGreaterThan(0);
 
@@ -959,7 +973,7 @@ describe('receipt and scorecard', () => {
     expect(card.final).toBe(true);
     expect(card.yours.costCents).toBe(final.columns.yours.costCents);
     expect(card.ghost.kind).toBe('model');
-    expect(card.ghost.source).toMatch(/no official figure exists/);
+    expect(card.ghost.source).toMatch(/No official figure exists/);
     expect(card.poland.costCents).toBe(final.columns.poland.costCents);
     expect(card.axes.map((a) => a.id)).toEqual(['cost', 'date', 'riders']);
     expect(card.stars).toBe(Math.min(...card.axes.map((a) => a.stars)));

@@ -9,7 +9,7 @@
 import { DAYS_PER_YEAR } from './constants.ts';
 import { dateAtTick } from './dates.ts';
 import { advanceDay, applyCommand, autopilotCommands, projectLengthM, projectSpentCents, type StepContext } from './engine.ts';
-import { designFlags, hardCost, projectFlags } from './model.ts';
+import { designFlags, hardCost, polishGeometry, polishMethods, polishTemplate, projectFlags } from './model.ts';
 import { POLAND_PROFILE, type Profile, profileFor } from './reforms.ts';
 import {
   type ComparisonView,
@@ -125,6 +125,25 @@ export function redrawCommands(project: ProjectState): GameCommand[] {
   return out;
 }
 
+/**
+ * Commands that draw the Polish design of a project's route: the same alignment and station sites, twin bores
+ * under ground, compact standard boxes. What "Poland" is priced on, whatever the player has chosen.
+ */
+export function polishRedrawCommands(project: ProjectState): GameCommand[] {
+  return redrawCommands(project).map((c) => {
+    if (c.t === 'setAlignment' && c.methods) return { ...c, methods: polishMethods(c.methods) };
+    if (c.t === 'addStation') return { ...c, template: polishTemplate(c.template) };
+    return c;
+  });
+}
+
+/** The Polish design of this route under the Polish profile, from a blank project on the project's start date. */
+export function polandRun(state: SimState, project: ProjectState): DesignRun {
+  const tick0 = project.approvedTick >= 0 ? project.approvedTick : state.tick;
+  const esc0 = project.approvedTick >= 0 ? project.approvedEscalation : state.escalation;
+  return runDesign(state, polishRedrawCommands(project), project.id, POLAND_PROFILE, tick0, esc0);
+}
+
 /** Draws a project with `commands` in an empty world under `reforms`, starting at `tick0`, and runs it to opening. */
 export function runDesign(
   state: SimState,
@@ -158,7 +177,8 @@ export function forecastDesign(state: SimState, project: ProjectState, reforms: 
 /** What Poland would have paid and how long it would have taken. */
 export function polandBenchmark(state: SimState, project: ProjectState): { costCents: number; days: number } {
   if (project.status === 'open' && project.polandCostCents > 0) return { costCents: project.polandCostCents, days: project.polandDays };
-  return forecastDesign(state, project, POLAND_PROFILE);
+  const run = polandRun(state, project);
+  return { costCents: run.costCents, days: run.days };
 }
 
 function softMultiplier(p: Profile): number {
@@ -190,7 +210,7 @@ export function comparison(
   const polandYears = poland.days / DAYS_PER_YEAR;
 
   const flagsCur = projectFlags(project, cur);
-  const hPolishDesign = hardCost(project, pl, designFlags(pl), true);
+  const hPolishDesign = hardCost(polishGeometry(project), pl, designFlags(pl), true);
   const hActualPolishPrices = hardCost(project, cur, flagsCur, true);
   const hCurrent = hardCost(project, cur, flagsCur, false);
   const softCur = softMultiplier(cur);

@@ -15,6 +15,8 @@ export interface EventOption {
   delayDays: number;
   /** Political capital spent. */
   pc: number;
+  /** Cash call only: fee on the money raised, as a share of it, booked with the event costs. */
+  feeShare?: number;
 }
 
 export interface EventDef {
@@ -131,10 +133,32 @@ export const EVENTS: readonly EventDef[] = [
     defaultOption: 'retender',
     deadlineDays: 30,
   },
+  {
+    id: 'cashCall',
+    title: 'The Plan of Finance Has a Hole',
+    description: 'The account is empty and the contractors have noticed. Nothing moves until somebody finds the money.',
+    evidence: 'doc 05 section 3.1 (The Portal: about $2.2 billion of the budget is still "to be identified")',
+    // Raised by the books when cash runs out (engine.ts), never by a hazard roll.
+    phases: ['planning', 'permitting', 'procurement', 'utilities', 'construction', 'fitOut'],
+    annualRate: 0,
+    maxPerProject: 1000,
+    options: [
+      { id: 'wait', label: 'Wait for the next ballot measure.', hardShare: 0, delayDays: 365, pc: 0 },
+      { id: 'bridge', label: 'Borrow against future fares.', hardShare: 0, delayDays: 0, pc: 0, feeShare: 0.08 },
+      { id: 'favours', label: 'Call in every favour in Sacramento.', hardShare: 0, delayDays: 0, pc: 25 },
+    ],
+    defaultOption: 'wait',
+    deadlineDays: 30,
+  },
 ];
 
 const EVENT_BY_ID = new Map<string, EventDef>(EVENTS.map((e) => [e.id, e]));
 
 export function eventById(id: string): EventDef | undefined {
   return EVENT_BY_ID.get(id);
+}
+
+/** Card title for the `nth` time a project draws it (1 for the first). Change orders are numbered as they come. */
+export function eventTitle(def: EventDef, nth: number): string {
+  return def.id === 'changeOrder' ? `Change Order No. ${46 + Math.max(1, nth)}` : def.title;
 }

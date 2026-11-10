@@ -282,6 +282,10 @@ export interface DriveState {
   corridorNoticeTick: number;
   /** Held at the corridor edge while the shield re-steers towards the plan. */
   blocked: boolean;
+  /** Metres of arc the shield has re-steered in place at the corridor edge since it was last inside. Absent in older saves: 0. */
+  blockedFor?: number;
+  /** Tick of the last "too close to the surface" banner of this heading. Absent in older saves. */
+  coverNoticeTick?: number;
 }
 
 export interface FrontState {
@@ -451,6 +455,8 @@ export interface SimState extends SimStateV {
   missionCompleteTick: number;
   /** Cash is below zero (the cashShort feed item fires on the way down). */
   cashShort: boolean;
+  /** Money raised by cash calls so far. Absent in older saves: 0. */
+  cashRaisedCents?: number;
 }
 
 // ---------------------------------------------------------------- snapshot
@@ -497,10 +503,12 @@ export const RECEIPT_GROUPS = ['designScope', 'institutional', 'delay', 'priceLe
 export type ReceiptGroup = (typeof RECEIPT_GROUPS)[number];
 
 /**
- * Receipt lines in waterfall order. Each belongs to one group:
+ * Receipt lines in display order. Each belongs to one group. The waterfall is computed with the price level
+ * first (base x price level, then design, levers and delay in the order listed), so the price-level line is the
+ * same dollars whatever the player reforms, and every other line is in Bay Area dollars:
  * - designScope: designTunnel (cross-section and method), designStations (box size, mezzanine, finish), designSystems (track count).
  * - institutional, by name: procurement, staffing, utilities (third parties), systemsSupply (bespoke and Buy America),
- *   softCosts (consultants, project management), contingency.
+ *   softCosts (consultants, project management), contingency, reformCash (what the reforms and machines cost in cash).
  * - delay: escalation (price index over the schedule), overhead (standing organisation per year), events (card overruns),
  *   offPlan (driving off the alignment), handDig (free digging booked to the project).
  * - priceLevel: the nominal price-level gap, CONSTANTS.priceLevelFactor (1.61 under the status quo).
@@ -515,6 +523,7 @@ export const RECEIPT_LINES = [
   'systemsSupply',
   'softCosts',
   'contingency',
+  'reformCash',
   'escalation',
   'overhead',
   'events',
@@ -831,6 +840,19 @@ export interface TrainView extends TrainEntity {
 export const MISSION_STAGES = ['plan', 'approvals', 'build', 'open', 'done'] as const;
 export type MissionStage = (typeof MISSION_STAGES)[number];
 
+/** An end point of a connect objective, for its marker on the map. */
+export interface MissionTarget {
+  name: string;
+  x: number;
+  z: number;
+  /** A station within this plan distance serves the target. */
+  radiusM: number;
+  /** Belongs to a stretch objective only. */
+  stretch: boolean;
+  /** A station of the mission project is within reach. */
+  served: boolean;
+}
+
 export interface MissionView {
   /** Scenario id. */
   id: string;
@@ -845,6 +867,8 @@ export interface MissionView {
   /** The line is open and the connect objective is met. The app then records `result` in the campaign profile. */
   complete: boolean;
   result: MissionResult | null;
+  /** Where the mission's connect objectives want stations. Empty in free build. */
+  targets: MissionTarget[];
 }
 
 /** How the frame driver should spend wall time. Advisory, like speed: stepping the sim by hand ignores it. */
@@ -1042,7 +1066,16 @@ export interface EventView {
   projectId: string;
   deadlineTick: number;
   defaultOption: string;
-  options: { id: string; label: string; costCents: number; delayDays: number; pc: number; affordable: boolean }[];
+  options: {
+    id: string;
+    label: string;
+    costCents: number;
+    delayDays: number;
+    pc: number;
+    affordable: boolean;
+    /** Money the option brings in (a cash call), 0 for every other card. */
+    gainCents?: number;
+  }[];
 }
 
 export interface GameSnapshot extends SimSnapshot {
@@ -1063,6 +1096,8 @@ export interface GameSnapshot extends SimSnapshot {
     escalationCents: number;
     monthly: number[];
     funding: { id: string; name: string; amountCents: number; release: string; released: boolean }[];
+    /** Money raised by cash calls so far (the card "The Plan of Finance Has a Hole"). */
+    raisedCents?: number;
   };
   reforms: ReformView[];
   events: EventView[];

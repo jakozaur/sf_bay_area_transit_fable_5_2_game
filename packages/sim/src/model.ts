@@ -245,21 +245,31 @@ export function systemsCostCents(project: ProjectGeometry, p: Profile, flags: De
   return hardCost(project, p, flags, false).systemsCents;
 }
 
-const TBM_BASE = K.tbmPeakMPerDay.value * K.tbmUtilisation.value;
+const TBM_PEAK = K.tbmPeakMPerDay.value;
+const TBM_UTILISATION = K.tbmUtilisation.value;
+const TBM_MAX_UTILISATION = K.tbmMaxUtilisation.value;
+/** Peak rate of the large-bore class, so that the status-quo utilisation gives its measured mean. */
+const LARGE_PEAK = K.largeBoreMPerDay.value / TBM_UTILISATION;
+
+/** Share of the time a machine bores under profile `p`: the base utilisation times the tunnelling reforms, capped (PLAN 6.7). */
+export function tbmUtilisation(p: Profile): number {
+  return Math.min(TBM_MAX_UTILISATION, TBM_UTILISATION * p['tbm.rate']);
+}
 
 /**
  * Advance of a heading in m/day, before breakdowns.
  * Twin-bore metro machines run at the same rate in every profile (doc 11 section 5.3); everything
- * else is slowed by the construction time factor.
+ * else is slowed by the construction time factor. Tunnelling reforms raise the utilisation of a machine,
+ * never above CONSTANTS.tbmMaxUtilisation of its peak rate.
  */
 export function advanceRate(m: Method, geology: Geology, p: Profile, doneM: number): number {
   const g = relieved(GEOLOGY[geology].rate, p['tbm.geologyRelief'], false);
   const ctf = p['time.constructionFactor'];
   switch (m) {
     case 'boredTwin':
-      return TBM_BASE * g * p['tbm.rate'] * (doneM < K.twinBoreStartupM.value ? K.startupRateFactor.value : 1);
+      return TBM_PEAK * tbmUtilisation(p) * g * (doneM < K.twinBoreStartupM.value ? K.startupRateFactor.value : 1);
     case 'boredSingleLarge':
-      return ((K.largeBoreMPerDay.value * g * p['tbm.rate']) / ctf) * (doneM < K.largeBoreStartupM.value ? K.startupRateFactor.value : 1);
+      return ((LARGE_PEAK * tbmUtilisation(p) * g) / ctf) * (doneM < K.largeBoreStartupM.value ? K.startupRateFactor.value : 1);
     case 'mined':
       return (K.minedMPerDay.value * g) / ctf;
     case 'cutAndCover':
@@ -269,6 +279,68 @@ export function advanceRate(m: Method, geology: Geology, p: Profile, doneM: numb
     default:
       return K.atGradeMPerDay.value / ctf;
   }
+}
+
+/** Longest run one heading of a method works: a longer run is split into equal drives, each with its own machine or face. */
+export function maxHeadingM(m: Method): number {
+  if (m === 'boredTwin' || m === 'boredSingleLarge') return K.maxHeadingBoredM.value;
+  if (m === 'mined' || m === 'cutAndCover') return K.maxHeadingMinedM.value;
+  return K.maxHeadingSurfaceM.value;
+}
+
+export interface HeadingSpan {
+  method: Method;
+  fromM: number;
+  toM: number;
+}
+
+/**
+ * The headings a line is built in: one per run of segments with the same effective method, and a run longer
+ * than maxHeadingM in equal parts. The engine, the pits and the schedule estimate all read this one list.
+ */
+export function headingSpans(g: Pick<ProjectGeometry, 'methods' | 'cum'>, flags: DesignFlags): HeadingSpan[] {
+  const out: HeadingSpan[] = [];
+  let i = 0;
+  while (i < g.methods.length) {
+    const method = effectiveMethod(g.methods[i], flags);
+    let j = i;
+    while (j + 1 < g.methods.length && effectiveMethod(g.methods[j + 1], flags) === method) j++;
+    const from = g.cum[i];
+    const to = g.cum[j + 1];
+    const parts = Math.max(1, Math.ceil((to - from) / maxHeadingM(method) - 1e-9));
+    for (let k = 0; k < parts; k++) {
+      out.push({
+        method,
+        fromM: k === 0 ? from : from + ((to - from) * k) / parts,
+        toM: k === parts - 1 ? to : from + ((to - from) * (k + 1)) / parts,
+      });
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
+/**
+ * The Polish design of a route (owner decision): every underground segment is a twin 6.6 m bore, every
+ * underground station a compact standard box. Surface and viaduct segments stay what they are. This is the
+ * par the receipt starts from, and it does not move with the player's design choices.
+ */
+export function polishMethods(methods: readonly Method[]): Method[] {
+  return methods.map((m) => (isUnderground(m) ? 'boredTwin' : m));
+}
+
+export function polishTemplate(t: StationTemplate): StationTemplate {
+  return t === 'undergroundDeepMined' || t === 'inBore' ? 'undergroundStandard' : t;
+}
+
+/** Geometry of the Polish design of a line: same route and station sites, Polish methods and station templates. */
+export function polishGeometry(g: ProjectGeometry): ProjectGeometry {
+  return {
+    waypoints: g.waypoints,
+    cum: g.cum,
+    methods: polishMethods(g.methods),
+    stations: g.stations.map((s) => ({ template: polishTemplate(s.template), depthM: s.depthM })),
+  };
 }
 
 /** Planned length in days of a clock-driven phase. Construction is driven by headings and stations instead. */

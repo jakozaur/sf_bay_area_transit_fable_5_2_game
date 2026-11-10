@@ -97,7 +97,7 @@ export const CONSTANTS = {
   priceLevelFactor: c(
     1.61,
     'x',
-    'doc 11 sections 4.2 and 5.1: 3.71 / 2.3, market rate over civil-engineering PPP. Doc 11 says no reform removes it; it is a lever here by OWNER DECISION (Polish design at Polish prices, nominal)',
+    'doc 11 sections 4.2 and 5.1: 3.71 / 2.3, market rate over civil-engineering PPP. No reform removes it (doc 11, PLAN 6.8): it is its own receipt line in every column but Poland',
     false,
   ),
   systemsStandardisationFactor: c(1.15, 'x', 'doc 06 section 7.5 (systems standardisation lever)'),
@@ -163,6 +163,11 @@ export const CONSTANTS = {
   // --- Advance rates, m/day ---
   tbmPeakMPerDay: c(30, 'm/day', 'doc 06 section 7.3 (EPB soft ground peak)'),
   tbmUtilisation: c(0.35, 'share', 'doc 06 sections 6.3 and 7.3 (TCP 20 to 40 percent; gives 10.5 m/day, Warsaw 10 to 12)'),
+  tbmMaxUtilisation: c(
+    0.9,
+    'share',
+    'docs/PLAN.md section 6.7 and doc 06 section 7.4: no stack of tunnelling reforms takes a machine above 0.90 of its peak rate (27 m/day in dry sand)',
+  ),
   largeBoreMPerDay: c(8, 'm/day', 'doc 11 section 5.3 (12 to 15 m road machine, Polish mean; status quo about 5)'),
   minedMPerDay: c(2.5, 'm/day', 'doc 11 section 5.3 (2 to 3 m/day per tube)'),
   cutCoverMPerDay: c(
@@ -236,9 +241,34 @@ export const CONSTANTS = {
     false,
   ),
   buildTargetSeconds: c(
-    300,
+    120,
     's',
-    'round 2 brief: a Portal mission on autopilot lasts 5 to 10 real minutes at speed 1x; the longest heading takes this long when nobody drives',
+    'tuning after the first playtest: the longest heading takes this long at speed 1x when nobody drives (it was 300 s, and nothing happens on screen that needs five minutes)',
+    false,
+  ),
+  maxHeadingBoredM: c(
+    6000,
+    'm',
+    'docs/PLAN.md section 6.7 (a route-km "inside a 6 km drive"): a longer bored run is split into drives of at most this length, each with its own machine and launch shaft',
+    false,
+  ),
+  maxHeadingMinedM: c(
+    1200,
+    'm',
+    'tuning: a mined or cut-and-cover run longer than this is worked from several faces at once; The Portal mines 1.03 km from one',
+    false,
+  ),
+  maxHeadingSurfaceM: c(8000, 'm', 'tuning: one track gang or viaduct crew per this much line', false),
+  driveCoverM: c(
+    4,
+    'm',
+    'tuning: a driven machine above its planned level dives when less than this much ground is left over the crown (docs/PLAN.md section 5.4 has cover under 1.5 diameters as a hazard)',
+    false,
+  ),
+  driveAlignM: c(
+    12,
+    'm',
+    'tuning: with no steering input a hand-driven machine eases its heading back parallel to the plan over about this distance',
     false,
   ),
   lapseMinDaysPerSecond: c(20, 'days/s', 'tuning: slowest time-lapse, so a short phase does not take the full lapseTargetSeconds', false),

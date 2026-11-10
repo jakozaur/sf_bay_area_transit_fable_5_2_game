@@ -14,6 +14,11 @@ const CORRIDOR = K.driveCorridorM.value;
 const FREE = K.driveFreeDeviationM.value;
 const RESTEER = K.driveResteerFactor.value;
 const SUBSTEPS = SUBSTEPS_PER_DAY;
+const ALIGN_M = K.driveAlignM.value;
+/** Half a circle: the most a shield held at the corridor edge can need to turn in place before a step points inwards. */
+const HALF_TURN = 3.2;
+/** A machine this far above its planned level is "above the plan" for the cover rule. */
+const COVER_TOLERANCE_M = 0.5;
 /** How far ahead of the last known plan chainage the nearest point is searched. A day of the fastest machine is far less. */
 const SEARCH_AHEAD_M = 80;
 /** The face counts as arrived this close to the end of the run even if it has not passed it. */
@@ -171,6 +176,7 @@ export function driveFromPlan(
     offPlanNoticeTick: -1_000_000,
     corridorNoticeTick: -1_000_000,
     blocked: false,
+    blockedFor: 0,
   };
 }
 
@@ -200,8 +206,30 @@ export function cruiseControls(
   return { steer, pitch: clamp((wanted - d.grade) * 100, -1, 1) };
 }
 
+/**
+ * Controls of a hand-driven machine with a lever at rest: the heading eases parallel to the plan and the
+ * grade to the plan's grade, over about ALIGN_M metres. It holds the offset the driver has steered to; it
+ * does not return to the line (that is the cruise law). Without it a released key leaves a yaw error behind
+ * and the machine walks off by itself. The heading is matched to the plan LOOKAHEAD metres ahead, so the turn
+ * into a bend starts before the vertex and a hands-off machine comes out of the bend about where it went in.
+ */
+export function holdControls(
+  d: DriveState,
+  wps: readonly Waypoint[],
+  cum: readonly number[],
+  limits: DriveLimits,
+): { steer: number; pitch: number } {
+  const ahead = planPointAt(wps, cum, d.planM + LOOKAHEAD);
+  // sin and cos of (plan yaw - machine yaw).
+  const sin = ahead.dirX * d.dirZ - ahead.dirZ * d.dirX;
+  const cos = ahead.dirX * d.dirX + ahead.dirZ * d.dirZ;
+  // A right turn (steer +1) lowers the yaw, so a positive error needs a left turn.
+  const steer = cos < 0 ? (sin >= 0 ? -1 : 1) : clamp((-sin * limits.minRadiusM) / ALIGN_M, -1, 1);
+  return { steer, pitch: clamp((planPointAt(wps, cum, d.planM).grade - d.grade) * 100, -1, 1) };
+}
+
 /** Turns the heading by `arc` metres of travel at `steer` and `pitch`. An exact rotation built from a rational half-angle. */
-function turn(d: DriveState, steer: number, pitch: number, arc: number, limits: DriveLimits): void {
+function turn(d: DriveState, steer: number, pitch: number, arc: number, limits: DriveLimits, maxUp: number = limits.maxGrade): void {
   // Right turn (steer +1) lowers the yaw.
   const half = (-steer * arc) / limits.minRadiusM / 2;
   const c = (1 - half * half) / (1 + half * half);
@@ -211,21 +239,40 @@ function turn(d: DriveState, steer: number, pitch: number, arc: number, limits: 
   const n = sqrt(nx * nx + nz * nz);
   d.dirX = nx / n;
   d.dirZ = nz / n;
-  d.grade = clamp(d.grade + (pitch * arc) / V_RADIUS, -limits.maxGrade, limits.maxGrade);
+  d.grade = clamp(d.grade + (pitch * arc) / V_RADIUS, -limits.maxGrade, maxUp);
 }
 
 export interface DriveStep {
   /** Metres bored this sub-step. */
   advancedM: number;
   arrived: boolean;
+  /** The cover rule overrode the pitch this sub-step. */
+  dived: boolean;
+}
+
+/**
+ * True while a machine is being bored back into its corridor by the cruise law. That happens when re-steering
+ * in place has turned the shield through half a circle (`blockedFor` counts the metres of arc) and no step
+ * points inwards yet: geometry alone can then not free it, so it bores.
+ */
+export function isRecovering(d: DriveState, minRadiusM: number): boolean {
+  return (d.blockedFor ?? 0) >= HALF_TURN * minRadiusM;
 }
 
 /**
  * One sub-step of a driven heading at `maxRateMPerDay` (the rate at thrust 1 in the ground at the face).
  * `freeM` is the deviation that carries no surcharge here (the engine widens it at the corners of the plan).
- * Mutates the pose, the controls in force under autopilot, and the deviation fields. A move that would take
- * the face further out than the corridor allows is not made: the shield re-steers towards the plan in place
- * instead, so a machine can always get back and a drive cannot dead-end.
+ * `thinCover` says the ground over the crown is thinner than the cover rule allows.
+ * Mutates the pose, the controls in force under autopilot, and the deviation fields.
+ *
+ * Corridor: a move that would take the face further out than the corridor allows is not made. The shield
+ * re-steers towards the plan in place instead, which frees it in seconds. If half a circle of that has not
+ * (the first playtest found such a pose, 30 m above the plan), the cruise law bores it back whatever the
+ * corridor check says, until it is inside again. Pure pursuit of a point that moves along the plan always
+ * closes in, so no pose is a dead end.
+ *
+ * Cover: a machine above its planned level with thin cover cannot climb and is pitched down. On or below
+ * the plan the rule does not apply: the plan itself decides how shallow a launch or a reception is.
  */
 export function driveSubstep(
   d: DriveState,
@@ -235,31 +282,39 @@ export function driveSubstep(
   maxRateMPerDay: number,
   limits: DriveLimits,
   freeM: number = FREE,
+  thinCover = false,
 ): DriveStep {
   let steer = clamp(d.steer, -1, 1);
   let pitch = clamp(d.pitch, -1, 1);
   let thrust = clamp(d.thrust, 0, 1);
-  if (d.autopilot) {
+  const recovering = isRecovering(d, limits.minRadiusM);
+  if (d.autopilot || recovering) {
     const c = cruiseControls(d, wps, cum, limits);
     steer = c.steer;
     pitch = c.pitch;
-    thrust = 1;
+    if (d.autopilot) thrust = 1;
+  } else if (steer === 0 || pitch === 0) {
+    const hold = holdControls(d, wps, cum, limits);
+    if (steer === 0) steer = hold.steer;
+    if (pitch === 0) pitch = hold.pitch;
   }
+  const dive = thinCover && d.verticalM > COVER_TOLERANCE_M;
+  if (dive) pitch = -1;
   const full = maxRateMPerDay / SUBSTEPS;
   const ds = full * thrust;
   if (ds <= 0) {
-    d.blocked = false;
-    return { advancedM: 0, arrived: false };
+    if (!recovering) d.blocked = false;
+    return { advancedM: 0, arrived: false, dived: false };
   }
   const before = { dirX: d.dirX, dirZ: d.dirZ, grade: d.grade };
-  turn(d, steer, pitch, ds, limits);
+  turn(d, steer, pitch, ds, limits, dive ? Math.min(0, limits.maxGrade) : limits.maxGrade);
   const h = ds / sqrt(1 + d.grade * d.grade);
   const nx = d.x + d.dirX * h;
   const ny = d.y + d.grade * h;
   const nz = d.z + d.dirZ * h;
   const fix = fixOnPlan(wps, cum, nx, ny, nz, d.planM, endM);
   const now = sqrt(d.lateralM * d.lateralM + d.verticalM * d.verticalM);
-  if (fix.totalM > CORRIDOR && fix.totalM > now) {
+  if (!recovering && fix.totalM > CORRIDOR && fix.totalM > now) {
     // Held at the corridor edge: undo the player's turn and re-steer towards the plan without advancing.
     d.dirX = before.dirX;
     d.dirZ = before.dirZ;
@@ -267,17 +322,22 @@ export function driveSubstep(
     const c = cruiseControls(d, wps, cum, limits);
     turn(d, c.steer, c.pitch, full * RESTEER, limits);
     d.blocked = true;
-    return { advancedM: 0, arrived: false };
+    d.blockedFor = (d.blockedFor ?? 0) + full * RESTEER;
+    return { advancedM: 0, arrived: false, dived: false };
   }
-  d.blocked = false;
   d.x = nx;
   d.y = ny;
   d.z = nz;
   d.planM = fix.planM;
   d.lateralM = fix.lateralM;
   d.verticalM = fix.verticalM;
+  // Back inside: the driver has the controls again. Outside, the cruise law keeps them until it is.
+  if (fix.totalM <= CORRIDOR || fix.arrived) {
+    d.blocked = false;
+    d.blockedFor = 0;
+  }
   // Hysteresis, so the off-plan flag does not flicker at the tolerance.
   if (fix.totalM > freeM) d.offPlan = true;
   else if (fix.totalM < freeM * 0.8) d.offPlan = false;
-  return { advancedM: ds, arrived: fix.arrived };
+  return { advancedM: ds, arrived: fix.arrived, dived: dive };
 }

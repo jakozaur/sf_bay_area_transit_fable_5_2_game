@@ -185,7 +185,9 @@ describe('scenario data', () => {
       sim.dispatch(todo.map((r) => ({ t: 'enactReform' as const, id: r.id })));
     }
     expect(sim.snapshot().notices).toEqual([]);
-    expect([...sim.state.reforms].sort()).toEqual(['narrowRecord', ...POLAND_PROFILE.filter((id) => id !== 'narrowRecord')].sort());
+    // Everything Polish practice has, except the Polish price level: that is not on the tree.
+    expect([...sim.state.reforms].sort()).toEqual(POLAND_PROFILE.filter((id) => id !== 'polishPriceLevel').sort());
+    expect(sim.snapshot().reforms.some((r) => r.id === 'polishPriceLevel')).toBe(false);
   });
 });
 
@@ -206,13 +208,14 @@ describe('The Portal calibration', () => {
 
   test(`status quo with event cards, seeds 1 to 10: median ${usdB(median(withEvents.map((o) => o.costCents)))} and ${median(withEvents.map((o) => o.years)).toFixed(1)} years; worst ${usdB(Math.max(...withEvents.map((o) => o.costCents)))} and ${Math.max(...withEvents.map((o) => o.years)).toFixed(1)} years`, () => {
     for (const o of withEvents) {
-      // Cost stays inside the tolerance on every seed: the contingency absorbs the cards.
+      // Cost stays inside the tolerance on every seed, with every card charged in full.
       expect(Math.abs(o.costCents / OFFICIAL_COST - 1), `seed ${o.sim.state.seed} cost`).toBeLessThan(TOLERANCE);
       // Cards only ever make it later and dearer than the plan.
       expect(o.years).toBeGreaterThanOrEqual(statusQuo.years - 0.01);
       expect(o.costCents).toBeGreaterThanOrEqual(statusQuo.costCents * 0.999);
-      // Lawsuits and funding reviews are not in the official schedule; a bad seed slips by up to a quarter.
-      expect(o.years / OFFICIAL_YEARS, `seed ${o.sim.state.seed} years`).toBeLessThan(1.25);
+      // Lawsuits and funding reviews are not in the official schedule, and neither is the year lost when the
+      // unidentified $1.15B is finally asked for (the cash call, default answer): a bad seed slips by up to a third.
+      expect(o.years / OFFICIAL_YEARS, `seed ${o.sim.state.seed} years`).toBeLessThan(1.35);
     }
     expect(Math.abs(median(withEvents.map((o) => o.years)) / OFFICIAL_YEARS - 1)).toBeLessThan(TOLERANCE);
     expect(withEvents.some((o) => o.sim.state.eventLog.length > 0)).toBe(true);
@@ -231,11 +234,21 @@ describe('The Portal calibration', () => {
     expect(reformed.years).toBeGreaterThan(4.5);
     expect(reformed.years).toBeLessThan(7);
     expect(reformed.years).toBeLessThan(statusQuo.years - 2.5);
-    // In the Poland profile the project is its own benchmark, up to the seeded TBM breakdowns of the played run.
-    expect(plView.ratio).toBeCloseTo(1, 3);
+    // The benchmark is the Polish design of the route: twin bores under ground. The official methods under Polish
+    // rules come in a little under it (cut-and-cover below Townsend Street is cheaper than two bores).
+    expect(plView.ratio).toBeGreaterThan(0.9);
+    expect(plView.ratio).toBeLessThan(1);
+    // Built as the Polish design in the Poland profile, the project is its own benchmark.
+    const twin = createSim(withPolandProfile(THE_PORTAL), 1, null, { events: false });
+    twin.dispatch([...(THE_PORTAL.reference?.commands ?? []), { t: 'setDesign', projectId: PORTAL_PROJECT_ID, tunnel: 'twinBore' }]);
+    const twinView = twin.snapshot().projects[0].comparison;
+    expect(twinView.ratio).toBeCloseTo(1, 6);
     // The live comparison shown during a status-quo game predicted the same Polish outcome.
-    expect(sqView.poland.costCents / reformed.costCents).toBeCloseTo(1, 3);
-    expect(sqView.poland.yearsToOpen).toBeCloseTo(reformed.years, 2);
+    expect(sqView.poland.costCents).toBe(twinView.poland.costCents);
+    expect(sqView.poland.yearsToOpen).toBeCloseTo(twinView.yearsToOpen, 6);
+    // The Polish par per km: within a quarter of the Warsaw M2 extensions in 2026 money (it is spent in 2027 to 2032 dollars).
+    expect(twinView.poland.costPerKmCents).toBeGreaterThan(WARSAW_PER_KM);
+    expect(twinView.poland.costPerKmCents).toBeLessThan(WARSAW_PER_KM * 1.26);
     const objectives = reformed.sim.snapshot().objectives;
     for (const id of ['connect', 'official-budget', 'official-date', 'under-2b', 'early', 'near-poland'])
       expect(objectives.find((o) => o.id === id)?.status, id).toBe('done');
@@ -268,7 +281,7 @@ describe('reforms on The Portal', () => {
   const sq = profileFor([]);
 
   /** What each reform is documented to improve. cost and time are measured on the played project; the rest on the profile. */
-  const EXPECT: Record<string, ('cost' | 'time' | 'tbmRate' | `hazard:${string}`)[]> = {
+  const EXPECT: Record<string, ('cost' | 'systems' | 'time' | 'tbmRate' | `hazard:${string}`)[]> = {
     narrowRecord: ['hazard:lawsuit'],
     nepaPageLimits: ['time', 'cost'],
     megaprojectCertification: ['time', 'cost'],
@@ -283,7 +296,7 @@ describe('reforms on The Portal', () => {
     bestValueAward: ['cost', 'hazard:changeOrder', 'hazard:contractorBankruptcy'],
     itemizedContracts: ['time', 'cost', 'hazard:changeOrder'],
     openTenders: ['cost'],
-    importSupplyChain: ['cost'],
+    importSupplyChain: ['systems'],
     roundTheClock: ['time', 'cost'],
     leanSupervision: ['cost'],
     twoTracks: ['cost'],
@@ -315,6 +328,8 @@ describe('reforms on The Portal', () => {
       for (const e of EVENTS) expect(p[`event.${e.id}.rate` as ProfileKey]).toBeLessThanOrEqual(sq[`event.${e.id}.rate` as ProfileKey]);
       for (const what of EXPECT[id]) {
         if (what === 'cost') expect(one.costCents / base.costCents, 'cost falls by at least 0.5 percent').toBeLessThan(0.995);
+        // Track, power and signalling only (the Buy America waiver): a twentieth of this project.
+        else if (what === 'systems') expect(one.costCents / base.costCents, 'cost falls by at least 0.3 percent').toBeLessThan(0.997);
         else if (what === 'time') expect(base.years - one.years, 'opens at least a month sooner').toBeGreaterThan(1 / 12);
         else if (what === 'tbmRate')
           expect(advanceRate('boredTwin', 'bayMud', p, 1000)).toBeGreaterThan(advanceRate('boredTwin', 'bayMud', sq, 1000));

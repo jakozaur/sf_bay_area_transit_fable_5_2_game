@@ -48,8 +48,9 @@ describe('commands', () => {
     const notices = sim.snapshot().notices.map((n) => n.reason);
     expect(notices[0]).toMatch(/no project "nope"/);
     expect(notices[1]).toMatch(/outside the world grid/);
-    expect(notices[2]).toMatch(/needs inHouseEngineering, bestValueAward first/);
-    expect(notices[3]).toMatch(/needs megaprojectCertification first/);
+    // Notices are read by the player: they name reforms by title, not by id.
+    expect(notices[2]).toBe('"Itemized contracts" needs "In-house engineering corps" and "Best-value award" first');
+    expect(notices[3]).toMatch(/needs "Megaproject certification" first/);
     expect(sim.state.projects.length).toBe(0);
     expect(sim.state.reforms).toEqual([]);
   });
@@ -110,8 +111,14 @@ describe('commands', () => {
     expect(sim.state.politicalCapital).toBe(100 - 15);
     expect(sim.state.ledger.total.reforms).toBe(5e8);
     expect(sim.state.reforms).toEqual(['stageGates', 'potholeFirst']);
+    // A second click on Enact before the snapshot caught up: nothing is charged twice and nothing is said.
     sim.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
-    expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/already enacted/);
+    expect(sim.state.politicalCapital).toBe(100 - 15);
+    expect(sim.snapshot().notices).toEqual([]);
+    // The Polish price level is part of the Poland profile, not something a player can enact.
+    sim.dispatch([{ t: 'enactReform', id: 'polishPriceLevel' }]);
+    expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/No reform changes the price level/);
+    expect(sim.state.reforms).toEqual(['stageGates', 'potholeFirst']);
     const view = sim.snapshot().reforms;
     expect(view.find((r) => r.id === 'stageGates')?.status).toBe('enacted');
     expect(view.find((r) => r.id === 'megaprojectCertification')?.status).toBe('available');
@@ -190,9 +197,10 @@ describe('determinism', () => {
     expect(Number.isSafeInteger(s.cashCents)).toBe(true);
     for (const v of Object.values(s.ledger.total)) expect(Number.isSafeInteger(v)).toBe(true);
     for (const v of Object.values(s.projects[0].spent)) expect(Number.isSafeInteger(v)).toBe(true);
-    // Cash moved by exactly what the ledger recorded, less released funding.
+    // Cash moved by exactly what the ledger recorded, less released funding and what the cash calls raised.
     const spent = Object.values(s.ledger.total).reduce((a, b) => a + b, 0);
-    expect(s.cashCents).toBe(500_000_000_00 + 1_000_000_000_00 - spent);
+    expect(s.cashRaisedCents).toBeGreaterThan(0);
+    expect(s.cashCents).toBe(500_000_000_00 + 1_000_000_000_00 + (s.cashRaisedCents ?? 0) - spent);
     expect(s.ledger.monthly.reduce((a, b) => a + b, 0)).toBe(spent);
   });
 });
@@ -304,9 +312,14 @@ describe('comparison against Poland', () => {
     expect(final.poland.costCents / estimate.poland.costCents).toBeCloseTo(1, 6);
   });
 
-  test('a scenario in the Poland profile is its own benchmark', () => {
+  test('the Polish design in the Poland profile is its own benchmark', () => {
     const sim = createSim(testScenario({ costProfile: 'polishBaseline' }), 1, null, { events: false });
-    sim.dispatch([...TEST_DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
+    // The benchmark is the Polish design of the route (twin bores under ground), whatever the project builds.
+    sim.dispatch([
+      ...TEST_DESIGN,
+      { t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore' },
+      { t: 'approveProject', projectId: TEST_PROJECT },
+    ]);
     const c = sim.snapshot().projects[0].comparison;
     expect(c.ratio).toBeCloseTo(1, 9);
     expect(c.factors.slice(0, 3).map((f) => f.value)).toEqual([1, 1, 1]);

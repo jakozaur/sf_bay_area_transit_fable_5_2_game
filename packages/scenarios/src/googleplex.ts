@@ -87,7 +87,7 @@ export const GOOGLEPLEX_SPUR: ScenarioDef = {
     officialCost: 'No official figure exists. The game prices the same line under 2026 rules and shows that as the status quo.',
     officialDate: 'No official date exists.',
     why: 'North Bayshore has about 45,000 jobs and no railway. This is the first drive long enough to care how fast the machine goes.',
-    source: 'doc 05 section 5 (campus anchors; distances UNVERIFIED there); jobs figure is the game demand table, UNVERIFIED',
+    source: "doc 05 section 5 (campus locations); a fictional project, and the jobs figure is the game's own estimate",
   },
   start: {
     date: '2026-11-09',

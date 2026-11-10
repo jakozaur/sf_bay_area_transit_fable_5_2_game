@@ -19,6 +19,7 @@ import {
   advanceDay,
   advanceSubstep,
   applyCommand,
+  cashCallCents,
   handDigCentsPerM3,
   hasDrivenHeading,
   initState,
@@ -30,8 +31,17 @@ import {
   type StepContext,
 } from './engine.ts';
 import { estimateAlignment, plannedConstructionDays, quickOption, quickProject } from './estimate.ts';
-import { EVENTS, eventById } from './events.ts';
-import { comparison, type DesignRun, designRun, type Forecast, forecastProject, polandBenchmark, runDesign } from './forecast.ts';
+import { EVENTS, eventById, eventTitle } from './events.ts';
+import {
+  comparison,
+  type DesignRun,
+  designRun,
+  type Forecast,
+  forecastProject,
+  polandBenchmark,
+  polandRun,
+  runDesign,
+} from './forecast.ts';
 import { pointAt } from './geometry.ts';
 import type { GroundQuery } from './ground.ts';
 import { carveShape, effectiveMethod, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
@@ -45,7 +55,7 @@ import {
   runColumn,
   yoursColumn,
 } from './receipt.ts';
-import { POLAND_PROFILE, type Profile, profileFor, profileReforms, REFORMS } from './reforms.ts';
+import { type Profile, profileFor, profileReforms, REFORMS } from './reforms.ts';
 import { evaluateObjectives, validateScenario } from './scenario.ts';
 import {
   type AlignmentEstimate,
@@ -82,9 +92,11 @@ import {
   alignmentView,
   clockView,
   gameNextAction,
+  launchLabel,
   liningOf,
   missionProject,
   missionStage,
+  missionTargets,
   pitViews,
   planProjectId,
   projectNextAction,
@@ -257,9 +269,11 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       const selected = def.group === 'tunnel' ? tunnel === id : box === id;
       // The selected option is the current design: its tag is the estimate itself.
       const q = selected || project.status === 'open' ? current : quickOption(state, project, id);
-      const deltaCents = q.costCents - current.costCents;
+      // The closed-form estimates give the ratio between two designs; the price tag is that ratio on the forecast
+      // of record, so the tag of the current design is the number in the headline and on the receipt.
+      const costCents = current.costCents > 0 ? Math.round((eac.costCents * q.costCents) / current.costCents) : eac.costCents;
+      const deltaCents = costCents - eac.costCents;
       const deltaDays = Math.round(q.days - current.days);
-      const costCents = eac.costCents + deltaCents;
       options.push({
         group: def.group,
         id,
@@ -287,7 +301,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     const year = start.slice(0, 4);
     // Counterfactual runs of an open line never change: keep them.
     const keep = hit && project.status === 'open' && hit.poland.project.status === 'open' ? hit : null;
-    const poland = keep ? keep.poland : designRun(state, project, POLAND_PROFILE);
+    const poland = keep ? keep.poland : polandRun(state, project);
     const ref = reference();
     const sqReforms = startReforms(state);
     let statusQuo: DesignRun;
@@ -320,7 +334,12 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
           tick0,
         ),
         statusQuo: runColumn('statusQuo', statusQuoBasis, statusQuo, statusQuoTick0),
-        poland: runColumn('poland', 'Your route as Polish design at Polish prices, every Polish-practice reform enacted', poland, tick0),
+        poland: runColumn(
+          'poland',
+          'This route and these stations as the Polish design (twin 6.6 m bores, compact boxes) at Polish prices and under Polish rules',
+          poland,
+          tick0,
+        ),
       },
       ref && state.scenario.reference?.projectId === project.id ? ghostOf(state.scenario, projectLengthM(ref.run.project) / 1000) : null,
       new Set(state.reforms),
@@ -333,7 +352,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       referenceRiders: ref && state.scenario.reference?.projectId === project.id ? ref.riders : 0,
       start,
       polandSource:
-        'model: this route under POLAND_PROFILE; calibrated to the Warsaw M2 extensions and the Lodz tunnel (doc 11 sections 5.2 and 6.3)',
+        'The model: this route as the Polish design at Polish prices, calibrated on the Warsaw metro extensions and the Lodz rail tunnel',
     });
     const fresh: ProjectCache = {
       version: state.version,
@@ -399,12 +418,17 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
   function projectView(project: ProjectState, p: Profile, canAffordReform: boolean): ProjectView {
     const flags = projectFlags(project, p);
     const phaseIndex = PHASES.indexOf(project.phase);
+    // A draft starts where the scenario's head start puts it: what is behind the real project is shown as done.
+    const head = project.status === 'draft' ? state.scenario.start.headStart : undefined;
+    const headIndex = head ? PHASES.indexOf(head.phase) : -1;
     const phases: PhaseView[] = PHASES.map((id: PhaseId, i) => {
-      const done = project.status === 'open' || (project.status === 'active' && i < phaseIndex);
+      const done = project.status === 'open' || (project.status === 'active' && i < phaseIndex) || i < headIndex;
       const current = project.status === 'active' && i === phaseIndex;
-      const progress = done ? 1 : current ? project.phaseProgress : 0;
+      const progress = done ? 1 : current ? project.phaseProgress : head && i === headIndex ? head.progress : 0;
       const plannedDays = Math.round(id === 'construction' ? plannedConstructionDays(project, p, flags) : phaseDays(id, p));
-      const gate = PHASE_GATES[id];
+      const fixed = PHASE_GATES[id];
+      const gate =
+        fixed && id === 'utilities' && project.methods.length > 0 ? { ...fixed, label: launchLabel(project, flags).label } : fixed;
       return {
         id,
         label: PHASE_LABELS[id],
@@ -477,7 +501,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       spentByCategory: { ...project.spent },
       escalationCents: project.escalationCents,
       comparison: comparison(state, project, fc ? fc.eac : empty, fc ? fc.poland : { costCents: 0, days: 0 }, fc ? fc.riders : 0),
-      nextAction: projectNextAction(state, project, checks, cheaper, canAffordReform),
+      nextAction: projectNextAction(state, project, checks, cheaper, canAffordReform, flags),
       design,
       checks,
       alignment: alignmentView(project, checks, state.version),
@@ -508,7 +532,11 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       for (const r of REFORMS) {
         if (state.reforms.includes(r.id)) continue;
         const after = quickProject(state, project, [...state.reforms, r.id]);
-        const costDeltaCents = after.costCents - before.costCents;
+        // The closed form gives the ratio; applied to the forecast of record it lands on what enacting does.
+        const yours = view.receipt.columns.yours.costCents;
+        // What the reform costs in cash is paid by the project: it is part of what enacting does to the estimate.
+        const saved = before.costCents > 0 ? Math.round((yours * (after.costCents - before.costCents)) / before.costCents) : 0;
+        const costDeltaCents = saved + r.cost.cents;
         const perKm = lengthKm > 0 ? Math.round((view.receipt.columns.yours.costCents + costDeltaCents) / lengthKm) : 0;
         byId.set(r.id, {
           projectId: project.id,
@@ -542,7 +570,8 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         blockedReason = `Costs $${(r.cost.cents / 1e8).toFixed(0)}M, cash is short`;
       return { r, status, blockedReason, affordable: status === 'available' && blockedReason === null };
     });
-    const canAffordReform = reformStatus.some((x) => x.affordable);
+    // Reforms priced in political capital: the ones the hints point at. A $5M survey is always affordable and is not news.
+    const canAffordReform = reformStatus.some((x) => x.affordable && x.r.cost.pc > 0);
     const projects = state.projects.map((pr) => projectView(pr, p, canAffordReform));
     const mission = missionProject(state);
     const missionView = mission ? projects.find((v) => v.id === mission.id) : undefined;
@@ -569,11 +598,14 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       if (!def) throw new Error(`sim: pending event ${pe.uid} has unknown card "${pe.defId}"`);
       const project = state.projects.find((pr) => pr.id === pe.projectId);
       const hard = project ? project.hardEstimateCents : 0;
+      // A cash call raises what the project still needs; the card says how much and what each way of raising it costs.
+      const raised = def.id === 'cashCall' && project ? cashCallCents(state, project, p) : 0;
       return {
         uid: pe.uid,
         id: def.id,
-        title: def.title,
-        description: def.description,
+        title: eventTitle(def, project?.eventCounts[def.id] ?? 1),
+        description:
+          raised > 0 ? `${def.description} The project is short by about $${(raised / 1e11).toFixed(2)} billion.` : def.description,
         evidence: def.evidence,
         projectId: pe.projectId,
         deadlineTick: pe.deadlineTick,
@@ -581,7 +613,9 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         options: def.options.map((o) => ({
           id: o.id,
           label: o.label,
-          costCents: Math.round(hard * o.hardShare * state.escalation),
+          // Rounded the way the engine charges it, so the card and the ledger agree to the cent.
+          costCents: Math.round(Math.round(hard * o.hardShare) * state.escalation) + Math.round(raised * (o.feeShare ?? 0)),
+          ...(raised > 0 ? { gainCents: raised } : {}),
           delayDays: def.id === 'lawsuit' ? Math.min(o.delayDays, p['event.lawsuit.delayCapDays']) : o.delayDays,
           pc: o.pc,
           affordable: state.politicalCapital >= o.pc,
@@ -613,6 +647,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       planProjectId: planProjectId(state),
       complete,
       result: complete && missionView ? missionResult(missionView.scorecard) : null,
+      targets: missionTargets(state, mission),
     };
     const serviceViews: ServiceView[] = [];
     for (const pr of state.projects) {
@@ -652,6 +687,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
           release: f.release,
           released: state.fundingReleased.includes(f.id),
         })),
+        raisedCents: state.cashRaisedCents ?? 0,
       },
       reforms,
       events,
@@ -702,7 +738,28 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       advanceSubstep(state, ctx);
     },
     estimateAlignment(req: AlignmentEstimateRequest): AlignmentEstimate {
-      return estimateAlignment(state, req);
+      const est = estimateAlignment(state, req);
+      // A line that is already a project has a forecast of record (the headline, the receipt). The closed form is
+      // anchored on it, so the plan tool, the headline and the receipt show one number for the same line, and a
+      // drag moves that number by what the closed form says the change is worth.
+      const project = req.projectId === undefined ? undefined : state.projects.find((x) => x.id === req.projectId);
+      if (!project || project.methods.length === 0 || project.status === 'open') return est;
+      const fc = forecasts(project, profileFor(state.reforms));
+      const base = estimateAlignment(state, { projectId: project.id, waypoints: project.waypoints, methods: project.methods });
+      if (!(base.costCents > 0) || !(base.polandCostCents > 0) || !(est.lengthKm > 0)) return est;
+      const costCents = Math.round((est.costCents * fc.eac.costCents) / base.costCents);
+      const polandCostCents = Math.round((est.polandCostCents * fc.poland.costCents) / base.polandCostCents);
+      const daysToOpen = Math.max(0, Math.round(est.daysToOpen + (fc.eac.openTick - state.tick) - base.daysToOpen));
+      return {
+        ...est,
+        costCents,
+        costPerKmCents: Math.round(costCents / est.lengthKm),
+        polandCostCents,
+        polandCostPerKmCents: Math.round(polandCostCents / est.lengthKm),
+        ratioToPoland: polandCostCents > 0 ? costCents / polandCostCents : 1,
+        daysToOpen,
+        openDate: dateAtTick(state.scenario.start.date, state.tick + daysToOpen),
+      };
     },
     run(ticks, each) {
       if (!Number.isInteger(ticks) || ticks < 0) throw new RangeError(`sim.run: ticks must be a non-negative integer, got ${ticks}`);

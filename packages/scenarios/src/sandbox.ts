@@ -14,13 +14,14 @@ export const SANDBOX: ScenarioDef = {
     officialCost: 'No official figure: nobody has planned what you are about to draw.',
     officialDate: 'No official date.',
     why: 'Draw the network the region keeps studying. The receipt still tells you what Poland would have paid.',
-    source: 'doc 08 section 4.6 (free build)',
+    source: 'doc 08 section 4.6 (free build: your own lines on the real map)',
   },
   sandbox: true,
   start: {
     date: '2026-11-09',
     budgetCents: usd(1e12),
-    policies: ['narrowRecord'],
+    // The three mainline-terminal mandates are The Portal's; a line drawn from nothing starts as a two-track metro.
+    policies: ['narrowRecord', 'twoTracks', 'shallowBoxes', 'rightSizeTerminal'],
     tech: [],
     politicalCapital: 1000,
     funding: [],
