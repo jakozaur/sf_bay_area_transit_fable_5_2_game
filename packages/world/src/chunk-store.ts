@@ -6,7 +6,13 @@
  *   voxel is readable synchronously; ensureLoaded only pre-generates.
  * - Edits return the exact set of dirty chunks (changed chunks plus neighbours whose 1-voxel
  *   border changed) and are appended to an edit log (see edit-log.ts) that reproduces the world
- *   when replayed onto a freshly generated store.
+ *   when replayed onto a freshly generated store. Every edit carries a layer name ('manual' for
+ *   hand digs, which is what a save stores; the sim and the stamps use their own), so one layer
+ *   can be exported, imported or removed without touching the others.
+ * - Memory budget: trim() evicts the least recently used chunks outside the windows the caller
+ *   protects. An evicted chunk is regenerated on the next read and the edits that changed it are
+ *   replayed into it in their original order, so eviction never changes a voxel.
+ * - setSource() swaps the terrain input (another site): chunks, column cache and edits are dropped.
  *
  * Voxel size is a constructor parameter: the store works in integer voxel coordinates and only
  * uses the size to convert voxel centres to world metres for the ColumnSource.
@@ -91,6 +97,37 @@ interface Chunk extends ChunkData {
   cz: number;
   /** Dirty-neighbour mask accumulated during the edit in progress; 0 between edits. */
   mask: number;
+  /** Value of the store's access clock when the chunk was last looked up: the eviction order. */
+  used: number;
+  /** Edited while edits are not recorded: cannot be regenerated, so never evicted. */
+  pinned: boolean;
+}
+
+/** Layer of edits applied without naming one: hand digs, the layer a save stores. */
+export const MANUAL_EDIT_LAYER = 'manual';
+
+/** Estimated bytes of a resident chunk beyond its palette and indices (object, map entry, array headers). */
+const CHUNK_OVERHEAD_BYTES = 256;
+/** trim() evicts down to this share of the budget, so a store at its limit does not evict on every call. */
+const TRIM_TARGET = 0.75;
+
+export interface TrimOptions {
+  /** Bytes of chunk data allowed to stay resident. Default: the store's `budgetBytes`. */
+  budgetBytes?: number;
+  /** Voxel boxes (half-open) whose chunks are never evicted: the camera window, the machine window. */
+  keep?: readonly Aabb[];
+}
+
+export interface TrimResult {
+  evicted: number;
+  /** Resident chunks and their estimated bytes after the call. Above the budget when everything left is protected. */
+  chunks: number;
+  residentBytes: number;
+}
+
+/** A WorldStore whose edits all go to one layer of a ChunkWorldStore; everything else is the store itself. */
+export interface LayerView extends WorldStore {
+  readonly layer: string;
 }
 
 /** Per (cx, cz) column data shared by every chunk in that vertical stack. Index = lx + lz * 32. */
@@ -119,17 +156,34 @@ export interface ChunkStoreOptions {
   recordEdits?: boolean;
   /** Column blocks (one per chunk column, about 30 kB each) kept for reuse. Default 256. */
   columnCacheSize?: number;
+  /**
+   * Bytes of chunk data trim() keeps resident (palette plus indices plus a fixed overhead per chunk).
+   * Default: no limit, trim() evicts nothing unless it is given a budget.
+   */
+  budgetBytes?: number;
 }
 
 export class ChunkWorldStore implements WorldStore {
   readonly voxelSizeM: number;
-  /** Every edit that changed at least one voxel, in order (empty when recordEdits is false). Treat as read-only; see edit-log.ts. */
+  /**
+   * Every edit that changed at least one voxel, in order, all layers (empty when recordEdits is false).
+   * Treat as read-only; see edit-log.ts and exportEdits.
+   */
   readonly editLog: WorldEdit[] = [];
+  /** Layer of each entry of `editLog`. */
+  private readonly editLayers: string[] = [];
+  /** Per chunk: indices into `editLog` of the edits that changed a voxel of it, ascending. Survives eviction. */
+  private readonly editIndex = new Map<ChunkKey, number[]>();
 
-  private readonly source: ColumnSource | undefined;
-  private readonly materialAt: SubsurfaceMaterialFn;
+  private source: ColumnSource | undefined;
+  private materialAt: SubsurfaceMaterialFn;
   private readonly recordEdits: boolean;
   private readonly columnCacheSize: number;
+  private readonly budgetBytes: number;
+  private clock = 0;
+  private evictedTotal = 0;
+  /** True while an edit is being applied; trim, resetEdits and setSource refuse to run inside one. */
+  private editing = false;
   private readonly chunks = new Map<ChunkKey, Chunk>();
   private readonly columns = new Map<number, ColumnBlock>();
   private readonly listeners = new Set<(keys: ChunkKey[]) => void>();
@@ -161,6 +215,9 @@ export class ChunkWorldStore implements WorldStore {
     this.materialAt = options.materialAt ?? defaultMaterialAt;
     this.recordEdits = options.recordEdits ?? true;
     this.columnCacheSize = columnCacheSize;
+    const budgetBytes = options.budgetBytes ?? Number.POSITIVE_INFINITY;
+    if (!(budgetBytes > 0)) throw new RangeError(`ChunkWorldStore: budgetBytes must be > 0, got ${budgetBytes}`);
+    this.budgetBytes = budgetBytes;
   }
 
   /** Number of chunks generated or written so far. */
@@ -342,34 +399,58 @@ export class ChunkWorldStore implements WorldStore {
   // Edits
   // ---------------------------------------------------------------------------------------------
 
-  applyEdit(e: WorldEdit): ChunkKey[] {
+  /**
+   * Applies an edit and records it under `layer` (default MANUAL_EDIT_LAYER). The layer only matters for
+   * exportEdits, importEdits and resetEdits: the voxels are the same whatever it is.
+   */
+  applyEdit(e: WorldEdit, layer: string = MANUAL_EDIT_LAYER): ChunkKey[] {
+    if (this.editing) throw new Error('ChunkWorldStore: applyEdit called from inside another edit');
+    if (typeof layer !== 'string' || layer === '')
+      throw new RangeError(`ChunkWorldStore: edit layer must be a non-empty string, got ${JSON.stringify(layer)}`);
     this.touched = [];
     this.changed = 0;
     this.slotChunk = undefined;
-    // Validation happens before the first write, so a rejected edit leaves the world untouched.
-    switch (e.t) {
-      case 'fillBox':
-        this.fillBox(e.min, e.max, e.material);
-        break;
-      case 'carveCapsule':
-        this.carveCapsule(e.a, e.b, e.radius);
-        break;
-      case 'setVoxels':
-        this.setVoxels(e.coords, e.materials);
-        break;
-      default: {
-        const unknown: never = e;
-        throw new Error(`ChunkWorldStore: unknown edit ${JSON.stringify(unknown)}`);
+    this.editing = true;
+    try {
+      // Validation happens before the first write, so a rejected edit leaves the world untouched.
+      switch (e.t) {
+        case 'fillBox':
+          this.fillBox(e.min, e.max, e.material, undefined);
+          break;
+        case 'carveCapsule':
+          this.carveCapsule(e.a, e.b, e.radius, undefined);
+          break;
+        case 'setVoxels':
+          this.setVoxels(e.coords, e.materials, undefined);
+          break;
+        default: {
+          const unknown: never = e;
+          throw new Error(`ChunkWorldStore: unknown edit ${JSON.stringify(unknown)}`);
+        }
       }
+    } finally {
+      this.editing = false;
     }
     // An edit that changed nothing is a no-op on replay too, so it is left out of the log.
-    if (this.recordEdits && this.changed > 0) this.editLog.push(cloneEdit(e));
+    const record = this.recordEdits && this.changed > 0;
+    const editNumber = this.editLog.length;
+    if (record) {
+      this.editLog.push(cloneEdit(e));
+      this.editLayers.push(layer);
+    }
     this.lastChanged = this.changed;
 
     const dirty = new Set<ChunkKey>();
     for (const chunk of this.touched) {
       const mask = chunk.mask;
       chunk.mask = 0;
+      if (record) {
+        const list = this.editIndex.get(chunk.key);
+        if (list === undefined) this.editIndex.set(chunk.key, [editNumber]);
+        else list.push(editNumber);
+      } else {
+        chunk.pinned = true;
+      }
       for (let bit = 0; bit < 27; bit++) {
         if ((mask & (1 << bit)) === 0) continue;
         const cx = chunk.cx + (bit % 3) - 1;
@@ -387,7 +468,8 @@ export class ChunkWorldStore implements WorldStore {
     return keys;
   }
 
-  private fillBox(min: VoxelCoord, max: VoxelCoord, material: number): void {
+  /** With `clip`, only the voxels of that chunk are written (replay into a regenerated chunk). */
+  private fillBox(min: VoxelCoord, max: VoxelCoord, material: number, clip: Chunk | undefined): void {
     assertVoxel(min.x, min.y, min.z, 'fillBox min');
     assertVoxel(max.x, max.y, max.z, 'fillBox max');
     assertMaterial(material, 'fillBox');
@@ -396,16 +478,30 @@ export class ChunkWorldStore implements WorldStore {
     const y1 = max.y - 1;
     const z1 = max.z - 1;
     assertChunkRange(min.x, min.y, min.z, x1, y1, z1, 'fillBox');
-    for (let cy = min.y >> 5; cy <= y1 >> 5; cy++) {
+    let cx0 = min.x >> 5;
+    let cx1 = x1 >> 5;
+    let cy0 = min.y >> 5;
+    let cy1 = y1 >> 5;
+    let cz0 = min.z >> 5;
+    let cz1 = z1 >> 5;
+    if (clip !== undefined) {
+      cx0 = Math.max(cx0, clip.cx);
+      cx1 = Math.min(cx1, clip.cx);
+      cy0 = Math.max(cy0, clip.cy);
+      cy1 = Math.min(cy1, clip.cy);
+      cz0 = Math.max(cz0, clip.cz);
+      cz1 = Math.min(cz1, clip.cz);
+    }
+    for (let cy = cy0; cy <= cy1; cy++) {
       const ly0 = Math.max(min.y, cy * N) - cy * N;
       const ly1 = Math.min(y1, cy * N + N - 1) - cy * N;
-      for (let cz = min.z >> 5; cz <= z1 >> 5; cz++) {
+      for (let cz = cz0; cz <= cz1; cz++) {
         const lz0 = Math.max(min.z, cz * N) - cz * N;
         const lz1 = Math.min(z1, cz * N + N - 1) - cz * N;
-        for (let cx = min.x >> 5; cx <= x1 >> 5; cx++) {
+        for (let cx = cx0; cx <= cx1; cx++) {
           const lx0 = Math.max(min.x, cx * N) - cx * N;
           const lx1 = Math.min(x1, cx * N + N - 1) - cx * N;
-          const chunk = this.chunkAt(cx, cy, cz);
+          const chunk = clip ?? this.chunkAt(cx, cy, cz);
           if (chunk.indices === null) {
             if (chunk.palette[0] === material) continue;
             const whole = lx0 === 0 && ly0 === 0 && lz0 === 0 && lx1 === N - 1 && ly1 === N - 1 && lz1 === N - 1;
@@ -427,7 +523,7 @@ export class ChunkWorldStore implements WorldStore {
     }
   }
 
-  private carveCapsule(a: VoxelCoord, b: VoxelCoord, radius: number): void {
+  private carveCapsule(a: VoxelCoord, b: VoxelCoord, radius: number, clip: Chunk | undefined): void {
     assertVoxel(a.x, a.y, a.z, 'carveCapsule a');
     assertVoxel(b.x, b.y, b.z, 'carveCapsule b');
     if (!(radius >= 0) || !Number.isFinite(radius)) {
@@ -442,11 +538,17 @@ export class ChunkWorldStore implements WorldStore {
     const dy = b.y - ay;
     const dz = b.z - az;
     const len2 = dx * dx + dy * dy + dz * dz;
-    const yMin = Math.min(ay, b.y) - ri;
-    const yMax = Math.max(ay, b.y) + ri;
-    const zMin = Math.min(az, b.z) - ri;
-    const zMax = Math.max(az, b.z) + ri;
+    let yMin = Math.min(ay, b.y) - ri;
+    let yMax = Math.max(ay, b.y) + ri;
+    let zMin = Math.min(az, b.z) - ri;
+    let zMax = Math.max(az, b.z) + ri;
     assertChunkRange(Math.min(ax, b.x) - ri - 2, yMin, zMin, Math.max(ax, b.x) + ri + 2, yMax, zMax, 'carveCapsule');
+    if (clip !== undefined) {
+      yMin = Math.max(yMin, clip.cy * N);
+      yMax = Math.min(yMax, clip.cy * N + N - 1);
+      zMin = Math.max(zMin, clip.cz * N);
+      zMax = Math.min(zMax, clip.cz * N + N - 1);
+    }
     const axisAlongX = dy === 0 && dz === 0;
 
     for (let y = yMin; y <= yMax; y++) {
@@ -515,12 +617,12 @@ export class ChunkWorldStore implements WorldStore {
         let x1 = Math.ceil(hi) + 1;
         while (x0 <= x1 && !inCapsule(x0, py, pz, c, dx, dy, dz, len2, r2)) x0++;
         while (x1 >= x0 && !inCapsule(x1, py, pz, c, dx, dy, dz, len2, r2)) x1--;
-        if (x0 <= x1) this.writeRun(ax + x0, ax + x1, y, z, AIR);
+        if (x0 <= x1) this.writeRun(ax + x0, ax + x1, y, z, AIR, clip);
       }
     }
   }
 
-  private setVoxels(coords: Int32Array, materials: Uint16Array): void {
+  private setVoxels(coords: Int32Array, materials: Uint16Array, clip: Chunk | undefined): void {
     if (coords.length !== materials.length * 3) {
       throw new RangeError(
         `ChunkWorldStore: setVoxels needs 3 coords per material, got ${coords.length} coords for ${materials.length} materials`,
@@ -534,21 +636,30 @@ export class ChunkWorldStore implements WorldStore {
     }
     for (let i = 0; i < materials.length; i++) {
       const x = coords[i * 3] as number;
-      this.writeRun(x, x, coords[i * 3 + 1] as number, coords[i * 3 + 2] as number, materials[i] as number);
+      const y = coords[i * 3 + 1] as number;
+      const z = coords[i * 3 + 2] as number;
+      if (clip !== undefined && (y >> 5 !== clip.cy || z >> 5 !== clip.cz)) continue;
+      this.writeRun(x, x, y, z, materials[i] as number, clip);
     }
   }
 
-  /** Sets world voxels x0..x1 (inclusive) of one row to a material. */
-  private writeRun(x0: number, x1: number, y: number, z: number, material: number): void {
+  /** Sets world voxels x0..x1 (inclusive) of one row to a material. With `clip` (a chunk the row passes through), only its part. */
+  private writeRun(x0: number, x1: number, y: number, z: number, material: number, clip: Chunk | undefined): void {
     const cy = y >> 5;
     const cz = z >> 5;
     const ly = y & 31;
     const lz = z & 31;
-    for (let cx = x0 >> 5; cx <= x1 >> 5; cx++) {
+    let cx0 = x0 >> 5;
+    let cx1 = x1 >> 5;
+    if (clip !== undefined) {
+      cx0 = Math.max(cx0, clip.cx);
+      cx1 = Math.min(cx1, clip.cx);
+    }
+    for (let cx = cx0; cx <= cx1; cx++) {
       const base = cx * N;
       const lx0 = x0 > base ? x0 - base : 0;
       const lx1 = x1 < base + N - 1 ? x1 - base : N - 1;
-      this.fillRow(this.chunkAt(cx, cy, cz), lx0, lx1, ly, lz, material);
+      this.fillRow(clip ?? this.chunkAt(cx, cy, cz), lx0, lx1, ly, lz, material);
     }
   }
 
@@ -601,13 +712,230 @@ export class ChunkWorldStore implements WorldStore {
     if (chunk === undefined) {
       chunk = this.generate(key, cx, cy, cz);
       this.chunks.set(key, chunk);
+      const edits = this.editIndex.get(key);
+      if (edits !== undefined) this.replayInto(chunk, edits);
     }
+    chunk.used = ++this.clock;
     this.lastChunk = chunk;
     return chunk;
   }
 
+  /**
+   * Replays the logged edits that changed this chunk into its freshly generated copy, clipped to it.
+   * An edit that is not in the chunk's list changed nothing here when it was first applied, and the chunk
+   * goes through the same states again, so it would change nothing now either.
+   * May run in the middle of an edit (the edit reaches a chunk that was evicted): the bookkeeping of the
+   * edit in progress is put back afterwards.
+   */
+  private replayInto(chunk: Chunk, edits: readonly number[]): void {
+    const changed = this.changed;
+    const touched = this.touched.length;
+    for (const n of edits) {
+      const e = this.editLog[n];
+      if (e === undefined) throw new Error(`ChunkWorldStore: chunk ${chunk.key} refers to edit ${n}, the log has ${this.editLog.length}`);
+      if (e.t === 'fillBox') this.fillBox(e.min, e.max, e.material, chunk);
+      else if (e.t === 'carveCapsule') this.carveCapsule(e.a, e.b, e.radius, chunk);
+      else this.setVoxels(e.coords, e.materials, chunk);
+    }
+    chunk.mask = 0;
+    this.touched.length = touched;
+    this.changed = changed;
+    this.slotChunk = undefined;
+    collapseIfUniform(chunk);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Edit layers, eviction, source swap
+  // ---------------------------------------------------------------------------------------------
+
+  /** A WorldStore over this store whose edits are recorded under `layer`. */
+  view(layer: string): LayerView {
+    if (typeof layer !== 'string' || layer === '')
+      throw new RangeError(`ChunkWorldStore: edit layer must be a non-empty string, got ${JSON.stringify(layer)}`);
+    return {
+      layer,
+      getVoxel: (c) => this.getVoxel(c),
+      applyEdit: (e) => this.applyEdit(e, layer),
+      getChunk: (key) => this.getChunk(key),
+      paddedCopy: (key, out) => this.paddedCopy(key, out),
+      onDirty: (cb) => this.onDirty(cb),
+      ensureLoaded: (aabb) => this.ensureLoaded(aabb),
+    };
+  }
+
+  /** Number of logged edits, of one layer or of all. */
+  editCount(layer?: string): number {
+    if (layer === undefined) return this.editLog.length;
+    let n = 0;
+    for (const l of this.editLayers) if (l === layer) n++;
+    return n;
+  }
+
+  /** The edits of one layer in the order they were applied: with the voxel size, the EditLog a save stores (serializeEditLog). */
+  exportEdits(layer: string = MANUAL_EDIT_LAYER): { voxelSizeM: number; edits: WorldEdit[] } {
+    this.assertRecording('exportEdits');
+    const edits: WorldEdit[] = [];
+    for (let i = 0; i < this.editLog.length; i++) if (this.editLayers[i] === layer) edits.push(cloneEdit(this.editLog[i] as WorldEdit));
+    return { voxelSizeM: this.voxelSizeM, edits };
+  }
+
+  /**
+   * Applies a saved log under `layer` on top of the current world. A log recorded at another voxel size
+   * addresses different space and is rejected before anything is written. Returns every dirty chunk key.
+   */
+  importEdits(log: { voxelSizeM: number; edits: readonly WorldEdit[] }, layer: string = MANUAL_EDIT_LAYER): ChunkKey[] {
+    if (log.voxelSizeM !== this.voxelSizeM) {
+      throw new RangeError(
+        `ChunkWorldStore: importEdits log was recorded at ${log.voxelSizeM} m voxels, the store uses ${this.voxelSizeM} m`,
+      );
+    }
+    const dirty = new Set<ChunkKey>();
+    for (const e of log.edits) for (const key of this.applyEdit(e, layer)) dirty.add(key);
+    return [...dirty].sort((a, b) => a - b);
+  }
+
+  /**
+   * Removes the edits of one layer, or of all layers (mission restart: back to the pristine site). The chunks
+   * they changed are regenerated and the remaining edits replayed into them. Returns the keys of every chunk
+   * whose mesh may have changed, also delivered to onDirty listeners.
+   */
+  resetEdits(layer?: string): ChunkKey[] {
+    this.assertRecording('resetEdits');
+    if (this.editing) throw new Error('ChunkWorldStore: resetEdits called from inside an edit');
+    const drop = new Uint8Array(this.editLog.length);
+    let dropped = 0;
+    for (let i = 0; i < drop.length; i++) {
+      if (layer === undefined || this.editLayers[i] === layer) {
+        drop[i] = 1;
+        dropped++;
+      }
+    }
+    if (dropped === 0) return [];
+    // New position of every kept edit.
+    const moved = new Int32Array(drop.length);
+    let kept = 0;
+    for (let i = 0; i < drop.length; i++) {
+      if (drop[i] === 1) continue;
+      this.editLog[kept] = this.editLog[i] as WorldEdit;
+      this.editLayers[kept] = this.editLayers[i] as string;
+      moved[i] = kept++;
+    }
+    this.editLog.length = kept;
+    this.editLayers.length = kept;
+
+    const dirty = new Set<ChunkKey>();
+    for (const [key, list] of [...this.editIndex]) {
+      if (!list.some((n) => drop[n] === 1)) {
+        for (let i = 0; i < list.length; i++) list[i] = moved[list[i] as number] as number;
+        continue;
+      }
+      const rest: number[] = [];
+      for (const n of list) if (drop[n] === 0) rest.push(moved[n] as number);
+      if (rest.length === 0) this.editIndex.delete(key);
+      else this.editIndex.set(key, rest);
+      // Regenerated on the next read, with the remaining edits replayed.
+      this.chunks.delete(key);
+      const c = unpackChunkKey(key);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const cx = c.cx + dx;
+            const cy = c.cy + dy;
+            const cz = c.cz + dz;
+            if (cx < CX_MIN || cx > CX_MAX || cz < CX_MIN || cz > CX_MAX || cy < CY_MIN || cy > CY_MAX) continue;
+            dirty.add(pack(cx, cy, cz));
+          }
+        }
+      }
+    }
+    this.lastChunk = undefined;
+    const keys = [...dirty].sort((a, b) => a - b);
+    if (keys.length > 0) for (const cb of [...this.listeners]) cb(keys);
+    return keys;
+  }
+
+  /** Estimated bytes of the resident chunks (what `budgetBytes` limits). Walks every chunk. */
+  get residentBytes(): number {
+    let bytes = 0;
+    for (const chunk of this.chunks.values()) bytes += chunkBytes(chunk);
+    return bytes;
+  }
+
+  /** Chunks evicted by trim() so far. */
+  get evictedChunks(): number {
+    return this.evictedTotal;
+  }
+
+  /**
+   * Evicts least recently used chunks until the resident data fits the budget (down to three quarters of
+   * it, so the next call has room). Chunks inside a `keep` box stay, as do chunks edited while edits are
+   * not recorded. Voxels never change: an evicted chunk is regenerated, edits included, when it is read again.
+   */
+  trim(options: TrimOptions = {}): TrimResult {
+    if (this.editing) throw new Error('ChunkWorldStore: trim called from inside an edit');
+    const budget = options.budgetBytes ?? this.budgetBytes;
+    if (!(budget > 0)) throw new RangeError(`ChunkWorldStore: trim budgetBytes must be > 0, got ${budget}`);
+    let bytes = this.residentBytes;
+    if (bytes <= budget) return { evicted: 0, chunks: this.chunks.size, residentBytes: bytes };
+    const keep = options.keep ?? [];
+    // Chunk coordinate ranges of the protected boxes, inclusive.
+    const boxes: number[] = [];
+    for (const box of keep) {
+      if (box.max.x <= box.min.x || box.max.y <= box.min.y || box.max.z <= box.min.z) continue;
+      boxes.push(box.min.x >> 5, (box.max.x - 1) >> 5, box.min.y >> 5, (box.max.y - 1) >> 5, box.min.z >> 5, (box.max.z - 1) >> 5);
+    }
+    const candidates: Chunk[] = [];
+    for (const chunk of this.chunks.values()) {
+      if (chunk.pinned) continue;
+      let kept = false;
+      for (let i = 0; i < boxes.length && !kept; i += 6) {
+        kept =
+          chunk.cx >= (boxes[i] as number) &&
+          chunk.cx <= (boxes[i + 1] as number) &&
+          chunk.cy >= (boxes[i + 2] as number) &&
+          chunk.cy <= (boxes[i + 3] as number) &&
+          chunk.cz >= (boxes[i + 4] as number) &&
+          chunk.cz <= (boxes[i + 5] as number);
+      }
+      if (!kept) candidates.push(chunk);
+    }
+    candidates.sort((p, q) => p.used - q.used);
+    const target = budget * TRIM_TARGET;
+    let evicted = 0;
+    for (const chunk of candidates) {
+      if (bytes <= target) break;
+      bytes -= chunkBytes(chunk);
+      this.chunks.delete(chunk.key);
+      evicted++;
+    }
+    if (evicted > 0) this.lastChunk = undefined;
+    this.evictedTotal += evicted;
+    return { evicted, chunks: this.chunks.size, residentBytes: bytes };
+  }
+
+  /**
+   * Swaps the terrain input: another site, or none (all AIR). Every chunk, the column cache and all edits
+   * are dropped; nothing is reported dirty, so whoever shows chunks must start over (ChunkStreamer.reset).
+   */
+  setSource(source: ColumnSource | undefined, materialAt?: SubsurfaceMaterialFn): void {
+    if (this.editing) throw new Error('ChunkWorldStore: setSource called from inside an edit');
+    this.source = source;
+    if (materialAt !== undefined) this.materialAt = materialAt;
+    this.chunks.clear();
+    this.columns.clear();
+    this.editLog.length = 0;
+    this.editLayers.length = 0;
+    this.editIndex.clear();
+    this.lastChunk = undefined;
+    this.lastChanged = 0;
+  }
+
+  private assertRecording(what: string): void {
+    if (!this.recordEdits) throw new Error(`ChunkWorldStore: ${what} needs the edit log, this store was created with recordEdits: false`);
+  }
+
   private generate(key: ChunkKey, cx: number, cy: number, cz: number): Chunk {
-    const chunk: Chunk = { key, palette: Uint16Array.of(AIR), indices: null, cx, cy, cz, mask: 0 };
+    const chunk: Chunk = { key, palette: Uint16Array.of(AIR), indices: null, cx, cy, cz, mask: 0, used: 0, pinned: false };
     if (this.source === undefined) return chunk;
     const col = this.columnBlock(cx, cz);
     const y0 = cy * N;
@@ -802,6 +1130,10 @@ function collapseIfUniform(chunk: Chunk): void {
   for (let i = 1; i < VOLUME; i++) if (indices[i] !== first) return;
   chunk.palette = Uint16Array.of(chunk.palette[first] as number);
   chunk.indices = null;
+}
+
+function chunkBytes(chunk: Chunk): number {
+  return CHUNK_OVERHEAD_BYTES + chunk.palette.byteLength + (chunk.indices === null ? 0 : chunk.indices.byteLength);
 }
 
 function assertVoxel(x: number, y: number, z: number, what: string): void {

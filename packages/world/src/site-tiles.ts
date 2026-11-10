@@ -235,25 +235,43 @@ export function buildSiteTileLayers(site: SiteData, tx: number, ty: number, cell
 
 /**
  * ColumnSource over a whole site. Each 2,048 m tile gets its own SiteColumnSource, built when a column in
- * it is first sampled (about 16 MB per tile at 1 m cells), so only visited tiles cost memory.
+ * it is first sampled (about 20 MB per tile at 1 m cells), so only visited tiles cost memory. With
+ * `maxTiles`, the least recently sampled tile is dropped when one more is needed; a dropped tile is
+ * rasterized again from the same features on its next sample, so the columns never change.
  */
 export class TiledSiteSource implements ColumnSource {
   readonly bounds: ColumnBounds;
   readonly site: SiteData;
   readonly cellM: number;
+  private readonly maxTiles: number;
   private readonly tiles: (SiteColumnSource | undefined)[];
+  /** Access clock value per tile; the smallest is the eviction victim. */
+  private readonly used: Float64Array;
+  private clock = 0;
+  private resident = 0;
   private built = 0;
+  private lastIndex = -1;
+  private lastTile: SiteColumnSource | undefined;
 
-  constructor(site: SiteData, cellM: number) {
+  constructor(site: SiteData, cellM: number, options: { maxTiles?: number } = {}) {
+    const maxTiles = options.maxTiles ?? Number.POSITIVE_INFINITY;
+    if (!(maxTiles >= 1)) throw new RangeError(`TiledSiteSource: maxTiles must be at least 1, got ${maxTiles}`);
     this.site = site;
     this.cellM = cellM;
+    this.maxTiles = maxTiles;
     this.bounds = { minXM: site.bounds.minX, minZM: site.bounds.minZ, maxXM: site.bounds.maxX, maxZM: site.bounds.maxZ };
     this.tiles = new Array(site.tileBox.nx * site.tileBox.ny);
+    this.used = new Float64Array(site.tileBox.nx * site.tileBox.ny);
   }
 
-  /** Tiles rasterized so far. */
+  /** Tiles rasterized so far, counting a tile again each time it is rebuilt after eviction. */
   get tilesBuilt(): number {
     return this.built;
+  }
+
+  /** Tiles held in memory now. */
+  get tilesResident(): number {
+    return this.resident;
   }
 
   sampleColumn(xM: number, zM: number, out: ColumnSample): void {
@@ -267,12 +285,30 @@ export class TiledSiteSource implements ColumnSource {
     // Tiles count north; a tile covers z in [-(ty + 1) * size, -ty * size).
     const ty = Math.ceil((0 - zM) / SITE_TILE_SIZE_M) - 1;
     const i = tx - tx0 + (ty - ty0) * nx;
-    let tile = this.tiles[i];
-    if (tile === undefined) {
-      tile = new SiteColumnSource(buildSiteTileLayers(this.site, tx, ty, this.cellM));
-      this.tiles[i] = tile;
-      this.built++;
+    let tile = this.lastTile;
+    if (i !== this.lastIndex || tile === undefined) {
+      tile = this.tiles[i];
+      if (tile === undefined) {
+        if (this.resident >= this.maxTiles) this.evictOldest();
+        tile = new SiteColumnSource(buildSiteTileLayers(this.site, tx, ty, this.cellM));
+        this.tiles[i] = tile;
+        this.resident++;
+        this.built++;
+      }
+      this.used[i] = ++this.clock;
+      this.lastIndex = i;
+      this.lastTile = tile;
     }
     tile.sampleColumn(xM, zM, out);
+  }
+
+  private evictOldest(): void {
+    let victim = -1;
+    for (let i = 0; i < this.tiles.length; i++) {
+      if (this.tiles[i] !== undefined && (victim < 0 || (this.used[i] as number) < (this.used[victim] as number))) victim = i;
+    }
+    if (victim < 0) throw new Error(`TiledSiteSource: ${this.resident} tiles counted as resident, none found`);
+    this.tiles[victim] = undefined;
+    this.resident--;
   }
 }

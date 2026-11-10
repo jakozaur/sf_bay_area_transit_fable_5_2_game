@@ -1,6 +1,8 @@
 /**
  * Edit log: the save format for manual digs. A world is reproduced by generating it from the same
- * ColumnSource and replaying the log in order. Serialized as compact JSON:
+ * ColumnSource and replaying the log in order. saveEditLog and loadEditLog are the two calls a save
+ * slot needs (ChunkWorldStore keeps the edits per layer; a save stores the manual layer).
+ * Serialized as compact JSON:
  *
  *   {"format":"bayvox-editlog","v":1,"voxelSizeM":2,"edits":[
  *     ["f", minX, minY, minZ, maxX, maxY, maxZ, material],      fillBox
@@ -11,7 +13,7 @@
  * setVoxels coordinates are delta coded (the first triple is absolute, each later triple is the
  * difference from the previous voxel) and materials are run-length coded as (material, run) pairs.
  */
-import type { WorldEdit, WorldStore } from '@bayvox/core';
+import { stableHashString, type WorldEdit, type WorldStore } from '@bayvox/core';
 
 export const EDIT_LOG_FORMAT = 'bayvox-editlog';
 export const EDIT_LOG_VERSION = 1;
@@ -150,5 +152,43 @@ export function replayEditLog(store: WorldStore, storeVoxelSizeM: number, log: E
     throw new RangeError(`replayEditLog: log was recorded at ${log.voxelSizeM} m voxels, the store uses ${storeVoxelSizeM} m`);
   }
   for (const e of log.edits) store.applyEdit(e);
+  return log.edits.length;
+}
+
+/** The part of ChunkWorldStore the save helpers use. */
+export interface EditLayerStore {
+  exportEdits(layer?: string): EditLog;
+  importEdits(log: EditLog, layer?: string): unknown;
+}
+
+/** A serialized edit log with what core EditLogRef records about it: the number of edits and stableHashString of the text. */
+export interface SavedEditLog {
+  text: string;
+  edits: number;
+  hash: string;
+}
+
+/** Serializes one layer of a store (default: the manual layer) for a save slot. */
+export function saveEditLog(store: EditLayerStore, layer?: string): SavedEditLog {
+  const log = store.exportEdits(layer);
+  const text = serializeEditLog(log);
+  return { text, edits: log.edits.length, hash: stableHashString(text) };
+}
+
+/**
+ * Parses a stored log and applies it to a store (default: as the manual layer). With `expected` (the
+ * save's EditLogRef) the text must have that hash and edit count; a mismatch throws before anything is
+ * written. Returns the number of edits applied.
+ */
+export function loadEditLog(store: EditLayerStore, text: string, expected?: { edits: number; hash: string }, layer?: string): number {
+  if (expected !== undefined) {
+    const hash = stableHashString(text);
+    if (hash !== expected.hash) throw new Error(`loadEditLog: the stored edit log has hash ${hash}, the save expects ${expected.hash}`);
+  }
+  const log = parseEditLog(text);
+  if (expected !== undefined && log.edits.length !== expected.edits) {
+    throw new Error(`loadEditLog: the stored edit log has ${log.edits.length} edits, the save expects ${expected.edits}`);
+  }
+  store.importEdits(log, layer);
   return log.edits.length;
 }
