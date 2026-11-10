@@ -53,7 +53,7 @@ test('a scripted dig changes the voxel and the quad counters', async ({ page }, 
   expectNoErrors(game);
 });
 
-test('a click digs at the cursor and hovering does not', async ({ page }, testInfo) => {
+test('with the dig brush in hand a click digs at the cursor; hovering does not', async ({ page }, testInfo) => {
   const game = await openSynthetic(page, testInfo, 'hud=0');
   const viewport = page.viewportSize();
   if (viewport === null) throw new Error('no viewport');
@@ -66,6 +66,12 @@ test('a click digs at the cursor and hovering does not', async ({ page }, testIn
   const hovering = await game.stats();
   expect(hovering.quads).toBe(before.quads);
   expect(hovering.drawCalls).toBe(before.drawCalls + 1);
+  // Without a tool a click only belongs to the camera.
+  await page.mouse.click(cx, cy);
+  await game.settled();
+  expect((await game.stats()).quads).toBe(before.quads);
+  // G picks up the dig brush (packages/input TOOL_HOTKEYS).
+  await page.keyboard.press('KeyG');
   await page.mouse.click(cx, cy);
   await game.settled();
   expect((await game.stats()).quads).not.toBe(before.quads);
@@ -85,8 +91,8 @@ test('cut plane toggles by hook and by key, and shows a cap', async ({ page }, t
   const cut = await game.shot('cut-on');
   const cutStats = await game.stats();
   expect(cut.equals(plain)).toBe(false);
-  // Exactly one more draw: the cap quad. The cap texture is counted in GPU bytes.
-  expect(cutStats.drawCalls).toBe(plainStats.drawCalls + 1);
+  // Exactly two more draws: the cap quad and the wall of the cut. Their textures are counted in GPU bytes.
+  expect(cutStats.drawCalls).toBe(plainStats.drawCalls + 2);
   expect(cutStats.gpuBytes).toBeGreaterThan(plainStats.gpuBytes);
   expect(cutStats.quads).toBe(plainStats.quads);
   expect(await distinctColours(page, cut)).toBeGreaterThan(200);

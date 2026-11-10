@@ -22,7 +22,7 @@ function voxel(page: Page, x: number, y: number, z: number): Promise<number | un
 }
 
 test('boots on the real map data: downtown San Francisco is voxels', async ({ page }, testInfo) => {
-  const game = await openGame(page, testInfo);
+  const game = await openGame(page, testInfo, 'debug=1');
   const stats = await game.stats();
   console.log(`[${testInfo.project.name}] renderer: ${stats.renderer}`);
   const expected = EXPECTED_RENDERER[testInfo.project.name];
@@ -63,10 +63,12 @@ test('boots on the real map data: downtown San Francisco is voxels', async ({ pa
   expect(await voxel(page, 19840, 12, -65736)).toBe(AIR);
   expect(await voxel(page, 21298, 3, -64947)).toBe(GRASS);
 
-  // The debug HUD is up and shows the counters and the sim.
+  // debug=1 brings up the debug panel with the render counters; the game interface is up beside it, in play.
   await expect(page.locator('.lil-gui.lil-root')).toBeVisible();
   await expect(page.locator('.lil-gui .lil-controller', { hasText: 'quads' })).toHaveCount(1);
-  await expect(page.locator('.lil-gui .lil-controller', { hasText: 'speed' })).toHaveCount(1);
+  await expect(page.locator('.lil-gui .lil-controller', { hasText: 'drawCalls' })).toHaveCount(1);
+  await expect(page.getByTestId('topbar')).toBeVisible();
+  await expect(page.getByTestId('screen-title')).toHaveCount(0);
   expectNoErrors(game);
 });
 

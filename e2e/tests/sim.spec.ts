@@ -45,8 +45,15 @@ test('the sim is deterministic behind the hook: commands, stepSim and the state 
   await expect(page.evaluate(() => window.__game.command({ t: 'noop' }))).rejects.toThrow(/noop/);
   expect(await page.evaluate(() => window.__game.simHash())).toBe(hash0);
 
-  await send(page, [...PLAN, { t: 'approveProject', projectId: PORTAL_PROJECT_ID }]);
-  expect((await game.stats()).pendingCommands).toBe(PLAN.length + 1);
+  // Commands queue until the next frame: counted in the same task that sent them.
+  const queued = await page.evaluate(
+    (list) => {
+      for (const c of list) window.__game.command(c);
+      return window.__game.stats().pendingCommands;
+    },
+    [...PLAN, { t: 'approveProject', projectId: PORTAL_PROJECT_ID }] as GameCommand[],
+  );
+  expect(queued).toBe(PLAN.length + 1);
   await page.evaluate(() => window.__game.stepSim?.(400));
   const stats = await game.stats();
   expect(stats).toMatchObject({ tick: 400, pendingCommands: 0 });
@@ -64,9 +71,11 @@ test('the sim is deterministic behind the hook: commands, stepSim and the state 
 });
 
 test('playthrough of The Portal at 100x: plan, gates, breakthrough, the tunnel is carved out of the city', async ({ page }, testInfo) => {
-  // The run is about 8 game years at 200 game days per second: 15 to 20 s of wall time by design.
+  // The software project is a boot smoke: a live build with the camera riding the machine is beyond it.
+  test.skip(testInfo.project.name !== 'gpu', 'a live playthrough needs the hardware renderer');
+  // About ten game years at 100 times the pace of the sim's clock: 10 to 20 s of wall time.
   test.setTimeout(120_000);
-  // Live clock: the app loop steps the sim. Event cards stay on; they take their default option.
+  // Live clock: the app loop steps the sim. Event cards stop the clock, so the script answers each with its default option.
   const game = await openGame(page, testInfo, 'freeze=0&hud=0');
   await send(page, [{ t: 'setSpeed', speed: 0 }]);
   await expect.poll(async () => (await game.snapshot()).speed).toBe(0);
@@ -89,6 +98,14 @@ test('playthrough of The Portal at 100x: plan, gates, breakthrough, the tunnel i
     .poll(
       async () => {
         const p = await project(game);
+        const events = (await game.snapshot()).events;
+        if (events.length > 0) {
+          await send(
+            page,
+            events.map((e) => ({ t: 'resolveEvent', eventId: e.uid, optionId: e.defaultOption })),
+          );
+          return false;
+        }
         if (p.awaiting !== null && p.awaiting !== 'openLine') {
           gates.push(`${p.awaiting}@${(await game.snapshot()).date}`);
           if (p.awaiting === 'launchTBM') launched = true;

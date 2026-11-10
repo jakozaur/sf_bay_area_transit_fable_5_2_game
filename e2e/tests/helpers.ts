@@ -5,17 +5,25 @@ import { expect, type Page, type TestInfo } from '@playwright/test';
 /**
  * URL parameters per project for the real map data (the default world). The software renderer gets a small
  * near field and coarser LOD tiers that match its 320 x 240 frame; the GPU project runs the defaults.
+ * `mission=the-portal` skips the title screen and the briefing: the specs that use these start in play.
  */
 const SITE_QUERY: Record<string, string> = {
-  gpu: 'freeze=1&radius=8',
+  gpu: 'freeze=1&radius=8&mission=the-portal',
+  swgl: 'freeze=1&radius=2&detail=32&far=512&mission=the-portal',
+};
+
+/** The same without a mission: the app boots on its title screen. */
+const TITLE_QUERY: Record<string, string> = {
+  gpu: 'radius=8',
+  // Frozen: the software renderer needs most of a second per frame, and a live clock redraws the water every frame.
   swgl: 'freeze=1&radius=2&detail=32&far=512',
 };
 
 /** URL parameters per project for the seeded synthetic world: renderer and input tests that must not depend on map data. */
 const SYNTHETIC_QUERY: Record<string, string> = {
-  gpu: 'freeze=1&world=synthetic&size=16&radius=8',
+  gpu: 'freeze=1&world=synthetic&size=16&radius=8&mission=the-portal',
   // An 8-chunk world with a 4 x 4 chunk near field: room to pan without reaching the edge of the world.
-  swgl: 'freeze=1&world=synthetic&size=8&radius=2',
+  swgl: 'freeze=1&world=synthetic&size=8&radius=2&mission=the-portal',
 };
 
 /** The one console message tolerated: SwiftShader reports every screenshot readback as a performance warning. */
@@ -71,6 +79,11 @@ async function open(page: Page, testInfo: TestInfo, queries: Record<string, stri
 /** Opens the app on the real map data, frozen (fixed time, instant camera, sim clock stopped), and waits for the first full view. */
 export function openGame(page: Page, testInfo: TestInfo, extraQuery = ''): Promise<Session> {
   return open(page, testInfo, SITE_QUERY, extraQuery);
+}
+
+/** Opens the app the way a player gets it: title screen over the whole-Bay view, live clock (frozen on the software renderer). */
+export function openTitle(page: Page, testInfo: TestInfo, extraQuery = ''): Promise<Session> {
+  return open(page, testInfo, TITLE_QUERY, extraQuery);
 }
 
 /** Same on the synthetic world. */
