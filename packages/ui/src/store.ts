@@ -3,7 +3,7 @@ import type { GameSpeed, Readable } from '@bayvox/core';
 import type { BayServices, FeedItem, GameSnapshot, Notice } from '@bayvox/sim';
 import { type ReadonlySignal, type Signal, signal } from '@preact/signals';
 import type { PanelId, UiExtras, UiStore } from './contract.ts';
-import { type CostBenefitRow, postKey, socialPosts } from './model.ts';
+import { type CostBenefitRow, gateOf, postKey, socialPosts } from './model.ts';
 
 /** A line shown in the toast stack. `tone` picks the stripe colour; `banner` items take the big breakthrough treatment. */
 export interface Toast {
@@ -190,12 +190,7 @@ export function createStore(services: BayServices, extras: UiExtras = {}): UiSto
     }
     // A gate card put aside stays aside for that gate only: once the project is through it (or the mission is
     // restarted) the next gate shows its card again.
-    if (gateDismissed.value !== null) {
-      const id = s.mission.projectId ?? s.mission.planProjectId;
-      const project = s.projects.find((p) => p.id === id);
-      if (project === undefined || project.awaiting === null || gateDismissed.value !== `${project.id}:${project.awaiting}`)
-        gateDismissed.value = null;
-    }
+    if (gateDismissed.value !== null && gateOf(s)?.key !== gateDismissed.value) gateDismissed.value = null;
   };
   disposers.push(services.sim.snapshot.subscribe(onSnapshot));
 
@@ -204,6 +199,8 @@ export function createStore(services: BayServices, extras: UiExtras = {}): UiSto
   const setPanel = (next: PanelId | null): void => {
     const was = panel.value;
     panel.value = next;
+    // A sheet that closes on a gate brings the gate card back to the centre, also one put aside before.
+    if (was !== null && next === null) gateDismissed.value = null;
     const wasPausing = was !== null && PAUSING_PANELS.has(was);
     const nowPausing = next !== null && PAUSING_PANELS.has(next);
     if (!wasPausing && nowPausing) {

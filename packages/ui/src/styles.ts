@@ -99,9 +99,11 @@ export const CSS = `
 .bv-top-cell.is-date .v { width: 11.5ch; }
 .bv-top-cell.is-funds .v { width: 7.5ch; }
 .bv-top-cell.is-pc .v { width: 6.5ch; }
-.bv-speed { display: flex; align-items: center; gap: 4px; padding: 0 12px; border-right: 1px solid var(--ink-3); }
-.bv .bv-speed .bv-btn { min-width: 40px; min-height: 30px; padding: 4px 8px 2px; font: 700 17px/1 var(--f-sign); }
-.bv-hold-slot { flex: none; width: 96px; margin-left: 6px; }
+/* The time cell has one width whatever it holds ("Next decision", or pause and the three bore speeds): the
+   buttons right of it stay where they are when a machine launches or breaks through. */
+.bv-speed { flex: none; box-sizing: border-box; width: 336px; min-width: 0; margin: 0; display: flex; align-items: center; gap: 4px; padding: 0 12px; border: 0; border-right: 1px solid var(--ink-3); }
+.bv .bv-speed .bv-btn { flex: none; min-width: 40px; min-height: 30px; padding: 4px 8px 2px; font: 700 17px/1 var(--f-sign); white-space: nowrap; }
+.bv-hold-slot { flex: none; width: 96px; margin-left: auto; padding-left: 6px; }
 .bv-hold { font-size: 12px; color: var(--hi); white-space: nowrap; }
 .bv-headline { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0 14px; }
 .bv-headline .pair { display: flex; flex-direction: column; justify-content: center; }
@@ -219,6 +221,12 @@ export const CSS = `
 .bv-option .time { grid-column: 1 / -1; font-size: 12px; line-height: 1.35; color: var(--soft); padding-top: 2px; }
 .bv-lock { grid-column: 1 / -1; font-size: 12px; font-weight: 700; color: var(--bad); padding-top: 2px; }
 .bv-option-wrap { display: flex; flex-direction: column; gap: 3px; }
+/* The machine of a tunnel choice: silhouette, name, three facts, one line of note. */
+.bv-machine { grid-column: 1 / -1; display: grid; grid-template-columns: 44px 1fr; gap: 1px 10px; align-items: center; margin-top: 4px; padding: 6px 8px 5px; border-left: 3px solid var(--ink); background: var(--paper-2); text-align: left; }
+.bv-machine .shape { grid-row: 1 / span 2; color: var(--ink); }
+.bv-machine .name { font-weight: 700; font-size: 13px; }
+.bv-machine .facts { display: flex; flex-wrap: wrap; gap: 0 12px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.bv-machine .note { grid-column: 1 / -1; font-size: 12px; line-height: 1.35; color: var(--soft); }
 
 /* ---------------------------------------------------------------- project panel: phase timeline */
 .bv-phases { position: relative; display: flex; flex-direction: column; }
@@ -329,15 +337,6 @@ export const CSS = `
 .bv .bv-tool[aria-pressed='true'] .bv-bullet { background: var(--hi); color: #1a0a02; }
 .bv .bv-tool:disabled { color: #6f8496; }
 .bv .bv-tool:disabled .bv-bullet { background: transparent; color: #6f8496; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
-.bv .bv-tool.is-toggle { padding-left: 11px; }
-.bv-cut { display: flex; align-items: center; gap: 3px; font: 700 16px/1 var(--f-sign); }
-.bv-cut .lvl { white-space: nowrap; min-width: 44px; text-align: center; padding-top: 2px; }
-.bv .bv-cut .bv-btn { min-height: 26px; min-width: 26px; padding: 2px 6px 0; }
-.bv-views { position: absolute; bottom: calc(100% + 6px); right: 0; min-width: 190px; padding: 6px; background: var(--ink); border-radius: 3px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 10px 26px rgba(6, 14, 24, 0.5); }
-.bv .bv-views button { padding: 5px 8px 4px; border-radius: 3px; color: #fff; display: flex; justify-content: space-between; gap: 12px; }
-.bv .bv-views button:hover { background: var(--ink-2); }
-.bv-views .key { color: var(--fog); font-size: 12px; }
-.bv-views .none { color: var(--fog); font-size: 12px; padding: 4px 8px; }
 
 /* ---------------------------------------------------------------- drive instruments */
 .bv-drive { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); display: flex; align-items: stretch; background: var(--ink); color: #fff; border-radius: 3px; box-shadow: 0 10px 26px rgba(6, 14, 24, 0.5); border-top: 3px solid var(--hi); }
@@ -394,9 +393,10 @@ export const CSS = `
 @keyframes bv-flash { from { opacity: 0.85; } to { opacity: 0; } }
 
 /* ---------------------------------------------------------------- the gate card */
-.bv-gatecard { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); width: 540px; max-width: calc(100% - 24px); max-height: calc(100% - 196px); display: flex; pointer-events: none; }
+/* In the centre of the map, between the two top bars and the toolbar: the next step is where the eye is. */
+.bv-gatecard { position: absolute; top: 112px; bottom: 84px; left: 50%; transform: translateX(-50%); width: 540px; max-width: calc(100% - 24px); display: flex; align-items: center; pointer-events: none; }
 /* With the backlash box up (folded to its header under a gate), the card ends above it. */
-.bv-gatecard:has(~ .bv-backlash) { max-height: calc(100% - 232px); }
+.bv-gatecard:has(~ .bv-backlash) { bottom: 120px; }
 .bv-gatecard .bv-sheet { width: 100%; max-height: 100%; pointer-events: auto; border-top: 5px solid var(--hi); }
 .bv-gatecard .what { font-size: 15px; line-height: 1.4; }
 .bv .bv-offer { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; align-items: baseline; width: 100%; padding: 5px 9px 4px; margin-top: 4px; border: 1.5px solid var(--rule); border-radius: 3px; background: #fff; }
@@ -570,6 +570,7 @@ export const CSS = `
 }
 @media (max-width: 1100px) {
   .bv-hold-slot, .bv-stops, .bv-lapse { display: none; }
+  .bv-speed { width: 322px; }
   .bv-top-cell { padding: 0 9px; }
   .bv-headline { gap: 8px; padding: 0 8px; }
 }
@@ -582,8 +583,8 @@ export const CSS = `
   .bv-headline { flex: 1 1 0; justify-content: center; }
   .bv-nav { gap: 3px; padding: 0 6px; }
   .bv .bv-nav .bv-btn { padding: 4px 6px 3px; font-size: 12px; }
-  .bv-speed { gap: 2px; padding: 0 6px; }
-  .bv .bv-speed .bv-btn { min-width: 30px; padding: 4px 4px 2px; }
+  .bv-speed { gap: 2px; padding: 0 6px; width: 258px; }
+  .bv .bv-speed .bv-btn { min-width: 30px; padding: 4px 4px 2px; font-size: 14px; }
   .bv-top-cell .k { display: none; }
   .bv-top-cell .v { font-size: 18px; padding-top: 0; }
   .bv-headline .gap { font-size: 20px; padding: 4px 6px 1px; }

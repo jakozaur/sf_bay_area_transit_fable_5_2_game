@@ -75,15 +75,20 @@ export class SimDriver {
   /**
    * One frame: applies queued commands, then spends `dtSeconds` of wall time at `speed` (0, 1, 10, 100) times
    * the pace of the sim's clock. Time does not move while the clock holds for an event card or a gate.
+   * `daysPerSecond`, when given, replaces speed times the clock's pace (the game's own pacing: a bore in 90
+   * seconds, a run to the next decision); Infinity runs as far as one frame may. Speed 0 still pauses, and a
+   * clock that stands (drafts only) still stands.
    */
-  advance(dtSeconds: number, speed: number): void {
+  advance(dtSeconds: number, speed: number, daysPerSecond?: number): void {
     const flushed = this.flush();
     const sim = this.current;
     let clock = sim.clock();
     let ran = false;
-    if (speed > 0 && dtSeconds > 0 && clock.hold === null && clock.daysPerSecond > 0) {
-      this.acc += dtSeconds * speed * clock.daysPerSecond * SUBSTEPS_PER_DAY;
+    const rate = daysPerSecond ?? speed * clock.daysPerSecond;
+    if (Number.isNaN(rate) || rate < 0) throw new RangeError(`SimDriver.advance: daysPerSecond must be 0 or more, got ${rate}`);
+    if (speed > 0 && dtSeconds > 0 && clock.hold === null && clock.daysPerSecond > 0 && rate > 0) {
       const budget = MAX_DAYS_PER_FRAME * SUBSTEPS_PER_DAY;
+      this.acc = Number.isFinite(rate) ? this.acc + dtSeconds * rate * SUBSTEPS_PER_DAY : budget;
       // Time beyond the cap is dropped, not owed: the game slows down instead of spiralling.
       if (this.acc > budget) this.acc = budget;
       const mode = clock.mode;

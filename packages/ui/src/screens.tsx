@@ -8,8 +8,8 @@ import { BacklashRecord } from './hud.tsx';
 import { act, missionProject, POLAND_TARGET_LIMIT, polandTarget, safeRatio, scorecardHousing } from './model.ts';
 import { ReceiptTable } from './panels.tsx';
 
-export const GAME_TITLE = 'Polish the Public Transport';
-export const TAGLINE = 'Can you build a train to the HQ of the authors of Fable 5.2?';
+export const GAME_TITLE = 'Boring Game';
+export const TAGLINE = 'Polish SF Bay transit rail to reach the HQ of the authors of Fable 5.2';
 const TARGET_LINE = `The target: no more than ${POLAND_TARGET_LIMIT}x Poland's cost and ${POLAND_TARGET_LIMIT}x Poland's timeline.`;
 
 /** The mission "Play" starts: the first campaign mission not yet opened, else the first one. Every mission can be picked. */
@@ -98,11 +98,7 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
             </span>
             <span>Real map. Real prices.</span>
           </div>
-          <h1>
-            Polish the
-            <br />
-            Public Transport
-          </h1>
+          <h1>{GAME_TITLE}</h1>
           <p class="pitch" data-testid="tagline">
             {TAGLINE}
           </p>

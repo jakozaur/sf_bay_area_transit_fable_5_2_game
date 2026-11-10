@@ -52,11 +52,11 @@ test('a pressed button under the pointer stays readable', async ({ page }) => {
       return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
     });
   };
-  // The open panel's button in the top band, a speed button, and a pressed toolbar toggle.
+  // The open panel's button in the top band, a speed button, and a pressed tool.
   expect(await contrast('nav-receipt')).toBeGreaterThan(7);
   expect(await contrast('speed-1')).toBeGreaterThan(7);
-  await tid(page, 'view-xray').click();
-  expect(await contrast('view-xray')).toBeGreaterThan(7);
+  await tid(page, 'tool-dig').click();
+  expect(await contrast('tool-dig')).toBeGreaterThan(7);
 });
 
 test('the reforms sheet stops the clock while it is read and names the reforms the player can afford', async ({ page }) => {

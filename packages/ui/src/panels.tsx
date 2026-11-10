@@ -36,6 +36,8 @@ import {
   actionButton,
   command,
   housingOptions,
+  type MachineCard,
+  machineOf,
   missionProject,
   reformIsQuiet,
   reformList,
@@ -277,9 +279,69 @@ function StationList({ store, project }: StoreProps & { project: ProjectView }):
 
 // ---------------------------------------------------------------- design chooser
 
+/** A side view of each machine, 44 x 20: shields as drums with a cutterhead, the roadheader a boom, the excavator an arm. */
+function MachineShape({ kind }: { kind: MachineCard['kind'] }): JSX.Element {
+  const shield = (y: number, h: number, w: number): JSX.Element => (
+    <>
+      <rect x={40 - w} y={y} width={w - 4} height={h} rx="1" fill="currentColor" />
+      <rect x="37" y={y - 1} width="3" height={h + 2} fill="var(--hi)" />
+    </>
+  );
+  return (
+    <svg class="shape" width="44" height="20" viewBox="0 0 44 20" aria-hidden="true">
+      {kind === 'twinBore' && (
+        <>
+          {shield(1, 7, 30)}
+          {shield(12, 7, 30)}
+        </>
+      )}
+      {kind === 'singleBore' && shield(2, 16, 36)}
+      {kind === 'smallBore' && shield(7, 6, 26)}
+      {kind === 'roadheader' && (
+        <>
+          <rect x="4" y="11" width="20" height="6" rx="1" fill="currentColor" />
+          <path d="M22 13 L34 6" stroke="currentColor" stroke-width="3" fill="none" />
+          <circle cx="36" cy="5" r="4" fill="var(--hi)" />
+        </>
+      )}
+      {kind === 'excavator' && (
+        <>
+          <rect x="4" y="9" width="16" height="7" rx="1" fill="currentColor" />
+          <rect x="2" y="16" width="20" height="3" rx="1.5" fill="currentColor" />
+          <path d="M18 10 L28 3 L36 11" stroke="currentColor" stroke-width="2.5" fill="none" />
+          <path d="M33 10 L40 12 L35 17 Z" fill="var(--hi)" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** The machine a tunnel choice brings: what it is, how many, how wide, how fast, what it costs. Spans only: it sits inside a button. */
+function MachineLine({ m, id }: { m: MachineCard; id: string }): JSX.Element {
+  return (
+    <span class="bv-machine" data-testid={`machine-${id}`} data-kind={m.kind}>
+      <MachineShape kind={m.kind} />
+      <span class="name">{m.name}</span>
+      <span class="facts">
+        <span>
+          <b>{m.count}</b> x <b>{m.diameterM.toFixed(1)} m</b>
+        </span>
+        <span>
+          <b>{m.metresPerDay.toFixed(1)}</b> m/day
+        </span>
+        <span>
+          <b>{money(m.priceCents)}</b>
+        </span>
+      </span>
+      {m.note !== '' && <span class="note">{m.note}</span>}
+    </span>
+  );
+}
+
 function DesignOption({ store, project, o }: StoreProps & { project: ProjectView; o: DesignOptionView }): JSX.Element {
   const frozen = project.design.frozen;
   const locked = o.lockedBy.length > 0;
+  const machine = machineOf(o);
   const pick = (): void => {
     const tunnel = TUNNEL_OPTIONS.find((t) => t === o.id);
     const stationBox = STATION_BOXES.find((b) => b === o.id);
@@ -314,6 +376,7 @@ function DesignOption({ store, project, o }: StoreProps & { project: ProjectView
             : 'No stations yet.'}
         </span>
       )}
+      {machine !== null && <MachineLine m={machine} id={o.id} />}
       {o.applies === false && (
         <span class="time" data-testid={`design-applies-${o.id}`}>
           No underground station on the line yet, so no price.
@@ -682,6 +745,7 @@ function ReformRow({ store, r, open, onToggle }: StoreProps & { r: ReformView; o
   const twin = r.unlocks.includes(TWIN_BORE) ? option(TWIN_BORE) : undefined;
   const picksTwin = twin !== undefined && !twin.selected && project?.design.frozen === false && r.status !== 'enacted';
   const chooser = r.unlocks.filter((id) => id !== TWIN_BORE);
+  const twinMachine = machineOf(twin);
   return (
     <li class={cx('bv-reform', `is-${r.status}`)} data-testid={`reform-${r.id}`}>
       <span class="stop" />
@@ -755,6 +819,7 @@ function ReformRow({ store, r, open, onToggle }: StoreProps & { r: ReformView; o
               Enacting it switches this line to: {twin.label}.
             </p>
           )}
+          {twinMachine !== null && <MachineLine m={twinMachine} id={r.id} />}
           {chooser.length > 0 && (
             <p class="bv-small">Unlocks in the design chooser: {chooser.map((id) => option(id)?.label ?? id).join(', ')}.</p>
           )}

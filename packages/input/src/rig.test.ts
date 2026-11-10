@@ -150,6 +150,13 @@ test('chase follow: the camera settles behind and above the machine, looking alo
   expect(p.z).toBeCloseTo(500, 1);
   expect(p.y).toBeGreaterThan(-25 + 10);
   expect(rig.distance).toBeCloseTo(FOLLOW_DEFAULTS.chase.distance, 1);
+  // A larger machine is watched from further back, in proportion.
+  rig.follow('chase', pose, 1.8);
+  settle(rig);
+  expect(rig.distance).toBeCloseTo(FOLLOW_DEFAULTS.chase.distance * 1.8, 1);
+  expect(() => rig.follow('chase', pose, 0.5)).toThrow(/distanceScale must be 1 or more/);
+  rig.follow('chase', pose);
+  settle(rig);
   // The machine curves to the south (+z): the camera swings to the north of it, with no jump in any frame.
   pose = { position: pose.position, yaw: 0, pitch: 0 };
   rig.setFollowPose(pose);

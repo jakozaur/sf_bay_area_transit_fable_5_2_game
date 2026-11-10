@@ -26,6 +26,7 @@ test('nothing in the top bar moves while the date, the funds, the capital and th
       const t = (id: string): string => `[data-testid="${id}"]`;
       // Everything that must hold still: the speed buttons, the ratio box, the time line, the panel buttons.
       const fixed = [
+        t('time'),
         ...[0, 1, 10, 100].map((sp) => t(`speed-${sp}`)),
         t('headline-ratio'),
         t('hud-target'),
@@ -109,6 +110,40 @@ test('nothing in the top bar moves while the date, the funds, the capital and th
   expect(run.dates[1]).toBe('17 Oct 2031');
   expect(run.moved).toEqual([]);
   expect(run.overflowed).toEqual([]);
+});
+
+test('the time cell is as wide with "Next decision" as with the bore speeds, and its buttons fit, at every width', async ({ page }) => {
+  for (const width of [1280, 1060, 880]) {
+    await page.setViewportSize({ width, height: 720 });
+    const seen: Record<string, { cell: string; nav: string }> = {};
+    for (const scene of ['approvals', 'gate-card', 'build', 'drive'] as const) {
+      await open(page, scene);
+      seen[scene] = await page.evaluate(() => {
+        const q = (sel: string): DOMRect => {
+          const el = document.querySelector(sel);
+          if (el === null) throw new Error(`top bar: nothing matches ${sel}`);
+          return el.getBoundingClientRect();
+        };
+        const cell = q('[data-testid="time"]');
+        for (const b of document.querySelectorAll('[data-testid="time"] button')) {
+          const r = b.getBoundingClientRect();
+          if (r.left < cell.left - 0.5 || r.right > cell.right + 0.5)
+            throw new Error(
+              `time cell: "${b.textContent}" (${r.left.toFixed(1)} to ${r.right.toFixed(1)}) hangs out of ${cell.left.toFixed(1)} to ${cell.right.toFixed(1)}`,
+            );
+        }
+        const box = (r: DOMRect): string => [r.left, r.top, r.width, r.height].map((n) => n.toFixed(2)).join(' ');
+        return {
+          cell: box(cell),
+          nav: ['project', 'reforms', 'receipt', 'menu'].map((n) => box(q(`[data-testid="nav-${n}"]`))).join(' | '),
+        };
+      });
+    }
+    expect(seen.approvals?.cell, `time cell at ${width} px`).toBe(seen.build?.cell);
+    expect(seen['gate-card']?.cell, `time cell at ${width} px`).toBe(seen.drive?.cell);
+    expect(seen.approvals?.nav, `panel buttons at ${width} px`).toBe(seen.build?.nav);
+    expect(seen['gate-card']?.nav, `panel buttons at ${width} px`).toBe(seen.drive?.nav);
+  }
 });
 
 test('the numbers of the top bar are set in tabular numerals', async ({ page }) => {

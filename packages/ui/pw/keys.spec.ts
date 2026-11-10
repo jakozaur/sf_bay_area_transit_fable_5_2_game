@@ -38,15 +38,22 @@ test('digits switch tools, toggle the active one off, and refuse an unavailable 
   expect(await game()).toEqual([]);
 });
 
-test('Space pauses and resumes; while driving it is left to the drive bindings', async ({ page }) => {
+test('Space stops and starts time; while driving it is left to the drive bindings', async ({ page }) => {
   await open(page, 'approvals');
   const game = await spyGame(page);
   await page.keyboard.press('Space');
   expect((await lastCall(page)).name).toBe('time.togglePause');
+  await expect(tid(page, 'time-next')).toHaveAttribute('aria-pressed', 'false');
+  await page.keyboard.press('Space');
+  await expect(tid(page, 'time-next')).toHaveAttribute('aria-pressed', 'true');
+  expect(await game()).toEqual([]);
+
+  // While a machine bores it is the pause.
+  await open(page, 'build');
+  await page.keyboard.press('Space');
   await expect(tid(page, 'speed-0')).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Space');
-  await expect(tid(page, 'speed-10')).toHaveAttribute('aria-pressed', 'true');
-  expect(await game()).toEqual([]);
+  await expect(tid(page, 'speed-1')).toHaveAttribute('aria-pressed', 'true');
 
   await open(page, 'drive');
   const driveGame = await spyGame(page);
@@ -57,14 +64,14 @@ test('Space pauses and resumes; while driving it is left to the drive bindings',
 });
 
 test('after a mouse click Space still pauses: the clicked button does not keep focus', async ({ page }) => {
-  await open(page, 'approvals');
-  await tid(page, 'speed-1').click();
+  await open(page, 'build');
+  await tid(page, 'speed-10').click();
   await page.keyboard.press('Space');
   expect((await lastCall(page)).name).toBe('time.togglePause');
 });
 
 test('keyboard users can tab to a button and press it; the game does not see that key', async ({ page }) => {
-  await open(page, 'approvals');
+  await open(page, 'build');
   const game = await spyGame(page);
   await tid(page, 'speed-100').focus();
   await page.keyboard.press('Enter');

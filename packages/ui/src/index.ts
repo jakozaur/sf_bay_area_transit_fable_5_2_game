@@ -5,3 +5,4 @@ export * from './contract.ts';
 export * as format from './format.ts';
 export { type KeyInput, type KeyIntent, type KeyState, resolveKey } from './keys.ts';
 export type { CostBenefitRow, PolandTarget, SocialPost } from './model.ts';
+export * as pace from './pace.ts';

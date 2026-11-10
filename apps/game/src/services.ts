@@ -99,7 +99,7 @@ export function createView(
 export interface RigLike {
   setBookmark(b: CameraBookmark, animate: boolean): void;
   focusOn(target: WorldPos, opts?: { distance?: number; animate?: boolean }): void;
-  follow(mode: FollowMode, pose: EntityPose): void;
+  follow(mode: FollowMode, pose: EntityPose, distanceScale?: number): void;
   setFollowPose(pose: EntityPose): void;
   stopFollow(): void;
   readonly following: FollowMode | null;
@@ -128,6 +128,8 @@ export function createCamera(deps: {
   size: () => { width: number; height: number };
   /** Pose of an entity in the scene of this frame, or null. */
   poseOf: (ref: EntityRef) => EntityPose | null;
+  /** How much further back than the default a follow of this entity starts (1: the default); for machines larger than a twin bore. */
+  followScale?: (ref: EntityRef) => number;
   /** False makes every move instant (frozen clock). */
   animate: () => boolean;
 }): CameraControl {
@@ -183,7 +185,11 @@ export function createCamera(deps: {
       if (pose === null) throw new Error(`camera.follow: there is no ${target.entity.type} "${target.entity.id}" to follow`);
       // The cutaway around a machine is a trench along its drive, open behind it: the view into it is from behind,
       // so a 'cutaway' follow of a machine is flown as a chase. Trains and stations keep the free orbit.
-      rig.follow(target.mode === 'cutaway' && target.entity.type === 'tbm' ? 'chase' : target.mode, pose);
+      rig.follow(
+        target.mode === 'cutaway' && target.entity.type === 'tbm' ? 'chase' : target.mode,
+        pose,
+        deps.followScale?.(target.entity) ?? 1,
+      );
       setFollowing({ entity: { ...target.entity }, mode: target.mode });
     },
     project(p) {

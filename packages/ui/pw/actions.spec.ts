@@ -30,14 +30,35 @@ test('title: the credits link opens the credits sheet', async ({ page }) => {
   await expect(tid(page, 'credits')).toContainText('U.S. Geological Survey');
 });
 
-test('top bar: speed buttons, panel buttons', async ({ page }) => {
-  await open(page, 'approvals');
-  await expect(tid(page, 'speed-10')).toHaveAttribute('aria-pressed', 'true');
-  for (const sp of [0, 1, 100]) {
+test('top bar: Next decision before a machine bores, Regular, Faster and Skip to end while one does, panel buttons', async ({ page }) => {
+  // A machine is boring: pause and the three speeds, Regular first.
+  await open(page, 'build');
+  await expect(tid(page, 'time')).toHaveAttribute('data-mode', 'bore');
+  await expect(tid(page, 'time-next')).toHaveCount(0);
+  await expect(tid(page, 'speed-1')).toHaveText('Regular');
+  await expect(tid(page, 'speed-10')).toHaveText('Faster');
+  await expect(tid(page, 'speed-100')).toHaveText('Skip to end');
+  await expect(tid(page, 'speed-1')).toHaveAttribute('aria-pressed', 'true');
+  for (const sp of [10, 100, 1]) {
     await tid(page, `speed-${sp}`).click();
     expect(await lastCall(page)).toEqual({ name: 'time.setSpeed', args: [sp] });
     await expect(tid(page, `speed-${sp}`)).toHaveAttribute('aria-pressed', 'true');
   }
+  await tid(page, 'speed-0').click();
+  expect((await lastCall(page)).name).toBe('time.togglePause');
+  await expect(tid(page, 'speed-0')).toHaveAttribute('aria-pressed', 'true');
+
+  // No machine: one button. The scene is mid-run, so it is pressed; a click stops the run, the next starts one.
+  await open(page, 'approvals');
+  await expect(tid(page, 'time')).toHaveAttribute('data-mode', 'decision');
+  for (const sp of [0, 1, 10, 100]) await expect(tid(page, `speed-${sp}`)).toHaveCount(0);
+  await expect(tid(page, 'time-next')).toHaveText('Next decision');
+  await expect(tid(page, 'time-next')).toHaveAttribute('aria-pressed', 'true');
+  await tid(page, 'time-next').click();
+  expect(await lastCall(page)).toEqual({ name: 'time.setSpeed', args: [0] });
+  await expect(tid(page, 'time-next')).toHaveAttribute('aria-pressed', 'false');
+  await tid(page, 'time-next').click();
+  expect(await lastCall(page)).toEqual({ name: 'time.setSpeed', args: [1] });
   for (const p of ['reforms', 'receipt', 'menu', 'project']) {
     await tid(page, `nav-${p}`).click();
     await expect(tid(page, `panel-${p}`)).toBeVisible();
@@ -62,7 +83,7 @@ test('objective strip: the next-action button sends the command of the snapshot'
   await expect(tid(page, 'toolpanel-plan')).toBeVisible();
 });
 
-test('toolbar: tools toggle, an unavailable tool is disabled with its reason, view toggles, bookmarks', async ({ page }) => {
+test('toolbar: the four tools toggle, an unavailable tool is disabled with its reason, no view buttons', async ({ page }) => {
   await open(page, 'project-draft');
   await expect(tid(page, 'tool-drive')).toBeDisabled();
   await expect(tid(page, 'tool-drive')).toHaveAttribute('title', 'No machine to drive yet. Launch the TBM first.');
@@ -71,18 +92,9 @@ test('toolbar: tools toggle, an unavailable tool is disabled with its reason, vi
   await expect(tid(page, 'tool-dig')).toHaveAttribute('aria-pressed', 'true');
   await tid(page, 'tool-dig').click();
   expect(await lastCall(page)).toEqual({ name: 'tools.activate', args: [null, undefined] });
-  await tid(page, 'view-xray').click();
-  expect(await lastCall(page)).toEqual({ name: 'view.set', args: [{ xray: true }] });
-  await tid(page, 'view-cut').click();
-  expect(await lastCall(page)).toEqual({ name: 'view.set', args: [{ cut: true }] });
-  await tid(page, 'view-cut-down').click();
-  expect(await lastCall(page)).toEqual({ name: 'view.set', args: [{ cutY: -1 }] });
-  await tid(page, 'view-cut-up').click();
-  expect(await lastCall(page)).toEqual({ name: 'view.set', args: [{ cutY: 0 }] });
-  await tid(page, 'views').click();
-  await tid(page, 'view-bay').click();
-  expect(await lastCall(page)).toEqual({ name: 'camera.goTo', args: ['bay'] });
-  await expect(tid(page, 'views-menu')).toHaveCount(0);
+  // The see-through view is the game's to switch: the toolbar is the four tools and nothing else.
+  await expect(tid(page, 'toolbar').locator('button')).toHaveCount(4);
+  for (const gone of ['view-xray', 'view-cut', 'views']) await expect(tid(page, gone)).toHaveCount(0);
 });
 
 test('plan panel: official alignment, depth slider, disabled Finish with its reason, design link', async ({ page }) => {

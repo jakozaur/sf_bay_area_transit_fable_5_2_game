@@ -24,12 +24,22 @@ test('held keys drive axes, opposite keys cancel, blur releases everything', () 
 test('action keys emit once per press, not on auto-repeat', () => {
   const m = new InputMapper();
   const actions = collect(m);
-  m.feed({ kind: 'keydown', code: 'KeyC' });
-  m.feed({ kind: 'keydown', code: 'KeyC', repeat: true });
-  m.feed({ kind: 'keyup', code: 'KeyC' });
+  m.feed({ kind: 'keydown', code: 'KeyP' });
+  m.feed({ kind: 'keydown', code: 'KeyP', repeat: true });
+  m.feed({ kind: 'keyup', code: 'KeyP' });
   m.feed({ kind: 'keydown', code: 'Digit3' });
   m.feed({ kind: 'keydown', code: 'KeyZ' });
-  expect(actions).toEqual([{ type: 'view.toggleCut' }, { type: 'camera.bookmark', index: 2 }]);
+  expect(actions).toEqual([
+    { type: 'tool.select', tool: 'plan' },
+    { type: 'camera.bookmark', index: 2 },
+  ]);
+});
+
+test('the cut plane and the x-ray have no keys: the game looks through the ground by itself', () => {
+  const m = new InputMapper();
+  const actions = collect(m);
+  for (const code of ['KeyC', 'KeyX', 'BracketLeft', 'BracketRight']) m.feed({ kind: 'keydown', code });
+  expect(actions).toEqual([]);
 });
 
 test('a press and release in place is tool.primary; a drag is not', () => {
@@ -208,12 +218,12 @@ test('rebind moves an action to another key and unsubscribe stops delivery', () 
   const m = new InputMapper();
   const out: GameAction[] = [];
   const off = m.onAction((a) => out.push(a));
-  m.rebind('KeyC', null);
-  m.rebind('KeyV', { action: { type: 'view.toggleCut' } });
-  m.feed({ kind: 'keydown', code: 'KeyC' });
+  m.rebind('KeyP', null);
+  m.rebind('KeyV', { action: { type: 'tool.select', tool: 'plan' } });
+  m.feed({ kind: 'keydown', code: 'KeyP' });
   m.feed({ kind: 'keydown', code: 'KeyV' });
-  expect(out).toEqual([{ type: 'view.toggleCut' }]);
+  expect(out).toEqual([{ type: 'tool.select', tool: 'plan' }]);
   off();
-  m.feed({ kind: 'keydown', code: 'KeyX' });
+  m.feed({ kind: 'keydown', code: 'KeyB' });
   expect(out).toHaveLength(1);
 });

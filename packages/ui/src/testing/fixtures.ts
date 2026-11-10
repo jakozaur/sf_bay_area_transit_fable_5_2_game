@@ -444,6 +444,37 @@ function phases(current: PhaseId | null, ready: boolean, progress: number): Phas
   });
 }
 
+/** The machine each tunnel option brings (fixture copy of the sim's MachineView). */
+const MACHINES: Readonly<Record<string, NonNullable<DesignOptionView['machine']>>> = {
+  twinBore: {
+    kind: 'twinBore',
+    name: 'Two 6.6 m EPB machines',
+    diameterM: 6.6,
+    count: 2,
+    metresPerDay: 15.2,
+    priceCents: usd(310e6),
+    note: 'One tube per track, the Warsaw way. The price is the civil cost of the tunnels built this way.',
+  },
+  singleLargeBore: {
+    kind: 'singleBore',
+    name: 'One 13.1 m EPB machine',
+    diameterM: 13.1,
+    count: 1,
+    metresPerDay: 8.4,
+    priceCents: usd(905e6),
+    note: 'Both tracks in one tube: four times the spoil of a twin bore.',
+  },
+  minedCavern: {
+    kind: 'roadheader',
+    name: 'Roadheaders',
+    diameterM: 12.4,
+    count: 1,
+    metresPerDay: 1.6,
+    priceCents: usd(1480e6),
+    note: 'Mined by sequence, a few metres a week.',
+  },
+};
+
 function designOptions(tunnel: string, box: string, yoursCents: number): DesignOptionView[] {
   const opt = (
     group: 'tunnel' | 'station',
@@ -475,7 +506,13 @@ function designOptions(tunnel: string, box: string, yoursCents: number): DesignO
           ? 'Warsaw metro line 2 and the Lodz cross-city tunnel (fixture copy).'
           : 'Sponsor design documents (fixture copy).',
       // The stations set the date for every tunnel but the mined cavern.
-      ...(group === 'tunnel' ? { headingDays: id === 'minedCavern' ? 1240 : 240, stationDays: 1004 } : { applies: true }),
+      ...(group === 'tunnel'
+        ? {
+            headingDays: id === 'minedCavern' ? 1240 : 240,
+            stationDays: 1004,
+            ...(MACHINES[id] === undefined ? {} : { machine: MACHINES[id] }),
+          }
+        : { applies: true }),
     };
   };
   return [
@@ -575,6 +612,10 @@ function tbm(over: Partial<TbmView>): TbmView {
     stopReason: null,
     downDays: 0,
     breakthroughTick: -1,
+    machine: 'twinBore',
+    diameterM: 6.6,
+    boreTotalDays: 240,
+    boreDaysDone: 98,
     tunnelId: 'portal/tunnel-1',
     pitId: 'portal/pit-1',
     ...over,
@@ -638,6 +679,9 @@ function project(spec: ProjectSpec): ProjectView {
       station('transit-center', 'Salesforce Transit Center', -130, 0, 0, false),
     ],
     tbms: spec.tbms ?? [],
+    boreTbmId: spec.tbms?.[0]?.id ?? null,
+    boreTotalDays: spec.tbms?.[0]?.boreTotalDays ?? 0,
+    boreDaysDone: spec.tbms?.[0]?.boreDaysDone ?? 0,
     waypoints: points.map((p) => ({ ...p })),
     spentCents: spent.civil,
     spentByCategory: spent,

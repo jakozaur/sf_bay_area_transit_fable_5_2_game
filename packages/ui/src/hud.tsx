@@ -1,8 +1,8 @@
 /** Always-visible HUD: top band, objective strip, toolbar, toasts and the breakthrough banner. */
-import { GAME_SPEEDS, type GameSpeed, TOOL_IDS, type ToolId } from '@bayvox/core';
+import { type GameSpeed, TOOL_IDS, type ToolId } from '@bayvox/core';
 import { MISSION_STAGES, type MissionStage, PC_PER_MONTH, PC_PHASE_DONE } from '@bayvox/sim';
 import type { JSX } from 'preact';
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import { Bar, Btn, Bullet, cx, type StoreProps } from './bits.tsx';
 import type { PanelId } from './contract.ts';
 import { capital, compact, count, dateFixed, duration, money, ratio } from './format.ts';
@@ -19,14 +19,21 @@ import {
   selectTool,
   socialPosts,
 } from './model.ts';
+import { nextDecisionBlocked, SPEED_FASTER, SPEED_REGULAR, SPEED_SKIP, timeMode } from './pace.ts';
 import { gateCardShowing } from './play.tsx';
 
-const SPEED_LABEL: Readonly<Record<GameSpeed, string>> = { 0: 'Pause', 1: '1x', 10: '10x', 100: '100x' };
+/** While a machine is boring. Regular is paced so the whole bore takes about 90 real seconds (pace.ts). */
+const BORE_SPEEDS: readonly { speed: GameSpeed; label: string; title: string }[] = [
+  { speed: SPEED_REGULAR, label: 'Regular', title: 'The whole bore in about a minute and a half' },
+  { speed: SPEED_FASTER, label: 'Faster', title: 'Four times Regular' },
+  { speed: SPEED_SKIP, label: 'Skip to end', title: 'Run to the breakthrough. Event cards still stop it.' },
+];
 const HOLD_TEXT = { event: 'Answer the card', gate: 'Your move' } as const;
 
 export function TopBar({ store }: StoreProps): JSX.Element {
   const s = store.snapshot.value;
   const speed = store.speed.value;
+  const mode = timeMode(s);
   const h = s.headline;
   const project = missionProject(s);
   const target = project === null ? null : polandTarget(project);
@@ -60,28 +67,55 @@ export function TopBar({ store }: StoreProps): JSX.Element {
           {capital(s.politicalCapital)}
         </span>
       </div>
-      <fieldset class="bv-speed" aria-label="Game speed">
-        {GAME_SPEEDS.map((sp) => (
+      {/* One cell of fixed width for both states of the clock: nothing right of it moves when the buttons change. */}
+      <fieldset class="bv-speed" aria-label="Time" data-testid="time" data-mode={mode}>
+        {mode === 'bore' ? (
+          <>
+            <Btn
+              onInk
+              pressed={speed === 0}
+              testId="speed-0"
+              label="Pause (Space)"
+              title="Pause (Space)"
+              onClick={() => act(store, () => store.services.time.togglePause())}
+            >
+              <PauseIcon />
+            </Btn>
+            {BORE_SPEEDS.map((b) => (
+              <Btn
+                key={b.speed}
+                onInk
+                pressed={speed === b.speed}
+                testId={`speed-${b.speed}`}
+                title={b.title}
+                onClick={() => act(store, () => store.services.time.setSpeed(b.speed))}
+              >
+                {b.label}
+              </Btn>
+            ))}
+          </>
+        ) : (
           <Btn
-            key={sp}
             onInk
-            pressed={speed === sp}
-            testId={`speed-${sp}`}
-            label={sp === 0 ? 'Pause (Space)' : `Speed ${SPEED_LABEL[sp]}`}
-            title={sp === 0 ? 'Pause (Space)' : undefined}
-            onClick={() => act(store, () => store.services.time.setSpeed(sp))}
+            pressed={speed !== 0}
+            testId="time-next"
+            title="Run time to the next gate or event card (Space)"
+            disabledReason={speed !== 0 ? null : nextDecisionBlocked(s)}
+            onClick={() => act(store, () => store.services.time.setSpeed(speed !== 0 ? 0 : SPEED_REGULAR))}
           >
-            {sp === 0 ? <PauseIcon /> : SPEED_LABEL[sp]}
+            Next decision
           </Btn>
-        ))}
-        {/* The slot is always there: the hold text comes and goes inside it. */}
-        <span class="bv-hold-slot">
-          {s.clock.hold !== null && (
-            <span class="bv-hold" data-testid="hud-hold">
-              {HOLD_TEXT[s.clock.hold]}
-            </span>
-          )}
-        </span>
+        )}
+        {/* Beside the one button there is room to say why time stands; the slot is always there. */}
+        {mode === 'decision' && (
+          <span class="bv-hold-slot">
+            {s.clock.hold !== null && (
+              <span class="bv-hold" data-testid="hud-hold">
+                {HOLD_TEXT[s.clock.hold]}
+              </span>
+            )}
+          </span>
+        )}
       </fieldset>
       <div class="bv-headline" data-testid="headline">
         {h === null || h.polandPerKmCents <= 0 ? (
@@ -322,40 +356,8 @@ export function CameraHelp({ store }: StoreProps): JSX.Element | null {
 const TOOL_LABEL: Readonly<Record<ToolId, string>> = { plan: 'Plan', station: 'Station', dig: 'Dig', drive: 'Drive' };
 
 export function Toolbar({ store }: StoreProps): JSX.Element {
-  const [viewsOpen, setViewsOpen] = useState(false);
   const active = store.tool.value.id;
-  const viewsRef = useRef<HTMLDivElement | null>(null);
-  // The Views menu is a menu: Escape closes it, so does a click anywhere else, so does picking up a tool.
-  // A layout effect: the listeners are in place before the next input event, not a frame or two after the menu shows.
-  useLayoutEffect(() => {
-    if (!viewsOpen) return;
-    const win = viewsRef.current?.ownerDocument.defaultView;
-    if (win === null || win === undefined) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.code !== 'Escape') return;
-      e.stopPropagation();
-      e.preventDefault();
-      setViewsOpen(false);
-    };
-    const onDown = (e: Event): void => {
-      if (e.target instanceof Node && viewsRef.current?.contains(e.target) === true) return;
-      setViewsOpen(false);
-    };
-    win.addEventListener('keydown', onKey, true);
-    win.addEventListener('pointerdown', onDown, true);
-    return () => {
-      win.removeEventListener('keydown', onKey, true);
-      win.removeEventListener('pointerdown', onDown, true);
-    };
-  }, [viewsOpen]);
-  useEffect(() => {
-    // `active` is read so the effect runs when the tool in hand changes.
-    if (active !== null) setViewsOpen(false);
-  }, [active]);
   const avail = store.toolAvailability.value;
-  const view = store.view.value;
-  const cam = store.camera.value;
-  const setView = (v: Parameters<typeof store.services.view.set>[0]): void => act(store, () => store.services.view.set(v));
   return (
     <div class="bv-toolbar bv-live" role="toolbar" aria-label="Tools" data-testid="toolbar">
       <div class="grp">
@@ -374,86 +376,6 @@ export function Toolbar({ store }: StoreProps): JSX.Element {
             {TOOL_LABEL[id]}
           </button>
         ))}
-      </div>
-      <div class="grp">
-        <button
-          type="button"
-          class="bv-tool is-toggle"
-          data-testid="view-cut"
-          aria-pressed={view.cut}
-          title="Cut the ground away above a level (C)"
-          onClick={() => setView({ cut: !view.cut })}
-        >
-          Cut plane
-        </button>
-        {view.cut && (
-          <span class="bv-cut">
-            <Btn onInk label="Lower the cut" testId="view-cut-down" onClick={() => setView({ cutY: view.cutY - 1 })}>
-              -
-            </Btn>
-            <span class="lvl" data-testid="view-cut-y">
-              {Math.round(view.cutY)} m
-            </span>
-            <Btn onInk label="Raise the cut" testId="view-cut-up" onClick={() => setView({ cutY: view.cutY + 1 })}>
-              +
-            </Btn>
-          </span>
-        )}
-        <button
-          type="button"
-          class="bv-tool is-toggle"
-          data-testid="view-xray"
-          aria-pressed={view.xray}
-          title="See tunnels through the ground (X)"
-          onClick={() => setView({ xray: !view.xray })}
-        >
-          X-ray
-        </button>
-      </div>
-      <div class="grp" ref={viewsRef}>
-        <button
-          type="button"
-          class="bv-tool is-toggle"
-          data-testid="views"
-          aria-expanded={viewsOpen}
-          aria-haspopup="menu"
-          onClick={() => setViewsOpen(!viewsOpen)}
-        >
-          Views
-        </button>
-        {viewsOpen && (
-          <div class="bv-views" role="menu" data-testid="views-menu">
-            {cam.bookmarks.length === 0 && <span class="none">No saved views on this site.</span>}
-            {cam.bookmarks.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                role="menuitem"
-                data-testid={`view-${b.id}`}
-                onClick={() => {
-                  setViewsOpen(false);
-                  act(store, () => store.services.camera.goTo(b.id));
-                }}
-              >
-                {b.label}
-                {b.hotkey !== undefined && <span class="key">{b.hotkey.replace(/^(Key|Digit)/, '')}</span>}
-              </button>
-            ))}
-            {cam.following !== null && (
-              <button
-                type="button"
-                role="menuitem"
-                data-testid="view-unfollow"
-                onClick={() => {
-                  setViewsOpen(false);
-                  act(store, () => store.services.camera.follow(null));
-                }}
-              >
-                Stop following
-              </button>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -513,10 +435,11 @@ export function Backlash({ store }: StoreProps): JSX.Element | null {
   const arrived = socialPosts(store.snapshot.value).filter((p) => !pending.has(postKey(p)));
   const open = arrived.filter((p) => !closed.has(postKey(p))).reverse();
   if (open.length === 0) return null;
-  // Under a gate card or an event card, and over the drive view, the box folds to its header: the count stays,
-  // the decision and the machine stay in sight.
+  // Under a gate card or an event card, over the drive view and while a machine bores, the box folds to its
+  // header: the count stays, the decision and the machine stay in sight.
   const tool = store.tool.value.id;
-  const folded = gateCardShowing(store) || tool === 'drive' || store.snapshot.value.events.length > 0;
+  const s = store.snapshot.value;
+  const folded = gateCardShowing(store) || tool === 'drive' || s.events.length > 0 || timeMode(s) === 'bore';
   const shown = folded ? 0 : MAX_POSTS;
   const more = open.length - shown;
   const fresh = store.postFresh.value;

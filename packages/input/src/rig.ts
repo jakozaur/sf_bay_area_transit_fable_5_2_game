@@ -161,10 +161,14 @@ export class CameraRig {
    * - 'cutaway': the same, and a camera further out than the cutaway is brought in to its default distance.
    * - 'chase': the rig holds the camera behind and above the entity, looking along its direction of travel;
    *   the tilt keys and the wheel still work, horizontal orbit does not.
+   * `distanceScale` stretches the default distance of the mode: a machine larger than the one the defaults
+   * frame (a 16 m single bore) is watched from further back.
    */
-  follow(mode: FollowMode, pose: EntityPose): void {
+  follow(mode: FollowMode, pose: EntityPose, distanceScale = 1): void {
     if (!(mode in FOLLOW_DEFAULTS)) throw new RangeError(`CameraRig.follow: unknown mode ${String(mode)}`);
     assertPose(pose, 'CameraRig.follow');
+    if (!(distanceScale >= 1) || !Number.isFinite(distanceScale))
+      throw new RangeError(`CameraRig.follow: distanceScale must be 1 or more, got ${distanceScale}`);
     const c = this.controls;
     const def = FOLLOW_DEFAULTS[mode];
     const anchor = this.anchorOf(mode, pose, c.azimuthAngle, this.tmp2);
@@ -178,7 +182,7 @@ export class CameraRig {
       polar: c.polarAngle,
       polarGoal: Math.min(c.maxPolarAngle, Math.max(c.minPolarAngle, def.polarDeg * DEG)),
     };
-    if (mode === 'chase' || (mode === 'cutaway' && c.distance > def.distance * 2)) void c.dollyTo(def.distance, true);
+    if (mode === 'chase' || (mode === 'cutaway' && c.distance > def.distance * 2)) void c.dollyTo(def.distance * distanceScale, true);
   }
 
   /** The followed entity moved: its pose for this frame. Throws when nothing is followed. */

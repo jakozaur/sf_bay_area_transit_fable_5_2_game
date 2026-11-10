@@ -4,6 +4,8 @@ import { createUiStore } from './index.ts';
 import {
   actionButton,
   angryCount,
+  gateOf,
+  machineOf,
   missionProject,
   polandTarget,
   postKey,
@@ -15,6 +17,7 @@ import {
   selectTool,
   visibleLines,
 } from './model.ts';
+import { gateCardShowing } from './play.tsx';
 import { nextMissionToPlay } from './screens.tsx';
 import { BANNER_MS, createStore, POST_STAGGER_MS, TOAST_MS } from './store.ts';
 import { createFakeServices, SCENES, snapshot } from './testing/index.ts';
@@ -177,14 +180,62 @@ test('the next-action button: a command dispatches it under the gate label, a fo
   expect(actionButton(planStore, planStore.snapshot.value.nextAction)).toBeNull();
   planStore.dispose();
 
+  // Nothing to decide and no machine boring: the wait is the "Next decision" run, and the button goes while it runs.
   const wait = createFakeServices({ ...SCENES.approvals, speed: 0 });
   const waitStore = createStore(wait);
   const w = actionButton(waitStore, waitStore.snapshot.value.nextAction);
-  expect(w?.label).toBe('Resume time');
+  expect(w?.label).toBe('Next decision');
+  expect(w?.disabledReason).toBeNull();
   w?.run();
-  expect(wait.names()).toContain('time.togglePause');
+  expect(wait.last('time.setSpeed')).toEqual([1]);
   expect(actionButton(waitStore, waitStore.snapshot.value.nextAction)).toBeNull();
   waitStore.dispose();
+});
+
+test('the gate card: every gate has one, a tool or a sheet keeps it down, closing the sheet brings it back', () => {
+  const services = fake('gate-card');
+  const store = createStore(services);
+  expect(gateOf(store.snapshot.value)).toMatchObject({ gate: 'advancePhase', key: 'portal:advancePhase' });
+  expect(gateCardShowing(store)).toBe(true);
+  // Put aside: it stays down while the player looks at the map.
+  store.gateDismissed.value = 'portal:advancePhase';
+  expect(gateCardShowing(store)).toBe(false);
+  // A sheet covers it; closing the sheet puts the card back in the centre, also after it was put aside.
+  store.openPanel('reforms');
+  expect(gateCardShowing(store)).toBe(false);
+  store.openPanel(null);
+  expect(store.gateDismissed.value).toBeNull();
+  expect(gateCardShowing(store)).toBe(true);
+  store.dispose();
+
+  // Approval of a buildable draft is a gate too, though the clock does not hold for it.
+  const draft = fake('project-draft');
+  const draftStore = createStore(draft);
+  expect(gateOf(draftStore.snapshot.value)?.gate).toBe('approveProject');
+  draftStore.openPanel('project');
+  expect(gateCardShowing(draftStore)).toBe(false);
+  draftStore.openPanel(null);
+  expect(gateCardShowing(draftStore)).toBe(true);
+  // "Look around first" holds across snapshots of the same gate.
+  draftStore.gateDismissed.value = 'portal:approveProject';
+  draft.setSnapshot({ ...draft.sim.snapshot.get(), tick: 1 });
+  expect(draftStore.gateDismissed.value).toBe('portal:approveProject');
+  draftStore.dispose();
+
+  // With the drawing tool in hand the card waits; without a gate there is none.
+  const dig = createStore(createFakeServices({ ...SCENES['project-draft'], tool: SCENES.dig.tool }));
+  expect(gateOf(dig.snapshot.value)?.gate).toBe('approveProject');
+  expect(gateCardShowing(dig)).toBe(false);
+  dig.dispose();
+  expect(gateOf(SCENES.approvals.snapshot)).toBeNull();
+});
+
+test('the machine of a tunnel option; none for a station option', () => {
+  const options = missionProject(SCENES.design.snapshot)?.design.options ?? [];
+  const twin = options.find((o) => o.id === 'twinBore');
+  expect(machineOf(twin)).toMatchObject({ kind: 'twinBore', count: 2, diameterM: 6.6 });
+  expect(machineOf(options.find((o) => o.group === 'station'))).toBeNull();
+  expect(machineOf(undefined)).toBeNull();
 });
 
 test('helpers: mission project, visible receipt lines, safe ratio, the mission Play starts', () => {

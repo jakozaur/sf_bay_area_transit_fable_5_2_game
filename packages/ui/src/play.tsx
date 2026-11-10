@@ -4,7 +4,7 @@ import { type EventView, isDrivable, type TbmView } from '@bayvox/sim';
 import type { JSX } from 'preact';
 import { Btn, cx, type StoreProps } from './bits.tsx';
 import { capital, dateMonth, duration, durationDelta, length, money, moneyDelta, moneyPerKm } from './format.ts';
-import { act, actionButton, command, GEOLOGY_COLORS, missionProject, possessedTbm } from './model.ts';
+import { act, actionButton, command, GEOLOGY_COLORS, gateOf, possessedTbm } from './model.ts';
 import { builtNow } from './panels.tsx';
 
 function optionCosts(o: EventView['options'][number]): string[] {
@@ -68,6 +68,10 @@ export function EventCard({ store }: StoreProps): JSX.Element | null {
 }
 
 const GATE_COPY = {
+  approveProject: {
+    title: 'Approve the project?',
+    what: 'Approval starts the clock on planning and permits. The design can still change until tender.',
+  },
   advancePhase: {
     title: 'Go to tender?',
     what: 'Tender locks the design and the contract prices for good. Reforms bought later do not reach them.',
@@ -90,12 +94,12 @@ const OFFER_MIN_DAYS = 30;
 
 /** Whether the gate card is on screen. The backlash box folds to its header then: it never covers the decision. */
 export function gateCardShowing(store: StoreProps['store']): boolean {
-  const s = store.snapshot.value;
-  const project = missionProject(s);
-  if (project === null || project.awaiting === null || s.clock.hold !== 'gate') return false;
+  const at = gateOf(store.snapshot.value);
+  if (at === null) return false;
+  // A sheet, a tool in hand or the banner of a moment come first; the card is in the centre as soon as they are gone.
   if (store.panel.value !== null || store.tool.value.id !== null || store.banner.value !== null) return false;
-  if (store.gateDismissed.value === `${project.id}:${project.awaiting}`) return false;
-  return actionButton(store, project.nextAction) !== null && project.nextAction.command !== null;
+  if (store.gateDismissed.value === at.key) return false;
+  return actionButton(store, at.project.nextAction) !== null;
 }
 
 /**
@@ -105,16 +109,16 @@ export function gateCardShowing(store: StoreProps['store']): boolean {
  */
 export function GateCard({ store }: StoreProps): JSX.Element | null {
   const s = store.snapshot.value;
-  const project = missionProject(s);
-  if (project === null || project.awaiting === null || !gateCardShowing(store)) return null;
-  const key = `${project.id}:${project.awaiting}`;
+  const at = gateOf(s);
+  if (at === null || !gateCardShowing(store)) return null;
+  const { project, gate, key } = at;
   const go = actionButton(store, project.nextAction);
   if (go === null) return null;
-  const copy = GATE_COPY[project.awaiting];
+  const copy = GATE_COPY[gate];
   // A line of surface track or viaduct has no machine to drive: the card does not offer one.
   const drivable = project.segments.some((g) => isDrivable(g.effectiveMethod));
   const what =
-    project.awaiting !== 'launchTBM'
+    gate !== 'launchTBM'
       ? copy.what
       : `${copy.what} ${drivable ? 'Drive a machine yourself or leave it on autopilot.' : 'Track gangs lay the line; nothing to drive.'}`;
   const r = project.receipt;
@@ -125,9 +129,10 @@ export function GateCard({ store }: StoreProps): JSX.Element | null {
     .sort((a, b) => (a.preview?.costDeltaCents ?? 0) - (b.preview?.costDeltaCents ?? 0))
     .slice(0, GATE_OFFERS);
   const affordable = s.reforms.filter((x) => x.affordable && x.cost.pc > 0).length;
-  const tender = project.awaiting === 'advancePhase';
+  // The design is open until tender: both gates before it show it and lead to the chooser.
+  const tender = gate === 'approveProject' || gate === 'advancePhase';
   return (
-    <div class="bv-gatecard bv-live" data-testid="gate-card">
+    <div class="bv-gatecard bv-live" data-testid="gate-card" data-gate={gate}>
       <section class="bv-sheet" role="dialog" aria-label={copy.title}>
         <header class="bv-sheet-head">
           <h2>{copy.title}</h2>
@@ -162,7 +167,7 @@ export function GateCard({ store }: StoreProps): JSX.Element | null {
               </li>
             )}
           </ul>
-          {project.awaiting !== 'openLine' && (
+          {gate !== 'openLine' && (
             <div class="bv-sec" data-testid="gate-offers">
               <h3>{capital(s.politicalCapital)} in hand</h3>
               {offers.length === 0 ? (
@@ -211,7 +216,7 @@ export function GateCard({ store }: StoreProps): JSX.Element | null {
               Design
             </Btn>
           )}
-          {project.awaiting !== 'openLine' && (
+          {gate !== 'openLine' && (
             <Btn testId="gate-reforms" onClick={() => store.openPanel('reforms')}>
               Reforms
             </Btn>

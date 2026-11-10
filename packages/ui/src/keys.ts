@@ -2,7 +2,7 @@
  * Keyboard policy of the UI, as a pure function so it can be tested without a DOM.
  * The UI listens on the window in the capture phase and stops every key it handles here, so the input
  * mapper (packages/input, bubble phase on the same window) never sees it: no key is handled twice.
- * Everything else (W A S D, C, X, brackets, the drive keys) is left to the input mapper.
+ * Everything else (W A S D, the drive keys) is left to the input mapper.
  */
 import { type GameScreen, TOOL_IDS, type ToolId } from '@bayvox/core';
 import type { PanelId } from './contract.ts';

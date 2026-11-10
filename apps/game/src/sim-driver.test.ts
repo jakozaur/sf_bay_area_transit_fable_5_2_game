@@ -70,6 +70,23 @@ test('the calendar stands while only a draft exists, runs at the pace of the clo
   expect(d.readable.get().clock.hold).toBe('gate');
 });
 
+test('a pace of its own replaces speed times the clock: exact days per second, Infinity up to the frame cap, 0 speed still pauses', () => {
+  const d = driver();
+  for (const c of [...PLAN, APPROVE]) d.command(c);
+  d.advance(0, 1);
+  // Half a second at 40 days a second is 20 days, whatever the speed and the clock's own pace.
+  d.advance(0.5, 100, 40);
+  expect(d.tick).toBe(20);
+  d.advance(0.5, 0, 40);
+  expect(d.tick).toBe(20);
+  d.advance(0.001, 1, Number.POSITIVE_INFINITY);
+  expect(d.tick).toBe(20 + MAX_DAYS_PER_FRAME);
+  expect(() => d.advance(0.1, 1, -1)).toThrow(/daysPerSecond must be 0 or more, got -1/);
+  // As fast as it goes, it still stops at the gate.
+  for (let i = 0; i < 200 && d.clock().hold === null; i++) d.advance(0.016, 1, Number.POSITIVE_INFINITY);
+  expect(d.clock().hold).toBe('gate');
+});
+
 test('step runs exact days and matches a bare sim; substeps add up to days; the world is carved', () => {
   const world = flatWorld();
   const d = driver(world);

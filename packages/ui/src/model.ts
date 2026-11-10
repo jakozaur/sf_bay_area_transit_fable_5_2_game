@@ -1,10 +1,12 @@
 /** View-model helpers shared by the components: which project is the mission's, and what the "do it" button does. */
 import { TOOL_KEYS, type ToolId } from '@bayvox/core';
 import {
+  type DesignOptionView,
   type GameCommand,
   type GameSnapshot,
   type Geology,
   type HousingView,
+  type MachineView,
   type NextAction,
   POLAND_TARGET_LIMIT,
   type PolandTarget,
@@ -15,6 +17,7 @@ import {
   type TbmView,
 } from '@bayvox/sim';
 import type { PanelId } from './contract.ts';
+import { isBoring, nextDecisionBlocked, SPEED_REGULAR } from './pace.ts';
 import type { UiStoreInternal } from './store.ts';
 
 /** One row of the mission comparison (costBenefit() of packages/scenarios, M2 shared contract). */
@@ -126,6 +129,32 @@ const GATE_FALLBACK: Readonly<Record<string, string>> = {
   launchTBM: 'Launch the TBM',
   openLine: 'Open the line',
 };
+/** The player gates: commands that take the project through a decision that cannot be taken back. */
+export type GateId = 'approveProject' | 'advancePhase' | 'launchTBM' | 'openLine';
+
+/**
+ * The gate the mission project stands at: approval of a buildable draft, or the gate the project waits at.
+ * Null when the next thing to do is not a gate.
+ */
+export function gateOf(s: GameSnapshot): { project: ProjectView; gate: GateId; key: string } | null {
+  const project = missionProject(s);
+  const c = project?.nextAction.command ?? null;
+  if (project === null || c === null) return null;
+  const gate = (['approveProject', 'advancePhase', 'launchTBM', 'openLine'] as const).find((g) => g === c.t);
+  if (gate === undefined) return null;
+  // Approval is offered on a draft; the other three hold the clock until the player goes through.
+  if (gate !== 'approveProject' && s.clock.hold !== 'gate') return null;
+  return { project, gate, key: `${project.id}:${gate}` };
+}
+
+/** The machine a tunnel option brings, as the chooser and the twin-bore reform row show it. */
+export type MachineCard = MachineView;
+
+/** The machine of a design option; null for a station option and for no option at all. */
+export function machineOf(option: DesignOptionView | undefined): MachineCard | null {
+  return option?.machine ?? null;
+}
+
 const FOCUS_TOOL: Readonly<Record<string, { tool: ToolId; label: string }>> = {
   plan: { tool: 'plan', label: 'Draw the alignment' },
   station: { tool: 'station', label: 'Place a station' },
@@ -156,12 +185,18 @@ export function actionButton(store: UiStoreInternal, a: NextAction): ActionButto
   }
   if (a.focus === null || a.focus === 'event') return null;
   if (a.focus === 'speed') {
-    if (store.speed.value === 0)
+    // Nothing to decide, only to wait. With a machine boring the clock runs by itself: the button only undoes a pause.
+    if (isBoring(snap)) {
+      if (store.speed.value !== 0) return null;
       return { label: 'Resume time', disabledReason: null, run: () => act(store, () => store.services.time.togglePause()) };
-    // Machines at work and nothing to decide: the one useful button is the faster clock.
-    if (store.speed.value === 1 && snap.clock.mode === 'build' && snap.clock.hold === null)
-      return { label: 'Fast forward (10x)', disabledReason: null, run: () => act(store, () => store.services.time.setSpeed(10)) };
-    return null;
+    }
+    // Otherwise time moves only when asked: the same run as "Next decision" in the top bar.
+    if (store.speed.value !== 0) return null;
+    return {
+      label: 'Next decision',
+      disabledReason: nextDecisionBlocked(snap),
+      run: () => act(store, () => store.services.time.setSpeed(SPEED_REGULAR)),
+    };
   }
   const tool = FOCUS_TOOL[a.focus];
   if (tool !== undefined) {

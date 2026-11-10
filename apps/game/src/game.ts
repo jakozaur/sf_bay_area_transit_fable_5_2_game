@@ -39,7 +39,7 @@ import { CAP_MAX_RADIUS, createEntityLayer, VoxelRenderer } from '@bayvox/render
 import { costBenefit, SCENARIOS, scenarioById, THE_PORTAL } from '@bayvox/scenarios';
 import { type BayServices, createSim, type GameSnapshot, isDrivable, type MissionTarget, type ScenarioDef } from '@bayvox/sim';
 import { connectAnchors, createToolHost, type PlanAnchor } from '@bayvox/tools';
-import { mountUi } from '@bayvox/ui';
+import { mountUi, pace } from '@bayvox/ui';
 import { Feedback } from './feedback.ts';
 import type { GameParams } from './params.ts';
 import { SceneBuilder } from './scene.ts';
@@ -65,6 +65,8 @@ const SLOW_FRAME_MS = 50;
 const SLOW_DRAW_SPACING = 4;
 /** Wall time fed to the sim per frame is clamped separately: a slow frame still buys its game days, a stalled tab does not. */
 const MAX_SIM_DT = 0.25;
+/** Radius of the largest shield the default chase distance frames well, metres. */
+const CHASE_FRAMED_RADIUS_M = 4.5;
 /** The x-ray the game switches on at a breakthrough goes off again after this many real seconds. */
 const BREAKTHROUGH_XRAY_S = 8;
 /** And the one it switches on to show the first train: the ride until the scorecard, and a little after it. */
@@ -357,6 +359,8 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       },
     };
 
+    /** The interface is mounted: time and the see-through view are then the game's to run (on the bare canvas scripts set their own). */
+    const withUi = params.hud && uiRoot !== null;
     const audio = createAudio();
     audio.init();
     const feedback = new Feedback(audio);
@@ -379,6 +383,16 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
           if (t !== undefined && t.status !== 'done') return { position: t.position, yaw: t.yaw, pitch: t.pitch };
         }
         return null;
+      },
+      followScale(ref) {
+        if (ref.type !== 'tbm') return 1;
+        // The chase view is set for a 6.6 m shield. A shield much larger than that (the 16 m single bore) fills
+        // the screen from there: it is watched from further back, in proportion to its radius.
+        for (const p of driver.snapshot().projects) {
+          const t = p.tbms.find((x) => x.id === ref.id);
+          if (t !== undefined && t.machine === 'singleBore') return Math.max(1, t.diameterM / 2 / CHASE_FRAMED_RADIUS_M);
+        }
+        return 1;
       },
       animate: () => !params.freeze,
     });
@@ -462,11 +476,15 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
           // The overlay was cleared: the rings of the old mission went with it.
           targetRings = [];
           xrayOffIn = 0;
+          seeThrough = false;
+          timeMode = 'decision';
+          decisionRun = null;
           feedback.reset(driver.snapshot());
           anchors = connectAnchors(scenario);
           layer.setGhost(referenceLine(scenario));
           camera.setBookmarks(siteBookmarks(scenario));
-          time.setSpeed(1);
+          // With the interface up time moves only when asked ("Next decision") until a machine bores.
+          time.setSpeed(withUi ? 0 : 1);
           view.set(defaultView());
           stampsFor = null;
           openedProject = null;
@@ -574,7 +592,7 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       }
     });
 
-    const ui = params.hud && uiRoot !== null ? mountUi(uiRoot, services, { costBenefit: costBenefit() }) : null;
+    const ui = withUi && uiRoot !== null ? mountUi(uiRoot, services, { costBenefit: costBenefit() }) : null;
     const debug = params.debug ? await import('./hud.ts') : null;
     const hudStats = { fps: 0, frameMs: 0, chunks: 0, queued: 0, quads: 0, drawCalls: 0, triangles: 0, gpuMB: 0 };
     const debugView = { ...view.state.get() };
@@ -606,11 +624,16 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
     let stampsFor: GameSnapshot | null = null;
     /** Project whose line has just opened and whose first train the camera has not gone to yet. */
     let openedProject: string | null = null;
-    /** Real seconds until the x-ray the game switched on (a breakthrough, the first train) goes off again; 0 when it did not. */
+    /** Real seconds the x-ray of a moment (a breakthrough, the first train) still has to run; 0 when there is none. */
     let xrayOffIn = 0;
+    /** Whether the game has the see-through view on: while a machine bores, while the drive tool is in hand, and for a moment. */
+    let seeThrough = false;
+    /** 'bore' while a machine is boring, else 'decision' (packages/ui pace.ts). The speed buttons change with it. */
+    let timeMode: pace.TimeMode = 'decision';
+    /** The "Next decision" run under way: its pace is set once, at its start, so the date races evenly to the gate. */
+    let decisionRun: { daysPerSecond: number; fromTick: number; toGate: boolean } | null = null;
     /** Mission stage of the last frame: leaving the plan stage puts the drawing tools away. */
     let lastStage: GameSnapshot['mission']['stage'] = 'plan';
-    let lastHold: GameSnapshot['clock']['hold'] = null;
 
     /** The machine the camera rides with: the one the drive tool possesses, or one being watched from the cutaway. */
     function possessed(): string | null {
@@ -645,15 +668,40 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       resize();
       const isPlaying = playing();
       const isLive = live();
+      // How fast time runs is the game's call (pace.ts), read from the snapshot of the last frame.
+      const before = driver.snapshot();
+      const mode = isPlaying ? pace.timeMode(before) : timeMode;
+      if (mode !== timeMode) {
+        timeMode = mode;
+        decisionRun = null;
+        // A launch starts the bore at Regular; after the last breakthrough time waits for "Next decision" again.
+        if (ui !== null) time.setSpeed(mode === 'bore' ? pace.SPEED_REGULAR : 0);
+      }
       const speed: GameSpeed = time.speed.get();
+      // On the bare canvas (no interface) the sim's own clock paces time, as scripts expect.
+      let daysPerSecond: number | undefined;
+      if (ui === null) daysPerSecond = undefined;
+      else if (mode === 'bore') daysPerSecond = pace.boreDaysPerSecond(before, speed);
+      else if (speed === 0 || before.clock.hold !== null) {
+        decisionRun = null;
+        daysPerSecond = 0;
+      } else {
+        decisionRun ??= {
+          daysPerSecond: pace.decisionDaysPerSecond(before),
+          fromTick: driver.tick,
+          toGate: pace.daysToNextGate(before) !== null,
+        };
+        daysPerSecond = decisionRun.daysPerSecond;
+      }
       // Sim first: its carves reach the streamer in this frame. A frozen clock stops the game calendar too;
       // tests then step it through the hook. Commands are flushed whether or not time moves.
-      driver.advance(params.freeze || !isPlaying ? 0 : simDt, speed);
+      driver.advance(params.freeze || !isPlaying ? 0 : simDt, speed, daysPerSecond);
       session.update(params.freeze ? 0 : simDt);
       const snap = driver.snapshot();
       if (isPlaying) host.update(dt);
       const animate = !params.freeze;
-      if (animate && speed > 0) trainClock += dt;
+      // Trains are presentation: they run on real time, also while the calendar waits for "Next decision".
+      if (animate && (speed > 0 || (ui !== null && timeMode === 'decision'))) trainClock += dt;
 
       const possessedId = isLive ? possessed() : null;
       const scene = builder.build({
@@ -672,22 +720,20 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       if (isLive) {
         syncStamps(snap);
         for (const item of feedback.feed(snap)) {
-          if (item.kind === 'lineOpened' && isPlaying) openedProject = item.projectId;
+          if (item.kind === 'lineOpened' && isPlaying) {
+            openedProject = item.projectId;
+            // Opening the line is the last decision: the first month of service runs by itself (the mission is
+            // counted complete on the first day of it), nobody has to ask for time after the ribbon is cut.
+            if (ui !== null && time.speed.get() === 0) time.setSpeed(pace.SPEED_REGULAR);
+          }
           if (item.subjectId === null) continue;
           const ref: EntityRef = { type: 'tbm', id: item.subjectId };
           if (item.kind === 'breakthrough') {
             const at = builder.poseOf(ref);
             if (at !== null) layer.flash(at.position);
-            // The moment is not fast-forwarded through: back to 1x, and the finished tunnel shows through the ground
-            // for a few seconds. The first playtest was left in x-ray for three game years after the banner.
-            if (isPlaying) {
-              if (time.speed.get() > 1) time.setSpeed(1);
-              // Seen through the ground only where the ground is voxels: from the whole-Bay view x-ray blanks the map.
-              if (!view.state.get().xray && voxelsShown) {
-                view.set({ xray: true });
-                xrayOffIn = BREAKTHROUGH_XRAY_S;
-              }
-            }
+            // The finished tunnel shows through the ground for a few seconds more. The first playtest was left in
+            // x-ray for three game years after the banner. (Time stops by itself when the last machine is through.)
+            if (isPlaying) xrayOffIn = Math.max(xrayOffIn, BREAKTHROUGH_XRAY_S);
           } else if (item.kind === 'tbmLaunched' && isPlaying && camera.following() === null && host.active() === null) {
             // The launch happens underground: take the player to the machine. Any map view or pan leaves it again.
             const tbm = snap.projects.flatMap((p) => p.tbms).find((t) => t.id === item.subjectId);
@@ -696,13 +742,7 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
           }
         }
       }
-      if (xrayOffIn > 0 && animate) {
-        xrayOffIn -= dt;
-        if (xrayOffIn <= 0) {
-          xrayOffIn = 0;
-          view.set({ xray: false });
-        }
-      }
+      if (xrayOffIn > 0 && animate) xrayOffIn = Math.max(0, xrayOffIn - dt);
       if (isLive) {
         const stage = snap.mission.stage;
         if (stage !== lastStage) {
@@ -712,16 +752,30 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
           lastStage = stage;
         }
       }
-      // A gate is a decision: it is not arrived at in fast forward, and the phase after it starts at the pace it is meant to be watched at.
-      const hold = snap.clock.hold;
-      // (With the interface up: on the bare canvas there is no gate card to read, and scripts set their own speed.)
-      if (ui !== null && hold === 'gate' && lastHold !== 'gate' && isPlaying && time.speed.get() > 1) time.setSpeed(1);
-      lastHold = hold;
+      // A "Next decision" run ends at the decision: a gate or an event card. Without a phase under way (an open
+      // line) nothing would ever stop it, so it ends after DECISION_RUN_DEFAULT_DAYS.
+      // (With the interface up: on the bare canvas there is no card to read, and scripts set their own speed.)
+      if (ui !== null && isPlaying && timeMode === 'decision' && time.speed.get() > 0) {
+        const overrun = decisionRun !== null && !decisionRun.toGate && driver.tick - decisionRun.fromTick >= pace.DECISION_RUN_DEFAULT_DAYS;
+        if (snap.clock.hold !== null || overrun) {
+          decisionRun = null;
+          time.setSpeed(0);
+        }
+      }
       // The places the mission is about are ringed on the map while it is on screen; a ring turns green when a station serves it.
       syncTargets(isLive ? snap.mission.targets : [], isLive && possessedId === null);
+      // The ground is seen through while a machine bores or is driven, and for the moment after a breakthrough and
+      // at the first train; otherwise it is solid. Only the change is applied: a view set through the test hook stays.
+      if (ui !== null) {
+        const want = isPlaying && (pace.isBoring(snap) || host.active()?.id === 'drive' || xrayOffIn > 0);
+        if (want !== seeThrough) {
+          seeThrough = want;
+          view.set({ xray: want, cut: false });
+        }
+      }
       // Looking through the ground or under a cut, the tunnels are drawn open at the top: track and trains show.
-      const seeThrough = view.state.get();
-      layer.setCrowns(!(seeThrough.xray || seeThrough.cut));
+      const looking = view.state.get();
+      layer.setCrowns(!(looking.xray || looking.cut));
       layer.sync(scene);
       layer.update(animate ? dt : 0);
       if (openedProject !== null && scene.trains.length > 0) {
@@ -730,9 +784,7 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
         openedProject = null;
         if (train !== undefined && host.active() === null) {
           // The x-ray is the game's for the ride, not the player's for good: it goes off again by itself.
-          if (!view.state.get().xray) xrayOffIn = OPENING_XRAY_S;
-          else if (xrayOffIn > 0) xrayOffIn = OPENING_XRAY_S;
-          view.set({ xray: true });
+          xrayOffIn = OPENING_XRAY_S;
           camera.flyTo({
             position: { x: train.position.x + 40, y: train.position.y + 300, z: train.position.z + 260 },
             target: train.position,

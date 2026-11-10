@@ -108,13 +108,10 @@ const HELP: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
-    title: 'Time and view',
+    title: 'Time',
     rows: [
-      ['Space', 'pause and resume'],
-      ['8 9 0', 'speed 1x, 10x, 100x'],
-      ['C', 'cut plane'],
-      ['[ ]', 'cut plane lower and higher'],
-      ['X', 'x-ray'],
+      ['Space', 'run to the next decision; pause and resume while a machine bores'],
+      ['8 9 0', 'while a machine bores: Regular, Faster, Skip to end'],
     ],
   },
 ];
