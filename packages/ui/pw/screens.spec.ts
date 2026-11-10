@@ -62,7 +62,7 @@ const EXPECT: Record<SceneId, string[]> = {
   'drive-offplan': ['drive-hud', 'drive-deviation'],
   breakthrough: ['banner', 'toasts', 'drive-hud'],
   'breakthrough-event': ['banner', 'drive-hud'],
-  receipt: ['panel-receipt', 'receipt-table', 'receipt-ratios', 'perkm-dims', 'receipt-line-priceLevel', 'receipt-ghost', 'receipt-basis'],
+  receipt: ['panel-receipt', 'receipt-table', 'receipt-ratios', 'perkm-dims', 'receipt-line-priceLevel', 'receipt-ghost'],
   'receipt-no-date': ['panel-receipt', 'receipt-table', 'receipt-ghost'],
   'scorecard-no-date': ['screen-scorecard', 'score-col-sponsor', 'receipt-table'],
   open: ['panel-project', 'project-action'],

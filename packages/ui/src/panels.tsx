@@ -6,7 +6,6 @@ import {
   type Method,
   type PhaseView,
   type ProjectView,
-  playerSource,
   RECEIPT_COLUMNS,
   type Receipt,
   type ReceiptLine,
@@ -32,7 +31,6 @@ import {
   moneyPerKm,
   percent,
   ratio,
-  years,
 } from './format.ts';
 import { act, actionButton, command, housingOptions, missionProject, selectTool, visibleLines } from './model.ts';
 
@@ -190,8 +188,7 @@ export function ToolPanel({ store }: StoreProps): JSX.Element | null {
           {tool.id === 'station' && project !== null && <StationList store={store} project={project} />}
           {tool.id === 'dig' && (
             <p class="bv-note" data-testid="dig-total">
-              Dug by hand so far: {count(s.handDig.volumeM3)} m3 for {money(s.handDig.cents)}
-              {s.handDig.centsPerM3 > 0 && ` at ${money(s.handDig.centsPerM3)} per m3`}. A machine is cheaper.
+              A machine is cheaper.
             </p>
           )}
         </div>
@@ -289,7 +286,6 @@ function DesignOption({ store, project, o }: StoreProps & { project: ProjectView
       </span>
       <span class="desc">{o.description}</span>
       <span class="side">
-        <div>{moneyPerKm(o.costPerKmCents)}</div>
         <div>opens in {duration(o.daysToOpen)}</div>
         {!o.selected && (
           <div class={cx(o.deltaCents > 0 && 'bv-bad', o.deltaCents < 0 && 'bv-good')}>
@@ -311,7 +307,7 @@ function DesignOption({ store, project, o }: StoreProps & { project: ProjectView
       )}
       {o.applies === false && (
         <span class="time" data-testid={`design-applies-${o.id}`}>
-          No underground box station on the line yet: this choice has no price until you place one.
+          No underground station on the line yet, so no price.
         </span>
       )}
       <span class="meta">
@@ -352,7 +348,6 @@ function DesignOption({ store, project, o }: StoreProps & { project: ProjectView
           {body}
         </button>
       )}
-      {playerSource(o.evidence) !== '' && <p class="bv-evidence">{playerSource(o.evidence)}</p>}
     </div>
   );
 }
@@ -385,12 +380,12 @@ export function DesignPanel({ store }: StoreProps): JSX.Element {
           The design went to tender. It can no longer change.
         </p>
       )}
+      <p class="bv-note">Each price is the whole project, all-in, with that one choice changed.</p>
       <div class="bv-sec">
         <h3>Tunnel</h3>
         {project.design.tunnel === 'mixed' && (
           <p class="bv-hint" data-testid="design-now">
-            Now: {builtNow(project)}, {money(project.receipt.columns.yours.costCents)}. Each price below is the whole project with that one
-            method under every underground segment, and the difference against what is drawn now.
+            Now: {builtNow(project)}, {money(project.receipt.columns.yours.costCents)}.
           </p>
         )}
         {tunnel.map((o) => (
@@ -403,7 +398,6 @@ export function DesignPanel({ store }: StoreProps): JSX.Element {
           <DesignOption key={o.id} store={store} project={project} o={o} />
         ))}
       </div>
-      <p class="bv-note">Each price is the whole project, all-in, with that one choice changed.</p>
     </Sheet>
   );
 }
@@ -421,9 +415,7 @@ export function HousingSection({ store }: StoreProps): JSX.Element | null {
   return (
     <div class="bv-sec" data-testid="housing">
       <h3>Housing</h3>
-      <p class="bv-note">
-        Homes beside the stations are riders. Each rezoning costs political capital, and the internet will have opinions.
-      </p>
+      <p class="bv-note">Homes near a station become riders.</p>
       <ul class="bv-housing">
         {options.map((o) => (
           <li key={o.id} class={cx(o.enacted && 'is-enacted')} data-testid={`housing-${o.id}`}>
@@ -490,16 +482,6 @@ export function ProjectPanel({ store }: StoreProps): JSX.Element {
       <HousingSection store={store} />
       <div class="bv-sec" data-testid="project-design">
         <h3>Design</h3>
-        <ul class="bv-rows">
-          {project.design.options
-            .filter((o) => o.selected)
-            .map((o) => (
-              <li key={o.id}>
-                <span>{o.label}</span>
-                <span class="v">{o.practice === 'polish' ? 'Polish practice' : 'California practice'}</span>
-              </li>
-            ))}
-        </ul>
         <Btn testId="project-open-design" onClick={() => store.openPanel('design')}>
           {project.design.frozen ? 'See the design' : 'Choose the design'}
         </Btn>
@@ -526,8 +508,6 @@ export function ProjectPanel({ store }: StoreProps): JSX.Element {
                 <div class="more">
                   {ph.state === 'current' && <Bar value={ph.progress} hi />}
                   {ph.gate?.ready === true && !topIsGate && <GateButton store={store} projectId={project.id} gate={ph.gate} />}
-                  {ph.gate?.ready === true && topIsGate && <span class="bv-gate">At the gate. Time waits for you.</span>}
-                  {ph.gate?.ready === false && ph.state !== 'done' && <span class="bv-gate">Ends at a gate: {ph.gate.label}.</span>}
                 </div>
               )}
             </li>
@@ -609,9 +589,7 @@ export function ProjectPanel({ store }: StoreProps): JSX.Element {
           ))}
           {(s.ledger.raisedCents ?? 0) > 0 && (
             <li data-testid="project-raised">
-              <span>
-                Raised when the money ran out <span class="bv-soft bv-small">cash calls</span>
-              </span>
+              <span>Emergency funding</span>
               <span class="v">{money(s.ledger.raisedCents ?? 0)}</span>
             </li>
           )}
@@ -653,13 +631,6 @@ export function Objectives({ store }: StoreProps): JSX.Element | null {
 
 /** The special-purpose infrastructure act (M2 shared contract id). */
 const SPECUSTAWA = 'specustawa';
-const SPECUSTAWA_NOTE =
-  'The Polish special-purpose act: the corridor becomes a special zone where every permit phase takes zero time. It costs a lot of political capital, expect backlash, and it is the fastest way under the 2x Poland timeline.';
-
-/** The Vegas-style small bore (M2 shared contract id). */
-const SMALL_BORE = 'smallBoreLoop';
-const SMALL_BORE_NOTE =
-  'The Vegas-style small bore: a 3.7 m single-lane tunnel, mined continuously, launched from the surface with no launch pit. Much faster and much cheaper per km. The catch: a Caltrain train does not fit. It carries low-capacity pods, so the line serves far fewer riders or runs as a separate shuttle. Precedent: The Boring Company, Las Vegas Convention Center loop.';
 
 function reformCost(r: ReformView): string {
   const parts: string[] = [];
@@ -672,7 +643,6 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
   const s = store.snapshot.value;
   const project = missionProject(s);
   const title = (id: string): string => s.reforms.find((x) => x.id === id)?.title ?? id;
-  const lineLabel = (id: string): string => project?.receipt.lines.find((l) => l.id === id)?.label ?? id;
   const optionLabel = (id: string): string => project?.design.options.find((o) => o.id === id)?.label ?? id;
   const p = r.preview;
   // A preview of nothing is said as nothing on this project, with what the reform does change.
@@ -699,11 +669,7 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
     <li class={cx('bv-reform', `is-${r.status}`)} data-testid={`reform-${r.id}`}>
       <span class="stop" />
       <button type="button" class="bv-reform-head" aria-expanded={open} data-testid={`reform-head-${r.id}`} onClick={onToggle}>
-        <span class="title">
-          {r.title}
-          {r.id === SPECUSTAWA && r.status !== 'enacted' && <span class="bv-tag is-hi bv-tag-gap">skips permitting</span>}
-          {r.id === SMALL_BORE && r.status !== 'enacted' && <span class="bv-tag is-hi bv-tag-gap">fast, cheap, tiny</span>}
-        </span>
+        <span class="title">{r.title}</span>
         <span class="cost">{r.status === 'enacted' ? <span class="bv-tag is-good">Enacted</span> : reformCost(r)}</span>
         {!open && p !== null && (
           <span class="fx" data-testid={`reform-fx-${r.id}`}>
@@ -715,16 +681,6 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
       {open && (
         <div class="bv-reform-body" data-testid={`reform-body-${r.id}`}>
           <p>{r.description}</p>
-          {r.id === SPECUSTAWA && (
-            <p class="bv-small bv-spec" data-testid="reform-specustawa-note">
-              {SPECUSTAWA_NOTE}
-            </p>
-          )}
-          {r.id === SMALL_BORE && (
-            <p class="bv-small bv-spec" data-testid="reform-smallBoreLoop-note">
-              {SMALL_BORE_NOTE}
-            </p>
-          )}
           <ul class="bv-fxlist" data-testid={`reform-effects-${r.id}`}>
             {r.effects.map((e) => (
               <li key={`${e.key}${e.op}`}>{effectText(e)}</li>
@@ -742,37 +698,25 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
               ))}
             </ul>
           )}
-          {quiet && <p class="bv-note">On this project that changes neither the estimate nor the opening date.</p>}
+          {quiet && <p class="bv-note">No effect on this project.</p>}
           {p !== null && !quiet && (
             <div class="bv-effect" data-testid={`reform-preview-${r.id}`}>
               <div>
-                <div class="k">Cost of the project</div>
+                <div class="k">Cost</div>
                 <div class={cx('v', p.costDeltaCents < 0 && 'bv-good', p.costDeltaCents > 0 && 'bv-bad')}>
                   {moneyDelta(p.costDeltaCents)}
                 </div>
               </div>
               <div>
-                <div class="k">Opening date</div>
+                <div class="k">Opens</div>
                 <div class={cx('v', p.daysDelta < 0 && 'bv-good', p.daysDelta > 0 && 'bv-bad')}>{durationDelta(p.daysDelta)}</div>
-              </div>
-              <div>
-                <div class="k">Your cost per km after</div>
-                <div class="v">{moneyPerKm(p.costPerKmAfterCents)}</div>
-              </div>
-              <div>
-                <div class="k">Against Poland after</div>
-                <div class="v">{ratio(p.ratioToPolandAfter)}</div>
               </div>
             </div>
           )}
           {p === null && r.status !== 'enacted' && <p class="bv-note">No project to measure the effect against yet.</p>}
-          {r.receiptLines.length > 0 && !quiet && (
-            <p class="bv-small">Shrinks on the receipt: {r.receiptLines.map(lineLabel).join(', ')}.</p>
-          )}
           {r.unlocks.length > 0 && <p class="bv-small">Unlocks in the design chooser: {r.unlocks.map(optionLabel).join(', ')}.</p>}
           {r.prereqs.length > 0 && <p class="bv-small">Needs first: {r.prereqs.map(title).join(', ')}.</p>}
-          {r.beyondPoland && <p class="bv-small bv-soft">Goes past documented Polish practice.</p>}
-          {playerSource(r.evidence) !== '' && <p class="bv-evidence">{playerSource(r.evidence)}</p>}
+          {r.beyondPoland && <p class="bv-small bv-soft">Beyond Polish practice.</p>}
           {r.status !== 'enacted' && (
             <>
               <Btn
@@ -892,7 +836,7 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
       <tbody>
         <tr>
           <td>
-            <span class="lab">Polish design at Polish prices, no delay</span>
+            <span class="lab">Polish design, Polish prices</span>
           </td>
           {RECEIPT_COLUMNS.map((id) => (
             <td key={id} class={cx('n', id === 'yours' && 'is-you')}>
@@ -918,13 +862,12 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
                   <td>
                     <span class="lab">{l.label}</span>{' '}
                     {l.factor.statusQuo !== 1 && <span class="bv-soft bv-small">{ratio(l.factor.statusQuo)} under the status quo</span>}
-                    {l.group === 'priceLevel' && <span class="bv-soft bv-small"> on the Polish design, before anything else is added</span>}
                     <div class="by">
                       {(l.cents.statusQuo !== 0 || l.cents.yours !== 0) && (
                         <span class={cx('bv-tag', STATUS_TAG[l.status].cls)}>{STATUS_TAG[l.status].text}</span>
                       )}
                       {l.reforms.length === 0 ? (
-                        <span>{l.group === 'priceLevel' ? 'Not a lever: no reform removes this.' : 'No reform removes this.'}</span>
+                        <span>No reform removes this.</span>
                       ) : (
                         l.reforms.map((r) =>
                           r.enacted ? (
@@ -1023,26 +966,23 @@ export function ReceiptPanel({ store }: StoreProps): JSX.Element {
   const r = project.receipt;
   return (
     <Sheet store={store} id="receipt" title="Receipt" sub={r.final ? 'final' : 'estimate at completion'} wide>
-      <p class="bv-note">
-        Per route-km, nominal USD at 3.71 PLN/USD, all-in. Every ratio is computed by the model. Poland is this route and these stations
-        built the Polish way at Polish prices: it moves with the route, not with your design.
-      </p>
+      <p class="bv-note">All-in cost per route-km. Poland is this route and these stations built the Polish way at Polish prices.</p>
       <div class="bv-ratios" data-testid="receipt-ratios">
         <div>
           <div class="v bv-hi" data-testid="ratio-yours">
             {ratio(r.ratios.yoursToPoland)}
           </div>
-          <div class="k">you against Poland</div>
+          <div class="k">you vs Poland</div>
         </div>
         <div>
           <div class="v">{ratio(r.ratios.statusQuoToPoland)}</div>
-          <div class="k">status quo against Poland</div>
+          <div class="k">status quo vs Poland</div>
         </div>
         <div title="The sponsor's figure per route-km against what Poland would pay per route-km for the sponsor's own route: the same number whatever you draw.">
           <div class="v" data-testid="ratio-ghost">
             {r.ratios.ghostToPoland === null ? 'none' : ratio(r.ratios.ghostToPoland)}
           </div>
-          <div class="k">official figure against Poland, on the official route</div>
+          <div class="k">official plan vs Poland</div>
         </div>
       </div>
       <PerKmDims receipt={r} />
@@ -1050,20 +990,9 @@ export function ReceiptPanel({ store }: StoreProps): JSX.Element {
       {r.ghost !== null && (
         <p class="bv-evidence" data-testid="receipt-ghost">
           {r.ghost.label}: {money(r.ghost.costCents)} for {length(r.ghost.lengthKm * 1000)},{' '}
-          {dateMonthOr(r.ghost.openDate, '') === '' ? 'no opening date' : `opening ${dateMonth(r.ghost.openDate)}`}. Per route-km the
-          model's status quo comes to {percent(1 - r.ghost.unexplainedShare)} of it. {playerSource(r.ghost.source)}
+          {dateMonthOr(r.ghost.openDate, '') === '' ? 'no opening date' : `opening ${dateMonth(r.ghost.openDate)}`}.
         </p>
       )}
-      <dl class="bv-basis" data-testid="receipt-basis">
-        {RECEIPT_COLUMNS.map((id) => (
-          <Fragment key={id}>
-            <dt>{r.columns[id].label}</dt>
-            <dd>
-              {r.columns[id].basis}. {length(r.columns[id].lengthKm * 1000)}, opens in {years(r.columns[id].yearsToOpen)}.
-            </dd>
-          </Fragment>
-        ))}
-      </dl>
     </Sheet>
   );
 }

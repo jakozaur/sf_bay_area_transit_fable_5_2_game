@@ -104,6 +104,8 @@ export const CSS = `
 .bv-headline .v.is-you { color: var(--hi); }
 .bv-headline .vs { color: var(--fog); font-size: 12px; }
 .bv-headline .gap { font: 700 30px/1 var(--f-sign); padding: 6px 10px 2px; border: 2px solid #fff; border-radius: 3px; white-space: nowrap; }
+.bv-headline .gap.is-met { color: var(--good-on-ink); border-color: var(--good-on-ink); }
+.bv-headline .gap.is-missed { color: var(--bad-on-ink); border-color: var(--bad-on-ink); }
 .bv-headline .none { color: var(--fog); }
 .bv-nav { display: flex; align-items: center; gap: 6px; padding: 0 12px; }
 .bv .bv-nav .bv-btn { min-height: 30px; padding: 4px 10px 3px; }
@@ -230,7 +232,6 @@ export const CSS = `
 .bv-bar { height: 6px; background: var(--paper-2); border-radius: 3px; overflow: hidden; }
 .bv-bar > i { display: block; height: 100%; background: var(--ink); }
 .bv-bar.is-hi > i { background: var(--hi); }
-.bv-gate { font-size: 12px; color: var(--soft); }
 .bv-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--paper-2); }
 .bv-item:last-child { border-bottom: 0; }
 .bv-item .name { font-weight: 700; }
@@ -286,8 +287,6 @@ export const CSS = `
 .bv-ratios .k { font-size: 11px; line-height: 1.25; color: var(--soft); }
 .bv-dims { display: flex; flex-direction: column; gap: 4px; }
 
-.bv-basis { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 12px; line-height: 1.35; color: var(--soft); }
-.bv-basis dt { font-weight: 700; color: var(--ink); white-space: nowrap; }
 .bv-fxlist { display: flex; flex-direction: column; gap: 1px; font-size: 13px; font-weight: 700; }
 .bv-fxlist li { padding-left: 12px; position: relative; }
 .bv-fxlist li::before { content: ''; position: absolute; left: 0; top: 7px; width: 6px; height: 2px; background: var(--ink); }
@@ -433,8 +432,6 @@ export const CSS = `
 .bv-target .is-missed { color: var(--bad-on-ink); }
 .bv-target-line { margin: 8px 0 2px; padding: 6px 10px 5px; font-size: 14px; border-left: 5px solid var(--bad); background: #fff; }
 .bv-target-line.is-met { border-left-color: var(--good); }
-.bv-tag-gap { margin-left: 8px; }
-.bv-spec { padding: 5px 9px; border-left: 3px solid var(--hi); background: #fff; }
 .bv .bv-spec-call { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 7px 10px 6px; font-size: 13px; line-height: 1.35; border: 1.5px solid var(--ink); border-radius: 3px; background: #fff; box-shadow: inset 4px 0 0 var(--hi); }
 /* Social media backlash: wide, bottom centre, above the toolbar; centred in what the open sheet and tool panel leave free. */
 .bv-backlash { --l: 0px; --r: 0px; position: absolute; left: calc(var(--l) + (100% - var(--l) - var(--r)) / 2); bottom: 76px; transform: translateX(-50%); width: min(600px, calc(100% - var(--l) - var(--r) - 24px)); background: var(--ink); color: #fff; border-radius: 3px; border-top: 4px solid var(--bad); box-shadow: 0 0 0 1.5px var(--bad), 0 14px 34px rgba(6, 14, 24, 0.6); font-size: 13px; }
@@ -513,6 +510,14 @@ export const CSS = `
 /* ---------------------------------------------------------------- scorecard */
 .bv-score { width: min(1120px, calc(100% - 48px)); max-height: calc(100% - 32px); }
 .bv-score .bv-sheet-body { gap: 14px; padding: 14px 16px; }
+/* Confetti over the scorecard. A piece is invisible until its animation runs: with reduced motion nothing shows. */
+.bv-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 2; }
+.bv-confetti i { position: absolute; top: -24px; opacity: 0; border-radius: 1px; animation: bv-confetti 3s cubic-bezier(0.2, 0.6, 0.4, 1) 1 both; }
+@keyframes bv-confetti {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--drift, 0), 105vh) rotate(var(--spin, 720deg)); }
+}
 .bv-score-top { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: center; }
 .bv-score-top .verdict { font: 700 30px/1.05 var(--f-sign); padding-top: 4px; }
 .bv-score-top .bv-stars { font-size: 44px; letter-spacing: 4px; line-height: 1; }
@@ -524,7 +529,6 @@ export const CSS = `
 .bv-col .cost { font: 700 34px/1 var(--f-sign); padding-top: 6px; }
 .bv-col .km { font: 700 19px/1 var(--f-sign); padding-top: 2px; }
 .bv-col .date { margin-top: 5px; font-weight: 700; }
-.bv-col .src { margin-top: 4px; font-size: 11px; line-height: 1.3; color: var(--soft); }
 .bv-axes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .bv-axes > div { padding: 6px 8px; background: var(--paper-2); border-radius: 3px; font-size: 12px; line-height: 1.3; }
 .bv-axes .ax { font-weight: 700; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; font-size: 13px; }

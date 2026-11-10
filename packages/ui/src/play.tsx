@@ -1,9 +1,9 @@
 /** Things that appear during play: the event card and the drive instruments. */
 import { TOOL_COMMANDS } from '@bayvox/core';
-import { type EventView, playerSource, type TbmView } from '@bayvox/sim';
+import { type EventView, isDrivable, type TbmView } from '@bayvox/sim';
 import type { JSX } from 'preact';
 import { Btn, cx, type StoreProps } from './bits.tsx';
-import { capital, dateMonth, duration, durationDelta, length, money, moneyDelta, moneyPerKm, ratio } from './format.ts';
+import { capital, dateMonth, duration, durationDelta, length, money, moneyDelta, moneyPerKm } from './format.ts';
 import { act, actionButton, command, GEOLOGY_COLORS, missionProject, possessedTbm } from './model.ts';
 import { builtNow } from './panels.tsx';
 
@@ -13,7 +13,7 @@ function optionCosts(o: EventView['options'][number]): string[] {
   if (o.gainCents !== undefined && o.gainCents > 0) parts.push(`+${money(o.gainCents)} funds`);
   if (o.costCents !== 0) parts.push(o.gainCents !== undefined && o.gainCents > 0 ? `${money(o.costCents)} fee` : money(o.costCents));
   if (o.delayDays !== 0) parts.push(`${duration(o.delayDays)} delay`);
-  if (o.pc !== 0) parts.push(capital(o.pc));
+  if (o.pc !== 0) parts.push(o.pc > 0 ? `costs ${capital(o.pc)}` : `+${capital(-o.pc)}`);
   return parts.length > 0 ? parts : ['Free'];
 }
 
@@ -28,16 +28,13 @@ export function EventCard({ store }: StoreProps): JSX.Element | null {
     <div class="bv-scrim bv-live" data-testid="event-card">
       <section class="bv-sheet bv-event" role="alertdialog" aria-modal="true" aria-label={e.title}>
         <header class="bv-sheet-head">
-          <h2>Event</h2>
+          <h2 data-testid="event-title">{e.title}</h2>
           <span class="sub">
             {project?.name ?? e.projectId}
             {s.events.length > 1 && `, ${s.events.length - 1} more waiting`}
           </span>
         </header>
         <div class="bv-sheet-body">
-          <h3 class="title" data-testid="event-title">
-            {e.title}
-          </h3>
           <p class="desc">{e.description}</p>
           <div class="bv-sec">
             {e.options.map((o) => (
@@ -59,11 +56,11 @@ export function EventCard({ store }: StoreProps): JSX.Element | null {
               </button>
             ))}
           </div>
-          <p class="bv-note" data-testid="event-deadline">
-            Time stands still until you choose.
-            {fallback !== undefined && ` The usual answer: ${fallback.label.replace(/\.$/, '')}.`}
-          </p>
-          {playerSource(e.evidence) !== '' && <p class="bv-evidence">{playerSource(e.evidence)}</p>}
+          {fallback !== undefined && (
+            <p class="bv-note" data-testid="event-deadline">
+              The usual answer: {fallback.label.replace(/\.$/, '')}.
+            </p>
+          )}
         </div>
       </section>
     </div>
@@ -73,15 +70,15 @@ export function EventCard({ store }: StoreProps): JSX.Element | null {
 const GATE_COPY = {
   advancePhase: {
     title: 'Go to tender?',
-    what: 'Tender fixes two things for the rest of this project: the design (route, tunnel method, stations) and the contract prices (procurement, staffing, utilities). A reform bought after today does not reach them.',
+    what: 'Tender locks the design and the contract prices for good. Reforms bought later do not reach them.',
   },
   launchTBM: {
     title: 'Ready to start?',
-    what: 'The contracts are let and the site is ready. Reforms still reach what is not under contract: consultants, contingency, the schedule and the machines. You can drive a boring machine yourself or leave it on autopilot.',
+    what: 'Reforms still reach consultants, contingency, the schedule and the machines.',
   },
   openLine: {
     title: 'Open the line?',
-    what: 'Testing is done. Opening closes the books: the receipt then shows what you paid, against the official figure and against Poland.',
+    what: 'Opening closes the books. The receipt becomes final.',
   },
 } as const;
 
@@ -114,6 +111,12 @@ export function GateCard({ store }: StoreProps): JSX.Element | null {
   const go = actionButton(store, project.nextAction);
   if (go === null) return null;
   const copy = GATE_COPY[project.awaiting];
+  // A line of surface track or viaduct has no machine to drive: the card does not offer one.
+  const drivable = project.segments.some((g) => isDrivable(g.effectiveMethod));
+  const what =
+    project.awaiting !== 'launchTBM'
+      ? copy.what
+      : `${copy.what} ${drivable ? 'Drive a machine yourself or leave it on autopilot.' : 'Track gangs lay the line; nothing to drive.'}`;
   const r = project.receipt;
   const offers = s.reforms
     .filter(
@@ -128,22 +131,18 @@ export function GateCard({ store }: StoreProps): JSX.Element | null {
       <section class="bv-sheet" role="dialog" aria-label={copy.title}>
         <header class="bv-sheet-head">
           <h2>{copy.title}</h2>
-          <span class="sub">{project.name}: time waits for you</span>
+          <span class="sub">{project.name}</span>
         </header>
         <div class="bv-sheet-body">
           <p class="what" data-testid="gate-what">
-            {copy.what}
+            {what}
           </p>
           <ul class="bv-rows">
             <li>
-              <span>{r.final ? 'Paid' : 'Estimate at completion'}</span>
+              <span>{r.final ? 'Paid' : 'Estimate'}</span>
               <span class="v" data-testid="gate-estimate">
                 {money(r.columns.yours.costCents)}, {moneyPerKm(r.columns.yours.costPerKmCents)}
               </span>
-            </li>
-            <li>
-              <span>Against Poland on this route</span>
-              <span class="v">{ratio(r.ratios.yoursToPoland)}</span>
             </li>
             {r.columns.yours.openDate !== '' && (
               <li>

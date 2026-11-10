@@ -1,6 +1,6 @@
 /** Always-visible HUD: top band, objective strip, toolbar, toasts and the breakthrough banner. */
 import { GAME_SPEEDS, type GameSpeed, TOOL_IDS, type ToolId } from '@bayvox/core';
-import { MISSION_STAGES, type MissionStage } from '@bayvox/sim';
+import { MISSION_STAGES, type MissionStage, PC_PER_MONTH, PC_PHASE_DONE } from '@bayvox/sim';
 import type { JSX } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Bar, Btn, Bullet, cx, type StoreProps } from './bits.tsx';
@@ -21,7 +21,7 @@ import {
 import { gateCardShowing } from './play.tsx';
 
 const SPEED_LABEL: Readonly<Record<GameSpeed, string>> = { 0: 'Pause', 1: '1x', 10: '10x', 100: '100x' };
-const HOLD_TEXT = { event: 'Time waits: answer the card', gate: 'Time waits: your move' } as const;
+const HOLD_TEXT = { event: 'Answer the card', gate: 'Your move' } as const;
 
 export function TopBar({ store }: StoreProps): JSX.Element {
   const s = store.snapshot.value;
@@ -49,7 +49,10 @@ export function TopBar({ store }: StoreProps): JSX.Element {
           {money(s.moneyCents)}
         </span>
       </div>
-      <div class="bv-top-cell" title="Political capital: what reforms cost">
+      <div
+        class="bv-top-cell"
+        title={`Political capital pays for reforms. +${PC_PER_MONTH} a month, +${PC_PHASE_DONE} per finished phase.`}
+      >
         <span class="k">Political capital</span>
         <span class="v" data-testid="hud-pc">
           {capital(s.politicalCapital)}
@@ -81,7 +84,7 @@ export function TopBar({ store }: StoreProps): JSX.Element {
         ) : (
           <>
             <div class="pair">
-              <span class="k">{h.final ? 'You paid' : 'You, estimate'}</span>
+              <span class="k">{h.final ? 'You paid' : 'You'}</span>
               <span class="v is-you" data-testid="headline-yours">
                 {moneyPerKm(h.yoursPerKmCents)}
               </span>
@@ -91,12 +94,16 @@ export function TopBar({ store }: StoreProps): JSX.Element {
               class="pair"
               title="This route and these stations built the Polish way (twin 6.6 m bores, compact boxes) at Polish prices. It changes with the route and the stations, never with your design or your reforms."
             >
-              <span class="k">Poland, same route</span>
+              <span class="k">Poland</span>
               <span class="v" data-testid="headline-poland">
                 {moneyPerKm(h.polandPerKmCents)}
               </span>
             </div>
-            <span class="gap" data-testid="headline-ratio" title="Your cost per route-km divided by Poland's, computed by the model">
+            <span
+              class={cx('gap', target !== null && (target.costRatio <= target.limit ? 'is-met' : 'is-missed'))}
+              data-testid="headline-ratio"
+              title="Your cost per route-km divided by Poland's, computed by the model"
+            >
               {ratio(h.ratio)}
             </span>
             {target !== null && (
@@ -105,11 +112,8 @@ export function TopBar({ store }: StoreProps): JSX.Element {
                 data-testid="hud-target"
                 title={`The target: finish at no more than ${target.limit}x Poland's cost and ${target.limit}x Poland's timeline, on this route.`}
               >
-                <span class="k">Target: {target.limit}x Poland or less</span>
+                <span class="k">Target {target.limit}x</span>
                 <span class="v">
-                  <span class={target.costRatio <= target.limit ? 'is-met' : 'is-missed'} data-testid="hud-target-cost">
-                    cost {ratio(target.costRatio)}
-                  </span>
                   <span class={target.timeRatio <= target.limit ? 'is-met' : 'is-missed'} data-testid="hud-target-time">
                     time {ratio(target.timeRatio)}
                   </span>
@@ -306,7 +310,7 @@ export function MapLabels({ store }: StoreProps): JSX.Element | null {
         >
           <div class={cx('plate', t.served && 'is-served', t.stretch && 'is-stretch')} data-testid={`map-label-${i}`}>
             <b>{t.name}</b>
-            <span>{t.served ? 'station in reach' : `station wanted within ${Math.round(t.radiusM)} m`}</span>
+            <span>{t.served ? 'station in reach' : 'needs a station'}</span>
           </div>
         </div>
       ))}
@@ -495,7 +499,7 @@ function PostStats({ p }: { p: SocialPost }): JSX.Element {
   const st = postStats(p);
   return (
     <span class="stats">
-      <b>{compact(st.likes)}</b> likes <b>{compact(st.reposts)}</b> reposts
+      <b>{compact(st.likes)}</b> likes
     </span>
   );
 }
@@ -518,11 +522,13 @@ export function Backlash({ store }: StoreProps): JSX.Element | null {
   const arrived = socialPosts(store.snapshot.value).filter((p) => !pending.has(postKey(p)));
   const open = arrived.filter((p) => !closed.has(postKey(p))).reverse();
   if (open.length === 0) return null;
-  // Under a gate card the box folds to its header: the count stays, the decision stays clickable.
-  const shown = gateCardShowing(store) ? 0 : MAX_POSTS;
+  // Under a gate card or an event card, and over the drive view, the box folds to its header: the count stays,
+  // the decision and the machine stay in sight.
+  const tool = store.tool.value.id;
+  const folded = gateCardShowing(store) || tool === 'drive' || store.snapshot.value.events.length > 0;
+  const shown = folded ? 0 : MAX_POSTS;
   const more = open.length - shown;
   const fresh = store.postFresh.value;
-  const tool = store.tool.value.id;
   return (
     <aside
       class={cx(

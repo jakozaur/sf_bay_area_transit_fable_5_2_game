@@ -29,7 +29,6 @@ function CostBenefit({ store, onPick }: StoreProps & { onPick: (id: string) => v
     <section class="bv-cb bv-sheet bv-live" aria-label="Mission comparison" data-testid="cost-benefit">
       <header class="bv-sheet-head">
         <h2>Which line is worth it?</h2>
-        <span class="sub">quick cost-benefit, reference route</span>
       </header>
       <div class="bv-cb-body">
         <table>
@@ -37,10 +36,9 @@ function CostBenefit({ store, onPick }: StoreProps & { onPick: (id: string) => v
             <tr>
               <th>Mission</th>
               <th>Length</th>
-              <th>At Polish prices</th>
-              <th>Official style</th>
+              <th>Polish price</th>
+              <th>Official</th>
               <th>Riders a day</th>
-              <th>Per daily rider</th>
               <th title="Benefit-cost ratio at Polish prices: above 1 the line pays for itself">Benefit / cost</th>
             </tr>
           </thead>
@@ -61,16 +59,14 @@ function CostBenefit({ store, onPick }: StoreProps & { onPick: (id: string) => v
                   <td>{money(r.polandCostCents)}</td>
                   <td>{r.officialCostCents > 0 ? money(r.officialCostCents) : 'none'}</td>
                   <td>{count(r.dailyRiders)}</td>
-                  <td>{money(r.polandCostPerRiderUsd * 100)}</td>
                   <td class={r.benefitCostRatio >= 1 ? 'bv-good' : 'bv-bad'}>
                     <b>{r.benefitCostRatio.toFixed(2)}</b>
                   </td>
                 </tr>
                 {r.withHousing !== undefined && (
                   <tr class="with-housing" data-testid={`cb-${r.scenarioId}-housing`}>
-                    <td colSpan={4}>with all housing enacted: +{count(r.withHousing.homes)} homes</td>
+                    <td colSpan={4}>with housing: +{count(r.withHousing.homes)} homes</td>
                     <td>{count(r.withHousing.dailyRiders)}</td>
-                    <td />
                     <td class={r.withHousing.benefitCostRatio >= 1 ? 'bv-good' : 'bv-bad'}>
                       <b>{r.withHousing.benefitCostRatio.toFixed(2)}</b>
                     </td>
@@ -100,7 +96,7 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
               <i />
               <i />
             </span>
-            <span>Twin bore, 6.6 m. Real map. Real prices.</span>
+            <span>Real map. Real prices.</span>
           </div>
           <h1>
             Polish the
@@ -111,7 +107,7 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
             {TAGLINE}
           </p>
           <p class="target" data-testid="title-target">
-            {TARGET_LINE} Pick any mission.
+            {TARGET_LINE}
           </p>
         </div>
         <div class="bv-title-acts">
@@ -122,7 +118,7 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
             disabledReason={play === null ? 'No mission is available' : null}
             onClick={() => play !== null && brief(play.id)}
           >
-            Play
+            {play === null ? 'Play' : `Play ${play.title}`}
           </Btn>
           {save !== undefined && (
             <>
@@ -196,9 +192,8 @@ export function BriefingScreen({ store }: StoreProps): JSX.Element {
             <dt>Why it matters</dt>
             <dd data-testid="brief-why">{b.why}</dd>
           </dl>
-          <p class="bv-note">
-            Where an official cost and date exist, they are the ghost you race; where none do, you race the game's own model of the status
-            quo. Poland is the par. {TARGET_LINE}
+          <p class="bv-note" data-testid="brief-target">
+            Get within {POLAND_TARGET_LIMIT}x of Poland on cost and time.
           </p>
           <div class="bv-sec">
             <h3>Objectives</h3>
@@ -258,12 +253,44 @@ function Column({ c, you }: { c: ScoreColumn; you: boolean }): JSX.Element {
           </>
         )}
       </span>
-      <span class="src">{playerSource(c.source)}</span>
     </div>
   );
 }
 
 const AXIS_LABEL = { cost: 'Cost', date: 'Date', riders: 'Riders' } as const;
+
+/** Confetti pieces for a line that opened inside the Poland target. A line that missed it gets none. */
+const CONFETTI_WIN = 120;
+const CONFETTI_COLORS = ['#ff5a1f', '#ffffff', '#d4222b', '#58d29a', '#ffd23f', '#6fb7ff'] as const;
+
+/**
+ * A burst of paper over the scorecard when the line opened inside the target. Presentation only: the pieces are laid out from
+ * their index, nothing is read from or written to the sim. A piece is invisible until its animation runs, so
+ * with reduced motion (the stylesheet turns every animation off) nothing is drawn.
+ */
+export function Confetti({ pieces }: { pieces: number }): JSX.Element {
+  // A fixed low-discrepancy scatter: the same burst every time, no random numbers to seed.
+  const frac = (n: number): number => n - Math.floor(n);
+  return (
+    <div class="bv-confetti" aria-hidden="true" data-testid="confetti" data-pieces={pieces}>
+      {Array.from({ length: pieces }, (_, i) => (
+        <i
+          key={i}
+          style={{
+            left: `${(frac(i * 0.618034) * 100).toFixed(2)}%`,
+            width: `${6 + (i % 4) * 2}px`,
+            height: `${10 + (i % 3) * 4}px`,
+            background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+            animationDelay: `${(frac(i * 0.381966) * 0.9).toFixed(2)}s`,
+            animationDuration: `${(2.2 + frac(i * 0.754878) * 1.6).toFixed(2)}s`,
+            '--drift': `${Math.round((frac(i * 0.56984) - 0.5) * 240)}px`,
+            '--spin': `${Math.round(360 + frac(i * 0.287) * 900) * (i % 2 === 0 ? 1 : -1)}deg`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 export function ScorecardScreen({ store }: StoreProps): JSX.Element {
   const s = store.snapshot.value;
@@ -284,10 +311,11 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
   const hasNext = at >= 0 && missions.slice(at + 1).some((m) => !m.freeBuild);
   return (
     <div class="bv-scrim bv-live" data-testid="screen-scorecard">
+      {sc.final && target?.met === true && <Confetti pieces={CONFETTI_WIN} />}
       <section class="bv-sheet bv-score" aria-label="Scorecard">
         <header class="bv-sheet-head">
           <h2>{s.mission.title}: scorecard</h2>
-          <span class="sub">{sc.final ? 'line open, figures final' : 'forecast, the line is not open yet'}</span>
+          <span class="sub">{sc.final ? 'final' : 'forecast'}</span>
         </header>
         <div class="bv-sheet-body">
           <div class="bv-score-top">
@@ -308,8 +336,7 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
               <b>
                 {target.limit}x Poland target: {target.met ? 'passed' : 'failed'}.
               </b>{' '}
-              Cost {ratio(target.costRatio)} Poland ({target.costRatio <= target.limit ? 'within' : 'over'} {target.limit}x), timeline{' '}
-              {ratio(target.timeRatio)} Poland ({target.timeRatio <= target.limit ? 'within' : 'over'} {target.limit}x).
+              Cost {ratio(target.costRatio)}, time {ratio(target.timeRatio)}.
             </p>
           )}
           <div class="bv-score-grid">
@@ -371,7 +398,6 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
                 <h3>The receipt: where the gap comes from</h3>
                 <ReceiptTable store={store} receipt={project.receipt} />
               </div>
-              <p class="bv-note">Nominal USD at 3.71 PLN/USD, all-in. Ratios are computed by the model from these columns.</p>
             </div>
           </div>
         </div>
