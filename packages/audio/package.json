@@ -1,0 +1,13 @@
+{
+  "name": "@bayvox/audio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Web Audio synth for cues and loops; no asset files.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bayvox/core": "workspace:*"
+  }
+}

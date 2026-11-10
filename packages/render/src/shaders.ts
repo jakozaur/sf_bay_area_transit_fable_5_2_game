@@ -5,8 +5,12 @@
  * lit directly), which keeps the palette exact and the look flat.
  */
 
-/** Shared by every fragment shader: lighting, fog, per-voxel hash, cut test. */
+/** Local lights the shaders evaluate per fragment (the renderer picks the nearest ones). */
+export const LOCAL_LIGHTS = 3;
+
+/** Shared by every fragment shader: lighting, fog, per-voxel hash, cut tests, local lights. */
 const COMMON_FRAG = /* glsl */ `
+#define LIGHTS ${LOCAL_LIGHTS}
 uniform sampler2D uPalette;
 uniform vec3 uOriginVoxel;
 uniform vec3 uSunDir;
@@ -20,6 +24,11 @@ uniform float uCutOn;
 uniform float uTime;
 uniform vec4 uHole; // min x, min z, max x, max z (origin relative): where LOD columns give way to voxel chunks
 uniform float uHoleOn;
+uniform vec4 uBox; // follow cutaway: reference x, z (origin relative), sin and cos of its yaw
+uniform vec4 uBoxExt; // metres ahead, behind, half width, floor y (origin relative)
+uniform float uBoxOn;
+uniform vec4 uLightPos[LIGHTS]; // origin relative xyz, reach in metres (0: off)
+uniform vec3 uLightColor[LIGHTS];
 
 float voxelHash(vec3 cell) {
   ivec3 c = ivec3(cell);
@@ -48,6 +57,37 @@ bool insideCut(vec3 rel) {
   if (uCutOn < 0.5) return false;
   vec2 d = rel.xz - uCut.xz;
   return dot(d, d) < uCut.w * uCut.w;
+}
+
+bool insideBoxPlan(vec3 rel) {
+  vec2 d = rel.xz - uBox.xy;
+  float along = d.x * uBox.z + d.y * uBox.w;
+  float side = d.x * uBox.w - d.y * uBox.z;
+  return along < uBoxExt.x && along > -uBoxExt.y && abs(side) < uBoxExt.z;
+}
+
+/** Removed by the horizontal cut plane (faces lying exactly in the plane go too: the cap replaces them). */
+bool cutByPlane(vec3 rel) {
+  return rel.y > uCut.y - 0.01 && insideCut(rel);
+}
+
+/** Removed by the follow cutaway. */
+bool cutByBox(vec3 rel) {
+  return uBoxOn > 0.5 && rel.y > uBoxExt.w - 0.01 && insideBoxPlan(rel);
+}
+
+/** Warm local light (work lamps, the breakthrough flash) on a surface point with normal n. */
+vec3 localLight(vec3 rel, vec3 n) {
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < LIGHTS; i++) {
+    float reach = uLightPos[i].w;
+    if (reach <= 0.0) continue;
+    vec3 d = uLightPos[i].xyz - rel;
+    float dist = length(d);
+    float a = clamp(1.0 - dist / reach, 0.0, 1.0);
+    sum += uLightColor[i] * (a * a) * (0.35 + 0.65 * max(dot(n, d / max(dist, 0.001)), 0.0));
+  }
+  return sum;
 }
 
 /** 1 near voxel grid lines of a face, 0 inside; fades out once a voxel is smaller than about a pixel. */
@@ -134,15 +174,24 @@ flat in float vLod;
 in vec3 vCell;
 
 void main() {
-  // Faces lying exactly in the cut plane are dropped too: the cap quad replaces them.
-  if (vRel.y > uCut.y - 0.01 && insideCut(vRel)) discard;
+  if (cutByPlane(vRel) || cutByBox(vRel)) discard;
   if (vLod > 0.5 && insideHole(vRel)) discard;
 #ifdef PASS_DEPTH
   gl_FragColor = vec4(0.0);
 #else
 #ifdef PASS_SOLID
   // Underground test: compare against the terrain top of the column on the open side of the face.
+  // The probe is pulled a hair inside the quad first: on a quad edge the interpolated position sits exactly
+  // on a voxel boundary and would read the neighbouring column (dotted lines up every stepped wall).
   vec3 probe = vRel + vNormal * 0.5;
+  if (vLod < 0.5) {
+    vec3 an = abs(vNormal);
+    vec3 ua = an.x > 0.5 ? vec3(0.0, 1.0, 0.0) : an.y > 0.5 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 va = an.x > 0.5 ? vec3(0.0, 0.0, 1.0) : an.y > 0.5 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    // vUv runs along +u and +v on every face (the vertex shader mirrors the corner, not the axis).
+    vec2 nudge = clamp(vUv, vec2(0.02), vSize - 0.02) - vUv;
+    probe += ua * nudge.x + va * nudge.y;
+  }
   vec2 cell = vec2(floor(probe.x - uHeightRect.x), floor(uHeightRect.y - probe.z));
   if (cell.x < 0.0 || cell.y < 0.0 || cell.x >= uHeightRect.z || cell.y >= uHeightRect.z) discard;
   float top = uHeightRect.w - texelFetch(uHeightTex, ivec2(cell), 0).r * uHeightRange;
@@ -157,13 +206,16 @@ void main() {
   // The ripple has an 18 m wavelength: fade it out before it aliases into rings at regional zoom.
   float metresPerPixel = max(fwidth(vRel.x), fwidth(vRel.z));
   float ripple = sin(world.x * 0.35 + uTime * 1.3) * sin(world.z * 0.31 - uTime * 1.1) * (1.0 - smoothstep(1.5, 5.0, metresPerPixel));
-  vec3 col = pal.rgb * lightFor(vNormal) * (1.0 + 0.06 * ripple);
+  // A slow long swell under the ripple, and a faint glint where the ripple faces the sun.
+  float swell = sin((world.x + world.z) * 0.045 + uTime * 0.5) * (1.0 - smoothstep(6.0, 20.0, metresPerPixel));
+  vec3 col = pal.rgb * lightFor(vNormal) * (1.0 + 0.06 * ripple + 0.03 * swell);
+  col += vec3(1.0, 0.95, 0.85) * 0.05 * smoothstep(0.75, 1.0, ripple);
   col *= 1.0 - 0.10 * gridEdge(vUv);
   gl_FragColor = vec4(applyFog(col, vViewDist), pal.a);
 #else
   if (!gl_FrontFacing) {
     // Inside of a shell opened by the cut: flat dark version of the material, reads as solid mass.
-    gl_FragColor = vec4(applyFog(pal.rgb * 0.34, vViewDist), 1.0);
+    gl_FragColor = vec4(applyFog(pal.rgb * (0.34 + 0.5 * localLight(vRel, -vNormal)), vViewDist), 1.0);
     return;
   }
   float px = max(fwidth(vUv.x), fwidth(vUv.y));
@@ -174,13 +226,13 @@ void main() {
   vec3 col = pal.rgb * (1.0 + 0.11 * jitter * detail);
   vec2 q = vUv / vSize;
   float ao = mix(mix(vAo.x, vAo.y, q.x), mix(vAo.z, vAo.w, q.x), q.y);
-  col *= lightFor(vNormal) * mix(0.55, 1.0, ao);
+  col *= lightFor(vNormal) * mix(0.55, 1.0, ao) + localLight(vRel, vNormal);
   col *= 1.0 - 0.20 * gridEdge(vUv);
 #ifdef PASS_SOLID
   col = mix(col, vec3(1.0, 0.62, 0.2), 0.25);
   gl_FragColor = vec4(applyFog(col, vViewDist), 1.0);
 #elif defined(PASS_GHOST)
-  gl_FragColor = vec4(applyFog(col, vViewDist), 0.22);
+  gl_FragColor = vec4(applyFog(col * 0.9, vViewDist), 0.3);
 #else
   gl_FragColor = vec4(applyFog(col, vViewDist), 1.0);
 #endif
@@ -212,7 +264,12 @@ in vec3 vRel;
 in vec2 vCell;
 in float vViewDist;
 void main() {
-  if (!insideCut(vRel)) discard;
+#ifdef FOR_BOX
+  // Floor of the follow cutaway; where the cut plane is lower still, its own cap shows instead.
+  if (uBoxOn < 0.5 || !insideBoxPlan(vRel) || cutByPlane(vRel + vec3(0.0, 0.02, 0.0))) discard;
+#else
+  if (!insideCut(vRel) || cutByBox(vRel + vec3(0.0, 0.02, 0.0))) discard;
+#endif
   vec2 rg = texelFetch(uCapTex, ivec2(floor(vCell)), 0).rg;
   int id = int(rg.r * 255.0 + 0.5) + int(rg.g * 255.0 + 0.5) * 256;
   if (id == 0) discard;
@@ -222,8 +279,59 @@ void main() {
   float detail = 1.0 - smoothstep(0.15, 0.5, px);
   float jitter = voxelHash(floor(vec3(world.x, world.y - 0.5, world.z))) - 0.5;
   // Flat, slightly dimmed: a section through the mass, not a lit surface.
-  vec3 col = pal * 0.80 * (1.0 + 0.11 * jitter * detail);
+  vec3 col = pal * (0.80 + localLight(vRel, vec3(0.0, 1.0, 0.0))) * (1.0 + 0.11 * jitter * detail);
   col *= 1.0 - 0.26 * gridEdge(vCell);
+  gl_FragColor = vec4(applyFog(col, vViewDist), 1.0);
+}
+`;
+
+/**
+ * Wall: vertical quads of a cut face (slice.ts WallStrip), coloured from a material-id texture with one
+ * column per sample along the wall and one row per voxel layer. Local y is the row coordinate.
+ */
+export const WALL_VERT = /* glsl */ `
+in float aU;
+out vec3 vRel;
+out vec2 vTexel;
+out float vViewDist;
+void main() {
+  vTexel = vec2(aU, position.y);
+  vRel = (modelMatrix * vec4(position, 1.0)).xyz;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vViewDist = length(mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+export const WALL_FRAG = /* glsl */ `
+${COMMON_FRAG}
+uniform sampler2D uWallTex;
+uniform vec2 uWallSize; // columns, rows
+uniform float uWallMetres; // metres of wall per column
+in vec3 vRel;
+in vec2 vTexel;
+in float vViewDist;
+void main() {
+#ifdef FOR_BOX
+  if (cutByPlane(vRel)) discard;
+#else
+  if (cutByBox(vRel)) discard;
+#endif
+  ivec2 t = ivec2(floor(vTexel));
+  if (t.x < 0 || t.y < 0 || t.x >= int(uWallSize.x) || t.y >= int(uWallSize.y)) discard;
+  vec2 rg = texelFetch(uWallTex, t, 0).rg;
+  int id = int(rg.r * 255.0 + 0.5) + int(rg.g * 255.0 + 0.5) * 256;
+  // AIR and WATER: nothing to cut through.
+  if (id <= 1) discard;
+  vec3 pal = texelFetch(uPalette, ivec2(id, 0), 0).rgb;
+  vec2 cell = vec2(vTexel.x * uWallMetres, vTexel.y);
+  float px = max(fwidth(cell.x), fwidth(cell.y));
+  float detail = 1.0 - smoothstep(0.15, 0.5, px);
+  float jitter = voxelHash(vec3(floor(cell.x) + 17.0, floor(cell.y), 5.0)) - 0.5;
+  // A section through the mass, a little darker than the cap so the corner between them reads.
+  vec3 n = normalize(cross(dFdx(vRel), dFdy(vRel)));
+  vec3 col = pal * (0.66 + localLight(vRel, n) + localLight(vRel, -n)) * (1.0 + 0.11 * jitter * detail);
+  col *= 1.0 - 0.26 * gridEdge(cell);
   gl_FragColor = vec4(applyFog(col, vViewDist), 1.0);
 }
 `;

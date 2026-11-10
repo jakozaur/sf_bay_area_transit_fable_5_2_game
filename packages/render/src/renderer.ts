@@ -11,6 +11,7 @@ import {
   type ChunkRenderer,
   type MeshOutput,
   type RenderStats,
+  unpackChunkKey,
   VOXEL_SIZE_M,
   type VoxelCoord,
 } from '@bayvox/core';
@@ -34,6 +35,7 @@ import {
   NearestFilter,
   OrthographicCamera,
   PerspectiveCamera,
+  PointLight,
   RGBAFormat,
   RGFormat,
   Scene,
@@ -50,7 +52,9 @@ import { ChunkScene, LAYER_OVERLAY, LAYER_SKY, LAYER_TERRAIN } from './chunk-sce
 import { type ColumnBatchPart, type ColumnBatchPlacement, ColumnScene } from './column-scene.ts';
 import { OverlayLayer } from './overlay.ts';
 import { buildPaletteRgba, PALETTE_WIDTH } from './palette.ts';
-import { CAP_FRAG, CAP_VERT, CHUNK_FRAG, CHUNK_VERT, SKY_FRAG, SKY_VERT } from './shaders.ts';
+import { CAP_FRAG, CAP_VERT, CHUNK_FRAG, CHUNK_VERT, LOCAL_LIGHTS, SKY_FRAG, SKY_VERT } from './shaders.ts';
+import { type Cutaway, cutawayFootprint, cutawayStrip, cylinderStrip, fillLayerRect, WALL_MAX_ROWS } from './slice.ts';
+import { WallMesh } from './wall.ts';
 
 export interface VoxelRendererOptions {
   canvas: HTMLCanvasElement;
@@ -67,6 +71,11 @@ export interface ViewOptions {
   xray: boolean;
   /** Animation time in seconds (water ripple). Hold it constant for stable screenshots. */
   time: number;
+  /**
+   * Follow cutaway: when true (the default) the trench set on the overlay (OverlayLayer.setCutaway, which the
+   * entity layer does for the possessed machine) is opened. False keeps the ground closed whatever the overlay asks.
+   */
+  followCut: boolean;
 }
 
 const SUN_DIR = new Vector3(0.45, 0.8, 0.35).normalize();
@@ -103,6 +112,20 @@ export class VoxelRenderer implements ChunkRenderer {
   private readonly solidMaterial: ShaderMaterial;
   private readonly ghostMaterial: ShaderMaterial;
   private readonly cap: Mesh;
+  /** Ring wall of the cut plane, and floor and walls of the follow cutaway. */
+  private readonly cutWall: WallMesh;
+  private readonly boxWall: WallMesh;
+  private readonly boxFloor: Mesh;
+  private readonly boxFloorUniforms: Uniforms;
+  private boxFloorTexture: DataTexture | null = null;
+  private boxFloorData = new Uint8Array(0);
+  private readonly pointLights: PointLight[] = [];
+  /** Bumped whenever voxel data may have changed (a chunk upload); slices filled at an older version are stale. */
+  private voxelVersion = 0;
+  private cutWallKey = '';
+  private boxKey = '';
+  /** Highest chunk layer that has ever had a mesh: how far up cut walls need to reach. */
+  private topCy = Number.NEGATIVE_INFINITY;
   private readonly highlight: LineSegments;
   private readonly fog: FogExp2;
   private readonly firstDepth: WebGLRenderTarget;
@@ -128,7 +151,7 @@ export class VoxelRenderer implements ChunkRenderer {
   private origin: VoxelCoord = { x: 0, y: 0, z: 0 };
   private highlightVoxel: VoxelCoord | null = null;
   private hole: [number, number, number, number] | null = null;
-  private view: ViewOptions = { cutRadius: 160, xray: false, time: 0 };
+  private view: ViewOptions = { cutRadius: 160, xray: false, time: 0, followCut: true };
   private lastStats = { drawCalls: 0, triangles: 0 };
 
   constructor(opts: VoxelRendererOptions) {
@@ -178,6 +201,11 @@ export class VoxelRenderer implements ChunkRenderer {
       uHeightTex: { value: this.heightMap.depthTexture },
       uHeightRect: { value: new Vector4() },
       uHeightRange: { value: HEIGHT_MAP_SPAN },
+      uBox: { value: new Vector4() },
+      uBoxExt: { value: new Vector4() },
+      uBoxOn: { value: 0 },
+      uLightPos: { value: Array.from({ length: LOCAL_LIGHTS }, () => new Vector4()) },
+      uLightColor: { value: Array.from({ length: LOCAL_LIGHTS }, () => new Vector3()) },
     };
     const chunkMaterial = (defines: Record<string, string>): ShaderMaterial =>
       new ShaderMaterial({ uniforms: this.uniforms, vertexShader: CHUNK_VERT, fragmentShader: CHUNK_FRAG, defines });
@@ -237,6 +265,25 @@ export class VoxelRenderer implements ChunkRenderer {
     this.cap.layers.set(LAYER_OVERLAY);
     this.scene.add(this.cap);
 
+    // Cut faces that are not the horizontal cap: the ring wall of the cut plane, floor and walls of the follow cutaway.
+    this.cutWall = new WallMesh(this.uniforms, false);
+    this.boxWall = new WallMesh(this.uniforms, true);
+    this.boxFloorUniforms = { ...this.uniforms, uCapTex: { value: null }, uCapSize: { value: new Vector2(1, 1) } };
+    this.boxFloor = new Mesh(
+      capGeometry,
+      new ShaderMaterial({
+        uniforms: this.boxFloorUniforms,
+        vertexShader: CAP_VERT,
+        fragmentShader: CAP_FRAG,
+        side: DoubleSide,
+        defines: { FOR_BOX: '' },
+      }),
+    );
+    this.boxFloor.frustumCulled = false;
+    this.boxFloor.visible = false;
+    this.boxFloor.layers.set(LAYER_OVERLAY);
+    this.scene.add(this.cutWall.mesh, this.boxWall.mesh, this.boxFloor);
+
     // Hover box, slightly larger than a voxel so it does not z-fight the faces.
     this.highlight = new LineSegments(new EdgesGeometry(new BoxGeometry(1.04, 1.04, 1.04)), new LineBasicMaterial({ color: 0xfff176 }));
     this.highlight.visible = false;
@@ -249,6 +296,14 @@ export class VoxelRenderer implements ChunkRenderer {
     sun.position.copy(SUN_DIR);
     for (const light of [hemi, sun]) {
       light.layers.enableAll();
+      this.scene.add(light);
+    }
+    // Local lights for overlay meshes: a fixed set, dark when unused, so material programs never recompile.
+    for (let i = 0; i < LOCAL_LIGHTS; i++) {
+      // Decay 0: no inverse-square blow-up next to the lamp; the cutoff distance shapes the falloff.
+      const light = new PointLight(0xffffff, 0, 1, 0);
+      light.layers.enableAll();
+      this.pointLights.push(light);
       this.scene.add(light);
     }
     this.fog = new FogExp2(FOG_COLOR, 0);
@@ -292,8 +347,10 @@ export class VoxelRenderer implements ChunkRenderer {
 
   upload(mesh: MeshOutput): void {
     this.chunks.upload(mesh);
-    // An upload means voxels changed or arrived: the cap slice and the height map may be stale.
+    // An upload means voxels changed or arrived: the cut-face slices and the height map may be stale.
     this.capDirty = true;
+    this.voxelVersion++;
+    if (mesh.quads.length > 0) this.topCy = Math.max(this.topCy, unpackChunkKey(mesh.key).cy);
     this.terrainVersion++;
   }
 
@@ -364,7 +421,14 @@ export class VoxelRenderer implements ChunkRenderer {
     if (!(next.cutRadius > 0) || next.cutRadius > CAP_MAX_RADIUS) {
       throw new RangeError(`VoxelRenderer.setView: cutRadius must be in (0, ${CAP_MAX_RADIUS}] m, got ${next.cutRadius}`);
     }
-    if (next.cutRadius !== this.view.cutRadius || next.xray !== this.view.xray || next.time !== this.view.time) this.changes++;
+    if (
+      next.cutRadius !== this.view.cutRadius ||
+      next.xray !== this.view.xray ||
+      next.time !== this.view.time ||
+      next.followCut !== this.view.followCut
+    ) {
+      this.changes++;
+    }
     this.view = next;
   }
 
@@ -410,13 +474,22 @@ export class VoxelRenderer implements ChunkRenderer {
     const hole = this.hole;
     u.uHoleOn.value = hole === null ? 0 : 1;
     if (hole !== null) (u.uHole as IUniform<Vector4>).value.set(hole[0] - ox, hole[1] - oz, hole[2] - ox, hole[3] - oz);
-    // With the cut active, back faces show the dark inside of opened shells.
-    const side = cutOn ? DoubleSide : FrontSide;
+    const box = this.view.followCut ? this.overlay.cutaway : null;
+    u.uBoxOn.value = box === null ? 0 : 1;
+    if (box !== null) {
+      (u.uBox as IUniform<Vector4>).value.set(box.position.x - ox, box.position.z - oz, Math.sin(box.yaw), Math.cos(box.yaw));
+      (u.uBoxExt as IUniform<Vector4>).value.set(box.aheadM, box.behindM, box.halfWidthM, box.floorY - oy);
+    }
+    this.updateLights(camera, ox, oy, oz);
+    // With a cut active, back faces show the dark inside of opened shells.
+    const side = cutOn || box !== null ? DoubleSide : FrontSide;
     if (this.opaqueMaterial.side !== side) {
       this.opaqueMaterial.side = side;
       this.opaqueMaterial.needsUpdate = true;
     }
     this.updateCap(camera, ox, oy, oz);
+    this.updateCutWall(camera, ox, oy, oz);
+    this.updateBox(box, ox, oy, oz);
 
     // Sky ray basis from the camera matrix columns.
     const e = cam.matrixWorld.elements;
@@ -452,10 +525,12 @@ export class VoxelRenderer implements ChunkRenderer {
         hc.updateMatrixWorld();
         (u.uHeightRect as IUniform<Vector4>).value.set(fx - HEIGHT_MAP_SIZE / 2, fz + HEIGHT_MAP_SIZE / 2, HEIGHT_MAP_SIZE, top);
         u.uCutOn.value = 0;
+        u.uBoxOn.value = 0;
         gl.setRenderTarget(this.heightMap);
         gl.clear();
         gl.render(this.scene, hc);
         u.uCutOn.value = cutOn ? 1 : 0;
+        u.uBoxOn.value = box === null ? 0 : 1;
       }
       // 2. Depth of the first surface from the camera.
       cam.layers.set(LAYER_TERRAIN);
@@ -498,7 +573,14 @@ export class VoxelRenderer implements ChunkRenderer {
       triangles: this.lastStats.triangles,
       chunksLoaded: this.chunks.chunkCount,
       chunksMeshed: this.chunks.meshedCount,
-      gpuBytes: this.chunks.quadBytes + this.columns.quadBytes + PALETTE_WIDTH * 4 + this.capData.byteLength,
+      gpuBytes:
+        this.chunks.quadBytes +
+        this.columns.quadBytes +
+        PALETTE_WIDTH * 4 +
+        this.capData.byteLength +
+        this.cutWall.bytes +
+        this.boxWall.bytes +
+        this.boxFloorData.byteLength,
     };
   }
 
@@ -507,6 +589,9 @@ export class VoxelRenderer implements ChunkRenderer {
     this.columns.dispose();
     this.overlay.clear();
     this.capTexture?.dispose();
+    this.boxFloorTexture?.dispose();
+    this.cutWall.dispose();
+    this.boxWall.dispose();
     this.paletteTexture.dispose();
     this.firstDepth.dispose();
     this.heightMap.dispose();
@@ -537,5 +622,105 @@ export class VoxelRenderer implements ChunkRenderer {
     }
     this.cap.visible = true;
     this.cap.position.set(region.cx0 * CHUNK_SIZE - ox, camera.cutY - oy, region.cz0 * CHUNK_SIZE - oz);
+  }
+
+  /** Rows a cut wall starting at layer `y0` needs to reach the top of everything meshed so far; 0 for nothing. */
+  private wallRows(y0: number): number {
+    if (this.topCy === Number.NEGATIVE_INFINITY) return 0;
+    return Math.max(0, Math.min(WALL_MAX_ROWS, (this.topCy + 1) * CHUNK_SIZE - y0));
+  }
+
+  /** The ring wall of the cut plane: without it the side of the cut shows the sky colour instead of ground. */
+  private updateCutWall(camera: CameraState, ox: number, oy: number, oz: number): void {
+    const wall = this.cutWall;
+    if (camera.cutY === undefined || this.world === undefined) {
+      wall.mesh.visible = false;
+      return;
+    }
+    const y0 = Math.ceil(camera.cutY);
+    const rows = this.wallRows(y0);
+    if (rows === 0) {
+      wall.mesh.visible = false;
+      return;
+    }
+    const r = this.view.cutRadius;
+    const key = `${this.voxelVersion}|${camera.target.x},${camera.target.z},${r},${y0},${rows}`;
+    if (key !== this.cutWallKey) {
+      this.cutWallKey = key;
+      wall.update(this.world, cylinderStrip(camera.target.x, camera.target.z, r), y0, rows, `cyl${r}`);
+    }
+    wall.mesh.visible = true;
+    wall.mesh.position.set(camera.target.x - ox, y0 - oy, camera.target.z - oz);
+  }
+
+  /** Floor and walls of the follow cutaway. */
+  private updateBox(box: Cutaway | null, ox: number, oy: number, oz: number): void {
+    if (box === null || this.world === undefined) {
+      this.boxWall.mesh.visible = false;
+      this.boxFloor.visible = false;
+      return;
+    }
+    const rows = this.wallRows(box.floorY);
+    const foot = cutawayFootprint(box);
+    const key = `${this.voxelVersion}|${box.position.x},${box.position.z},${box.yaw},${box.aheadM},${box.behindM},${box.halfWidthM},${box.floorY},${rows}`;
+    if (key !== this.boxKey) {
+      this.boxKey = key;
+      if (rows > 0) {
+        this.boxWall.update(
+          this.world,
+          cutawayStrip(box),
+          box.floorY,
+          rows,
+          `box${box.yaw},${box.aheadM},${box.behindM},${box.halfWidthM}`,
+        );
+      }
+      if (this.boxFloorTexture === null || this.boxFloorTexture.image.width !== foot.w || this.boxFloorTexture.image.height !== foot.d) {
+        this.boxFloorTexture?.dispose();
+        this.boxFloorData = new Uint8Array(foot.w * foot.d * 2);
+        this.boxFloorTexture = new DataTexture(this.boxFloorData, foot.w, foot.d, RGFormat, UnsignedByteType);
+        this.boxFloorTexture.minFilter = NearestFilter;
+        this.boxFloorTexture.magFilter = NearestFilter;
+        this.boxFloorTexture.unpackAlignment = 1;
+        this.boxFloorUniforms.uCapTex.value = this.boxFloorTexture;
+        (this.boxFloorUniforms.uCapSize as IUniform<Vector2>).value.set(foot.w, foot.d);
+      }
+      fillLayerRect(this.world, foot.x0, foot.z0, foot.w, foot.d, box.floorY - 1, this.boxFloorData);
+      this.boxFloorTexture.needsUpdate = true;
+    }
+    this.boxWall.mesh.visible = rows > 0;
+    this.boxWall.mesh.position.set(box.position.x - ox, box.floorY - oy, box.position.z - oz);
+    this.boxFloor.visible = true;
+    this.boxFloor.position.set(foot.x0 - ox, box.floorY - oy, foot.z0 - oz);
+  }
+
+  /** Hands the local lights nearest to the camera focus to the chunk shaders and to the point lights of the overlay meshes. */
+  private updateLights(camera: CameraState, ox: number, oy: number, oz: number): void {
+    const t = camera.target;
+    const nearest = [...this.overlay.lights.values()]
+      .filter((l) => l.intensity > 0)
+      .map((l) => ({ l, d: Math.hypot(l.position.x - t.x, l.position.y - t.y, l.position.z - t.z) }))
+      .sort((a, b) => a.d - b.d);
+    const pos = (this.uniforms.uLightPos as IUniform<Vector4[]>).value;
+    const col = (this.uniforms.uLightColor as IUniform<Vector3[]>).value;
+    for (let i = 0; i < LOCAL_LIGHTS; i++) {
+      const entry = nearest[i];
+      const p = pos[i] as Vector4;
+      const point = this.pointLights[i] as PointLight;
+      if (entry === undefined) {
+        p.set(0, 0, 0, 0);
+        point.intensity = 0;
+        continue;
+      }
+      const l = entry.l;
+      p.set(l.position.x - ox, l.position.y - oy, l.position.z - oz, l.radiusM);
+      // Display-space colour times intensity: the chunk shaders light sRGB bytes directly.
+      (col[i] as Vector3)
+        .set(((l.color >> 16) & 255) / 255, ((l.color >> 8) & 255) / 255, (l.color & 255) / 255)
+        .multiplyScalar(l.intensity);
+      point.color.setHex(l.color);
+      point.intensity = l.intensity * 3;
+      point.distance = l.radiusM;
+      point.position.set(p.x, p.y, p.z);
+    }
   }
 }

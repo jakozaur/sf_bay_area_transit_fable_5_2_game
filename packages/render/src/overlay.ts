@@ -22,6 +22,21 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LAYER_OVERLAY } from './chunk-scene.ts';
+import { type Cutaway, validateCutaway } from './slice.ts';
+
+/** A local light (TBM work lamp, breakthrough flash). The renderer lights terrain, cut faces and overlay meshes with the nearest few. */
+export interface WorkLight {
+  position: WorldPos;
+  /** Reach in metres: the light fades to nothing at this distance. */
+  radiusM: number;
+  /** 0xRRGGBB. */
+  color: number;
+  /** 1 is a work lamp; the flash goes higher. */
+  intensity: number;
+}
+
+/** Called once per drawn frame with the camera position (world metres) and viewport height / vertical fov in radians. */
+export type FrameListener = (camera: WorldPos, pxPerRadian: number) => void;
 
 export interface PolylineStyle {
   /** 0xRRGGBB. */
@@ -101,6 +116,72 @@ export class OverlayLayer {
   private originY = 0;
   private originZ = 0;
   private changes = 0;
+  private readonly lightMap = new Map<string, WorkLight>();
+  private readonly frameListeners = new Set<FrameListener>();
+  private cut: Cutaway | null = null;
+
+  /** Local lights by id. Read by the renderer every frame. */
+  get lights(): ReadonlyMap<string, WorkLight> {
+    return this.lightMap;
+  }
+
+  /** Adds, replaces or (with null) removes a local light. */
+  setLight(id: string, light: WorkLight | null): void {
+    if (light === null) {
+      if (this.lightMap.delete(id)) this.changes++;
+      return;
+    }
+    assertFinite(light.position, `light "${id}"`);
+    if (!(light.radiusM > 0) || !(light.intensity >= 0)) {
+      throw new RangeError(
+        `OverlayLayer.setLight: "${id}" needs radiusM > 0 and intensity >= 0, got ${light.radiusM} and ${light.intensity}`,
+      );
+    }
+    this.lightMap.set(id, { ...light, position: { ...light.position } });
+    this.changes++;
+  }
+
+  /** The follow cutaway (slice.ts): a trench the renderer opens around a machine. Null for none. */
+  get cutaway(): Cutaway | null {
+    return this.cut;
+  }
+
+  setCutaway(c: Cutaway | null): void {
+    if (c === null) {
+      if (this.cut !== null) this.changes++;
+      this.cut = null;
+      return;
+    }
+    validateCutaway(c);
+    const o = this.cut;
+    if (
+      o !== null &&
+      o.position.x === c.position.x &&
+      o.position.z === c.position.z &&
+      o.yaw === c.yaw &&
+      o.aheadM === c.aheadM &&
+      o.behindM === c.behindM &&
+      o.halfWidthM === c.halfWidthM &&
+      o.floorY === c.floorY
+    ) {
+      return;
+    }
+    this.cut = { ...c, position: { ...c.position } };
+    this.changes++;
+  }
+
+  /** Marks the overlay as changed after a caller moved or animated something inside one of its objects. */
+  touch(): void {
+    this.changes++;
+  }
+
+  /** Subscribes to the per-frame camera callback (screen-sized handles). Returns an unsubscribe function. */
+  onFrame(cb: FrameListener): () => void {
+    this.frameListeners.add(cb);
+    return () => {
+      this.frameListeners.delete(cb);
+    };
+  }
 
   get size(): number {
     return this.items.size;
@@ -271,6 +352,14 @@ export class OverlayLayer {
 
   clear(): void {
     for (const id of [...this.items.keys()]) this.remove(id);
+    if (this.lightMap.size > 0 || this.cut !== null) this.changes++;
+    this.lightMap.clear();
+    this.cut = null;
+  }
+
+  /** Floating origin in world metres, for callers that place things inside an item themselves. */
+  get originM(): WorldPos {
+    return { x: this.originX, y: this.originY, z: this.originZ };
   }
 
   /** Floating origin as a chunk coordinate; same value the chunk renderer uses. */
@@ -291,6 +380,7 @@ export class OverlayLayer {
       const dist = Math.hypot(item.anchor.x - camera.x, item.anchor.y - camera.y, item.anchor.z - camera.z);
       item.object.scale.setScalar(Math.max(item.marker.sizeM, (item.marker.minPx * dist) / pxPerRadian));
     }
+    for (const cb of this.frameListeners) cb(camera, pxPerRadian);
   }
 
   private put(id: string, item: Item): void {
