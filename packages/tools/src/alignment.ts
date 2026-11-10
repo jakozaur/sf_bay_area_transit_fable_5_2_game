@@ -458,7 +458,11 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
       return true;
     }
     const pick = ctx.services.world.pick(x, y);
-    if (pick === null) return false;
+    if (pick === null) {
+      // A click that hit nothing (the sky, beyond the edge of the map) used to vanish without a word.
+      say(ctx, 'That is off the map. Click the ground to place a waypoint.', true);
+      return true;
+    }
     if (refuseIfFrozen(ctx)) return true;
     const made = makeWaypoint(ctx, pick.point.x, pick.point.z, depthM, true);
     if (made === null) {
@@ -673,7 +677,14 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
       { id: PLAN_UNDO, label: 'Undo', ...edit(undoStack.length > 0, 'Nothing to undo') },
       { id: PLAN_REDO, label: 'Redo', ...edit(redoStack.length > 0, 'Nothing to redo') },
       { id: TOOL_COMMANDS.planClear, label: 'Clear', ...edit(waypoints.length > 0, 'No line yet') },
-      { id: TOOL_COMMANDS.planFinish, label: 'Finish', enabled: true },
+      // One waypoint is not a line: finishing would drop it without a word (second playtest).
+      {
+        id: TOOL_COMMANDS.planFinish,
+        label: 'Finish',
+        ...(waypoints.length === 1
+          ? { enabled: false, disabledReason: 'A line needs two waypoints: click the map again, or Clear' }
+          : { enabled: true }),
+      },
     ];
     return { id: 'plan', hint: hint(), readouts: readouts(), options, values, commands };
   }
@@ -824,7 +835,8 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
           }
           break;
         case 'tool.confirm':
-          close = true;
+          if (waypoints.length === 1) say(ctx, 'A line needs two waypoints: click the map again, or clear it.', true);
+          else close = true;
           consumed = true;
           break;
         default:

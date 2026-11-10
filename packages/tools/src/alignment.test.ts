@@ -114,9 +114,13 @@ test('clicks add waypoints on the picked ground point at the depth option; the s
   expect(readout(r, 'cost').value).toBe('$2.00B');
   expect(readout(r, 'ratio').value).toMatch(/^8\.0x/);
   expect(r.fake.cues.filter((c) => c === 'tool.place')).toHaveLength(3);
-  // A click on the sky is not consumed, a click outside the site is refused with a reason.
+  // A click that hits nothing (the sky, beyond the edge of the map) says so instead of vanishing; a click
+  // outside the site is refused with a reason.
   r.fake.skyBelowX = 50;
-  expect(r.click(10, 10)).toBe(false);
+  expect(r.click(10, 10)).toBe(true);
+  expect(r.host.port.status.get().hint).toMatch(/off the map/);
+  expect(r.fake.cues[r.fake.cues.length - 1]).toBe('tool.invalid');
+  expect(r.setAlignments()).toHaveLength(2);
   r.fake.skyBelowX = 0;
   expect(r.click(3000, 4500)).toBe(true);
   expect(r.host.port.status.get().hint).toMatch(/outside the map/);

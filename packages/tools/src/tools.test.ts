@@ -636,3 +636,175 @@ test('host: rejects a duplicate or foreign tool; the default tool set works with
   host.port.activate('dig');
   expect(host.active()?.id).toBe('dig');
 });
+
+// ---------------------------------------------------------------- second playtest
+
+test('station: every type carries its price, the place proposes its type, and a placement says "placed", not "too close"', () => {
+  const r = rig();
+  withLine(r);
+  r.fake.mutate((s) => {
+    s.mission.targets = [
+      {
+        name: '4th and King',
+        x: 700,
+        z: 560,
+        radiusM: 300,
+        stretch: false,
+        served: false,
+        template: 'undergroundStandard',
+        templateNote: 'A new box.',
+      },
+      {
+        name: 'Salesforce Transit Center',
+        x: 2300,
+        z: 1000,
+        radiusM: 300,
+        stretch: false,
+        served: false,
+        template: 'terminalFitOut',
+        templateNote: 'The trainbox already stands.',
+      },
+    ];
+    const p = s.projects[0];
+    p.stationOptions = [
+      {
+        template: 'undergroundStandard',
+        label: 'Underground box',
+        note: 'A new box.',
+        costCents: 120_000_000_000,
+        polandCents: 8_000_000_000,
+        buildDays: 1004,
+      },
+      {
+        template: 'terminalFitOut',
+        label: 'Terminal fit-out',
+        note: 'Fits out a box that stands.',
+        costCents: 30_000_000_000,
+        polandCents: 4_000_000_000,
+        buildDays: 548,
+      },
+    ];
+  });
+  r.host.port.activate('station');
+  const choices = (): { value: string; label: string; detail?: string; note?: string }[] => {
+    const spec = r.host.port.status.get().options.find((o) => o.key === TOOL_KEYS.stationTemplate);
+    if (spec?.kind !== 'choice') throw new Error('no template choice');
+    return spec.choices;
+  };
+  // Price tags before the cursor is anywhere: the report was six types and no price.
+  expect(choices().find((c) => c.value === 'undergroundStandard')).toMatchObject({ detail: '+$1.20B, 33 months', note: 'A new box.' });
+  expect(choices().find((c) => c.value === 'terminalFitOut')?.detail).toBe('+$300M, 18 months');
+  expect(choices().find((c) => c.value === 'surface')?.detail).toBeUndefined();
+  expect(r.readout('price')).toEqual({ id: 'price', label: 'One underground box adds', value: '$1.20B', bad: false });
+  // The depth slider shows the depth of the line, not 0 m, before the cursor is on the line.
+  expect(r.host.port.status.get().values[TOOL_KEYS.stationDepthM]).toBe(20);
+  // In the ring of the Transit Center the tool switches to the type the official plan builds there, and says why.
+  r.host.handle({ type: 'pointer.hover', x: 2200, y: 1000 });
+  expect(r.host.port.status.get().values[TOOL_KEYS.stationTemplate]).toBe('terminalFitOut');
+  expect(r.host.port.status.get().hint).toMatch(
+    /terminal fit-out at Salesforce Transit Center: the type the official plan builds here\. The trainbox already stands\./,
+  );
+  expect(r.readout('price').value).toBe('$300M');
+  r.host.handle({ type: 'tool.primary', x: 2200, y: 1000 });
+  expect(r.last()).toMatchObject({ t: 'addStation', template: 'terminalFitOut', name: 'Salesforce Transit Center' });
+  r.frame();
+  // The cursor has not moved: the panel says the station is placed. The report was a red "Too close to" for the station just placed.
+  expect(r.host.port.status.get().hint).toMatch(/^Salesforce Transit Center is placed\./);
+  expect(r.readout('platform')).toEqual({ id: 'platform', label: 'Placed', value: 'Salesforce Transit Center', bad: false });
+  expect(r.fake.previews[r.fake.previews.length - 1]).toBeNull();
+  // A second click on the same pixel is not a second station.
+  const sent = r.fake.commands.length;
+  expect(r.host.handle({ type: 'tool.primary', x: 2200, y: 1000 })).toBe(true);
+  expect(r.fake.commands).toHaveLength(sent);
+  // Moving on, the other ring proposes its own type.
+  r.host.handle({ type: 'pointer.hover', x: 800, y: 500 });
+  expect(r.host.port.status.get().values[TOOL_KEYS.stationTemplate]).toBe('undergroundStandard');
+  // A type picked by hand stays picked, ring or no ring.
+  r.host.port.setOption(TOOL_KEYS.stationTemplate, 'undergroundDeepMined');
+  r.host.handle({ type: 'pointer.hover', x: 2100, y: 1000 });
+  expect(r.host.port.status.get().values[TOOL_KEYS.stationTemplate]).toBe('undergroundDeepMined');
+});
+
+test('station: open water is not a place for a station', () => {
+  const r = rig();
+  withLine(r);
+  r.fake.waterFromX = 2000;
+  r.host.port.activate('station');
+  r.host.handle({ type: 'pointer.hover', x: 2300, y: 1000 });
+  expect(r.station.candidate()).toMatchObject({ valid: false, reason: 'That is open water. A station needs ground above it.' });
+  expect(r.host.handle({ type: 'tool.primary', x: 2300, y: 1000 })).toBe(true);
+  expect(r.fake.commands).toEqual([]);
+  expect(r.fake.cues).toEqual(['tool.invalid']);
+  // On the shore side of the same line it is placed.
+  r.host.handle({ type: 'tool.primary', x: 1000, y: 500 });
+  expect(r.last()).toMatchObject({ t: 'addStation', chainageM: 500 });
+});
+
+test('dig: where a hole would not be drawn, or under water, the brush does not bite and nothing is billed', () => {
+  const r = rig();
+  r.host.port.activate('dig', { [TOOL_KEYS.digRadiusM]: 7 });
+  // The world says no (beyond the voxel near field, or from too far out): red brush, the reason as the hint.
+  r.fake.digBlocked = 'Zoom in to dig: from here a hole is a few pixels.';
+  r.host.handle({ type: 'pointer.hover', x: 700, y: 300 });
+  expect(r.fake.previews[r.fake.previews.length - 1]).toMatchObject({ kind: 'brush', valid: false });
+  expect(r.host.port.status.get().hint).toBe('Zoom in to dig: from here a hole is a few pixels.');
+  for (let i = 0; i < 6; i++) expect(r.host.handle({ type: 'tool.primary', x: 700, y: 300 })).toBe(true);
+  expect(r.host.handle({ type: 'pointer.down', x: 700, y: 300, button: 0 })).toBe(true);
+  for (let i = 0; i < 30; i++) r.frame();
+  r.host.handle({ type: 'pointer.up', x: 700, y: 300 });
+  expect(r.fake.digs).toEqual([]);
+  expect(r.fake.commands).toEqual([]);
+  expect(r.fake.cues).toContain('tool.invalid');
+  expect(r.fake.snapshot().handDig.volumeM3).toBe(0);
+  // Allowed again: it bites and bills.
+  r.fake.digBlocked = null;
+  r.host.handle({ type: 'tool.primary', x: 700, y: 300 });
+  expect(r.fake.digs).toHaveLength(1);
+  expect(r.last()).toEqual({ t: 'chargeDig', volumeM3: 100 });
+  expect(r.fake.previews[r.fake.previews.length - 1]).toMatchObject({ kind: 'brush', valid: true });
+  // Open water: the bed under it is not dug from the surface.
+  r.fake.waterFromX = 2000;
+  r.host.handle({ type: 'pointer.hover', x: 2500, y: 300 });
+  expect(r.host.port.status.get().hint).toMatch(/under water/);
+  r.host.handle({ type: 'tool.primary', x: 2500, y: 300 });
+  expect(r.fake.digs).toHaveLength(1);
+});
+
+test('plan: Finish with a single waypoint is refused with the reason instead of dropping it', () => {
+  const r = rig();
+  r.host.port.activate('plan');
+  r.host.handle({ type: 'tool.primary', x: 600, y: 600 });
+  const finish = (): { enabled: boolean; disabledReason?: string } => {
+    const c = r.host.port.status.get().commands.find((x) => x.id === TOOL_COMMANDS.planFinish);
+    if (c === undefined) throw new Error('no finish command');
+    return c;
+  };
+  expect(finish()).toMatchObject({ enabled: false, disabledReason: 'A line needs two waypoints: click the map again, or Clear' });
+  // Enter says the same and the tool stays in hand with the waypoint.
+  expect(r.host.handle({ type: 'tool.confirm' })).toBe(true);
+  expect(r.host.active()?.id).toBe('plan');
+  expect(r.host.port.status.get().hint).toMatch(/needs two waypoints/);
+  r.host.handle({ type: 'tool.primary', x: 1600, y: 600 });
+  expect(finish().enabled).toBe(true);
+  r.host.handle({ type: 'tool.confirm' });
+  expect(r.host.active()).toBeNull();
+});
+
+test('station: a terminal fit-out may stand where the line curves into the existing box', () => {
+  const r = rig();
+  // A 100 m straight run between two bends: no room for a new 140 m platform, but the trainbox has its own.
+  withLine(r, [
+    [500, 500],
+    [1500, 500],
+    [1500, 600],
+    [2500, 600],
+  ]);
+  r.host.port.activate('station');
+  r.host.handle({ type: 'pointer.hover', x: 1500, y: 550 });
+  expect(r.station.candidate()?.valid).toBe(false);
+  r.host.port.setOption(TOOL_KEYS.stationTemplate, 'terminalFitOut');
+  r.host.handle({ type: 'pointer.hover', x: 1500, y: 551 });
+  expect(r.station.candidate()).toMatchObject({ valid: true, template: 'terminalFitOut' });
+  r.host.handle({ type: 'tool.primary', x: 1500, y: 551 });
+  expect(r.last()).toMatchObject({ t: 'addStation', template: 'terminalFitOut' });
+});

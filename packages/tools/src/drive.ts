@@ -20,6 +20,13 @@ export const DRIVE_TUNING = {
   thrustStep: 0.25,
   /** The guidance line starts this far behind the cutterhead, metres. */
   guidanceBehindM: 20,
+  /** Chainage marks across the plan: spacing, how far ahead of the cutterhead they run, and their half width. */
+  tickEveryM: 10,
+  tickAheadM: 160,
+  tickHalfM: 2.5,
+  /** Every fifth mark is a long one. */
+  tickLongEvery: 5,
+  tickLongHalfM: 6,
 } as const;
 
 const STOP_REASONS: Record<NonNullable<TbmView['stopReason']>, string> = {
@@ -127,12 +134,30 @@ export function createDriveToolImpl(): DriveTool {
       if (cum[i] > from && cum[i] < tbm.toM) path.push({ x: wps[i].x, y: wps[i].y, z: wps[i].z });
     }
     if (tbm.toM > from) path.push(pointAt(wps, cum, tbm.toM));
+    // Chainage marks at fixed chainages: they belong to the ground, so the machine is seen to pass them.
+    const ticks: WorldPos[] = [];
+    const firstTick = Math.ceil(from / T.tickEveryM);
+    const lastTick = Math.floor(Math.min(tbm.toM, dev.planChainageM + T.tickAheadM) / T.tickEveryM);
+    for (let k = firstTick; k <= lastTick; k++) {
+      const s = k * T.tickEveryM;
+      const at = pointAt(wps, cum, s);
+      const a = pointAt(wps, cum, Math.max(0, s - 1));
+      const b = pointAt(wps, cum, Math.min(cum[cum.length - 1], s + 1));
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (!(len > 0)) continue;
+      const half = k % T.tickLongEvery === 0 ? T.tickLongHalfM : T.tickHalfM;
+      // Square to the plan: (dz, -dx) is the left of travel.
+      const nx = ((b.z - a.z) / len) * half;
+      const nz = (-(b.x - a.x) / len) * half;
+      ticks.push({ x: at.x + nx, y: at.y, z: at.z + nz }, { x: at.x - nx, y: at.y, z: at.z - nz });
+    }
     const guidance: GuidanceEntity = {
       tbmId: tbm.id,
       path,
       nearest: pointAt(wps, cum, clamp(dev.planChainageM, 0, cum[cum.length - 1])),
       deviationM: dev.totalM,
       limitM: dev.limitM,
+      ...(ticks.length > 0 ? { ticks } : {}),
     };
     previewCache = { kind: 'guidance', guidance };
   }

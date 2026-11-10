@@ -66,6 +66,10 @@ export interface Fake {
   digVolumeM3: number;
   /** Screen x below which the cursor is over the sky. */
   skyBelowX: number;
+  /** World x from which the top three metres are water (open Bay). Default: no water. */
+  waterFromX: number;
+  /** What world.digBlocked answers: a reason, or null to allow the dig. */
+  digBlocked: string | null;
   estimates: number;
   geologyOf(material: number): Geology;
 }
@@ -364,12 +368,20 @@ export function createFake(): Fake {
         if (x < 0 || x >= 4000 || z < 0 || z >= 4000) throw new RangeError(`groundAt: (${x}, ${z}) is outside the site`);
         return GROUND_Y;
       },
-      voxelAt: (x: number, y: number) => (y >= GROUND_Y ? Material.AIR : x >= MUD_FROM_X ? Material.BAY_MUD : Material.ROCK),
+      voxelAt: (x: number, y: number) =>
+        y >= GROUND_Y
+          ? Material.AIR
+          : x >= fake.waterFromX && y >= GROUND_Y - 3
+            ? Material.WATER
+            : x >= MUD_FROM_X
+              ? Material.BAY_MUD
+              : Material.ROCK,
       siteBounds: () => ({ minX: 0, minZ: 0, maxX: 4000, maxZ: 4000 }),
       dig(center: WorldPos, radiusM: number) {
         fake.digs.push({ center, radiusM });
         return { removedM3: fake.digVolumeM3, dirtyChunks: fake.digVolumeM3 > 0 ? 1 : 0 };
       },
+      digBlocked: () => fake.digBlocked,
     },
     overlay: {
       add(spec: OverlaySpec) {
@@ -430,6 +442,8 @@ export function createFake(): Fake {
     rejectAlignments: false,
     digVolumeM3: 100,
     skyBelowX: 0,
+    waterFromX: Number.POSITIVE_INFINITY,
+    digBlocked: null,
     estimates: 0,
     geologyOf(material: number): Geology {
       if (material === Material.ROCK) return 'rock';

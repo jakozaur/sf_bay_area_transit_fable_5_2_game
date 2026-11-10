@@ -1,5 +1,6 @@
 /** Dig brush ('dig'). The contract is DigTool in ./contract.ts. */
 import {
+  Material,
   type PreviewGeometry,
   TOOL_KEYS,
   type ToolAction,
@@ -37,6 +38,8 @@ export function createDigToolImpl(): DigTool {
   let totalM3 = 0;
   let broke = false;
   let sinceRefusal = Number.POSITIVE_INFINITY;
+  /** Why the brush will not bite where the cursor is, or null. */
+  let blocked: string | null = null;
 
   function radiusOption(value: ToolOptionValue): number {
     if (typeof value !== 'number' || !(value >= T.minRadiusM && value <= T.maxRadiusM)) {
@@ -55,10 +58,30 @@ export function createDigToolImpl(): DigTool {
     return { x: pick.voxel.x + 0.5, y: pick.voxel.y + 0.5, z: pick.voxel.z + 0.5 };
   }
 
+  /**
+   * Why a bite at `center` is refused, or null. A hole the player cannot see is not dug and not billed: under
+   * water, or where the world says a hole would not be drawn (the second playtest paid $40M for holes in the
+   * part of the map that is drawn as 4 m columns).
+   */
+  function refusal(ctx: BayToolContext, center: WorldPos): string | null {
+    const w = ctx.services.world;
+    if (w.voxelAt(center.x, center.y, center.z) === Material.WATER || w.voxelAt(center.x, center.y + 1, center.z) === Material.WATER)
+      return 'That is under water. The brush digs ground you can see.';
+    return w.digBlocked?.(center, radiusM) ?? null;
+  }
+
   /** One bite: carve through the world port (which logs the edit) and charge the sim for what came out. */
   function bite(ctx: BayToolContext): boolean {
     const center = target(ctx);
     if (center === null) return false;
+    blocked = refusal(ctx, center);
+    if (blocked !== null) {
+      if (sinceRefusal >= T.cueSeconds * 4) {
+        ctx.services.audio.cue('tool.invalid');
+        sinceRefusal = 0;
+      }
+      return true;
+    }
     // Every cubic metre is billed, so an empty account digs nothing. (The first playtest dug the funds to -$374M.)
     if (ctx.snapshot.moneyCents <= 0) {
       if (sinceRefusal >= T.cueSeconds * 4) {
@@ -91,11 +114,15 @@ export function createDigToolImpl(): DigTool {
     const center = target(ctx);
     if (center === null) {
       previewCache = null;
+      blocked = null;
       return;
     }
+    blocked = refusal(ctx, center);
+    const valid = blocked === null && !broke;
     const prev = previewCache?.kind === 'brush' ? previewCache : null;
     if (
       prev !== null &&
+      prev.valid === valid &&
       prev.radiusM === radiusM &&
       prev.center.x === center.x &&
       prev.center.y === center.y &&
@@ -103,7 +130,7 @@ export function createDigToolImpl(): DigTool {
     ) {
       return;
     }
-    previewCache = { kind: 'brush', center, radiusM, valid: true };
+    previewCache = { kind: 'brush', center, radiusM, valid };
   }
 
   function status(): ToolStatus {
@@ -111,9 +138,11 @@ export function createDigToolImpl(): DigTool {
       id: 'dig',
       hint: broke
         ? 'No funds: hand digging is billed by the cubic metre, and the account is empty.'
-        : stroke !== null
-          ? 'Digging. Release to stop.'
-          : 'Hold the left button to dig by hand. The comma and period keys change the brush. Every cubic metre is billed.',
+        : blocked !== null
+          ? blocked
+          : stroke !== null
+            ? 'Digging. Release to stop.'
+            : 'Hold the left button to dig by hand. The comma and period keys change the brush. Every cubic metre is billed.',
       readouts: [
         { id: 'rate', label: 'Hand excavation', value: `${formatMoney(centsPerM3)}/m3`, bad: false },
         {
