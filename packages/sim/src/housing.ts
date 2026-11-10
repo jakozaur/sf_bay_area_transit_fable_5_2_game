@@ -70,16 +70,14 @@ export function projectRiders(state: SimState, project: ProjectState): ProjectRi
   return { ridersPerDay: riders, modelRiders, housing, smallBore };
 }
 
-/** The options of the scenario for the snapshot. The blurb ends with the derivation, assumptions named. */
+/** The options of the scenario for the snapshot. The blurb ends with the reach a station must be within; the assumptions are in the option's source. */
 export function housingViews(state: Pick<SimState, 'scenario' | 'housing'>): HousingView[] {
   const enacted = state.housing ?? [];
-  const trips = K.housingTripsPerHome.value;
-  const share = Math.round(K.housingTransitShare.value * 100);
   const km = K.housingServedM.value / 1000;
   return (state.scenario.housing ?? []).map((o) => ({
     id: o.id,
     title: o.title,
-    blurb: `${o.blurb} Assumptions: ${o.hectares} ha at ${o.homesPerHectare} homes per hectare, ${trips} trips a day per home, ${share} percent of them on the line. Counts once one of your stations is within ${km} km.`,
+    blurb: `${o.blurb} Needs a station within ${km} km.`,
     homes: housingHomes(o),
     capitalCost: o.capitalCost,
     ridersPerDayAdded: housingRiders(o),

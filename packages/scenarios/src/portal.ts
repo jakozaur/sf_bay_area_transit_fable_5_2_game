@@ -95,13 +95,12 @@ export const THE_PORTAL: ScenarioDef = {
   title: 'The Portal',
   // M2 theme (owner's joke, fiction): the authors of the Fable 5.2 model have a secret HQ next to Salesforce Park
   // and would like a train. The project facts below are the real ones.
-  description:
-    'Can you build a train to the HQ of the authors of Fable 5.2? It is said to sit by Salesforce Park, over a trainbox opened in 2018. Trains: 0. Caltrain stops 2.1 km short. Target: at most 2x Poland on cost and on time. Official plan: $6.84 billion, 2036.',
+  description: 'A 2.1 km tunnel to a trainbox empty since 2018. Official plan: $6.84B, 2036.',
   briefing: {
-    what: 'The gods of AI, authors of Fable 5.2, want a train to their (fictional) secret HQ by Salesforce Park. The Portal: 2.1 km of tunnel from Caltrain at 4th and King to the trainbox empty since 2018. Target: at most 2x the Polish cost and 2x the Polish timeline.',
-    officialCost: '$6.84 billion for 2.1 km, not counting the trainbox already built: about $3.3 billion per km (TJPA, July 2025).',
-    officialDate: 'Open for use in the first quarter of 2036, if the federal grant is signed in July 2027.',
-    why: 'It carries the Bay Area into its own downtown, at a price per km only New York has beaten. Warsaw builds metro for about $140 million per km, stations included; this route with its two stations would cost Poland about $175 million per km.',
+    what: 'The gods of AI, authors of Fable 5.2, want a train to their (fictional) HQ by Salesforce Park: 2.1 km of tunnel from Caltrain at 4th and King to a trainbox empty since 2018.',
+    officialCost: '$6.84 billion for 2.1 km: about $3.3 billion per km (TJPA, 2025).',
+    officialDate: 'Early 2036, if the federal grant is signed in July 2027.',
+    why: 'Only New York has paid more per km. Poland would build this route, two stations included, for about $175 million per km.',
     source:
       'doc 05 section 3.1 (SFCTA memo, January 2026); doc 06 section 3.2 (East Side Access, New York, is dearer per km); doc 11 section 6.3 (Warsaw M2 extensions, 2015 to 2022, in 2026 money). The $175 million is the game model for this route.',
   },
@@ -148,7 +147,7 @@ export const THE_PORTAL: ScenarioDef = {
   objectives: [
     {
       id: 'connect',
-      title: 'Run trains from 4th and King to the HQ of the authors of Fable 5.2, at the Salesforce Transit Center',
+      title: 'Run trains from 4th and King to the Salesforce Transit Center',
       kind: 'connect',
       a: { name: '4th and King', ...FOURTH_AND_KING },
       b: { name: 'Salesforce Transit Center', ...TRANSIT_CENTER },

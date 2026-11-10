@@ -117,11 +117,10 @@ export const SILICON_BRANCH: ScenarioDef = {
   id: 'siliconBranch',
   siteId: 'googleplex',
   title: 'Silicon branch',
-  description:
-    'One branch off Caltrain for two campuses: Redwood City along the Dumbarton tracks to Meta, then down the bay front to the Googleplex. Surface track, a viaduct and a short twin bore. Fictional; the employer money is a game assumption.',
+  description: 'One 17 km branch off Caltrain for Meta and Google: track, a viaduct, a short tunnel. Fictional.',
   briefing: {
     what: 'A fictional 17 km branch: Redwood City Caltrain, the Dumbarton right-of-way to Willow Road (Meta), a viaduct on the bay side of US-101, and a twin bore to a station under Shoreline Boulevard (Google). Nobody has proposed it.',
-    officialCost: 'No official figure exists. The game prices the same line under 2026 rules and shows that as the status quo.',
+    officialCost: "None. You race the game's estimate under today's rules.",
     officialDate: 'No official date exists.',
     why: 'Two large employers sit a few kilometres from Caltrain with no railway between them. Most of the line is cheap track on a public right-of-way. It starts from nothing, so permits are most of the calendar: here a specustawa earns its price.',
     source:

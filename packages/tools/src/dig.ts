@@ -142,7 +142,7 @@ export function createDigToolImpl(): DigTool {
           ? blocked
           : stroke !== null
             ? 'Digging. Release to stop.'
-            : 'Hold the left button to dig by hand. The comma and period keys change the brush. Every cubic metre is billed.',
+            : 'Hold the left button to dig. Comma and period resize the brush. You pay per cubic metre.',
       readouts: [
         { id: 'rate', label: 'Hand excavation', value: `${formatMoney(centsPerM3)}/m3`, bad: false },
         {

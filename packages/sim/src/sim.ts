@@ -849,7 +849,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
               kind: 'resolveEvent',
               focus: 'event',
               command: null,
-              hint: 'Pick an option on the card. Time stands still until you do.',
+              hint: 'Pick an option on the card.',
             }
           : nextAction,
       services: serviceViews,

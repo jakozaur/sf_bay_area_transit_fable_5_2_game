@@ -112,7 +112,8 @@ test('clicks add waypoints on the picked ground point at the depth option; the s
   expect(preview.alignment.vertexIssues).toEqual([null, null, null]);
   expect(readout(r, 'length')).toEqual({ id: 'length', label: 'Length', value: '2.00 km', bad: false });
   expect(readout(r, 'cost').value).toBe('$2.00B');
-  expect(readout(r, 'ratio').value).toMatch(/^8\.0x/);
+  // The ratio to Poland is the top bar's number: the panel does not repeat it.
+  expect(r.host.port.status.get().readouts.map((o) => o.id)).toEqual(['length', 'radius', 'grade', 'cost', 'opens']);
   expect(r.fake.cues.filter((c) => c === 'tool.place')).toHaveLength(3);
   // A click that hits nothing (the sky, beyond the edge of the map) says so instead of vanishing; a click
   // outside the site is refused with a reason.

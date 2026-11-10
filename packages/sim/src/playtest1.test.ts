@@ -455,8 +455,9 @@ describe('money', () => {
     // Two phases done (planning, permitting) and a monthly point for each month of them.
     const months = Math.floor(sim.state.tick / 30);
     expect(sim.state.politicalCapital).toBe(2 * 15 + months);
-    const hint = sim.snapshot().nextAction.hint;
-    expect(hint).toMatch(new RegExp(`You have ${sim.state.politicalCapital} political capital`));
+    // The gate card lists what that capital buys (ui); the strip hint says only what the gate does.
+    expect(sim.snapshot().nextAction.hint).toBe('Tender locks the design and the contract prices.');
+    expect(sim.snapshot().reforms.some((r) => r.affordable && r.cost.pc > 0)).toBe(true);
     // A reform bought with cash alone is not "something to spend capital on".
     const poor = createSim(testScenario({ start: { ...testScenario().start, politicalCapital: 0 } }), 1);
     poor.dispatch([...TEST_DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
@@ -474,7 +475,7 @@ describe('what the player is told', () => {
     expect(sim.snapshot().mission.targets.map((t) => t.served)).toEqual([true, true]);
     sim.dispatch([{ t: 'removeStation', projectId: TEST_PROJECT, stationId: 'b' }]);
     expect(sim.snapshot().mission.targets.map((t) => t.served)).toEqual([true, false]);
-    expect(sim.snapshot().nextAction.hint).toBe('Add a station inside the ring at B (within 100 m).');
+    expect(sim.snapshot().nextAction.hint).toBe('Place a station inside the ring at B.');
   });
 
   test('a draft shows the phases the real project has behind it as done, and the rest add up to the opening date', () => {

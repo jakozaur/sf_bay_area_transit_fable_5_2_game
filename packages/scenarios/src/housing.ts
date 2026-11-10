@@ -15,8 +15,7 @@ import { xz } from './helpers.ts';
 export const HOUSING_SALT_WORKS: HousingOptionDef = {
   id: 'saltWorks',
   title: 'Build on the Redwood City salt works',
-  blurb:
-    'Open the industrial salt ponds between US-101 and the Bay to a new district, a bus ride from the Marsh Road station. A developer once asked for about this many homes here and withdrew. The neighbours remember.',
+  blurb: 'A new district on the industrial salt ponds, a bus ride from Marsh Road station. A developer tried once and withdrew.',
   hectares: 160,
   homesPerHectare: 75,
   capitalCost: 30,
@@ -42,8 +41,7 @@ export const HOUSING_META_BAYFRONT: HousingOptionDef = {
 export const HOUSING_NORTH_BAYSHORE: HousingOptionDef = {
   id: 'northBayshore',
   title: 'Homes in North Bayshore',
-  blurb:
-    'Turn the parking lots of the office district beside the Bay into mid-rise blocks around the Googleplex station. The city plan already allows about this many; nobody has built them.',
+  blurb: 'Mid-rise blocks on the office parking lots around the Googleplex station. The city plan already allows them.',
   hectares: 65,
   homesPerHectare: 150,
   capitalCost: 20,

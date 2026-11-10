@@ -611,13 +611,6 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
         bad: c.segmentIssues.includes('grade'),
       },
       { id: 'cost', label: 'Estimate', value: formatMoney(e.costCents), bad: false },
-      { id: 'costPerKm', label: 'Per km', value: `${formatMoney(e.costPerKmCents)}/km`, bad: false },
-      {
-        id: 'ratio',
-        label: 'Against Poland',
-        value: `${e.ratioToPoland.toFixed(1)}x (${formatMoney(e.polandCostPerKmCents)}/km)`,
-        bad: false,
-      },
       { id: 'opens', label: 'Opens', value: monthYear(e.openDate), bad: false },
     ];
     if (!c.ok || problems.length > 0) {
@@ -633,7 +626,7 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
     if (waypoints.length === 1) return 'Click to place the next waypoint. Right-click the handle to delete it.';
     if (drag !== null) return 'Drag to move the waypoint. It keeps its depth. Esc puts it back.';
     if (selected >= 0) return 'Waypoint selected: the comma and period keys change its depth, Delete removes it, Esc deselects.';
-    return 'Click to add, click the line to insert, drag a handle to move, right-click to delete. The comma and period keys move the whole line up or down. Enter to finish.';
+    return 'Click to add a waypoint, drag to move, right-click to delete. Comma and period change depth. Enter finishes.';
   }
 
   function status(): ToolStatus {

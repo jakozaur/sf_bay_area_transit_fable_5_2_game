@@ -68,11 +68,10 @@ export const GOOGLEPLEX_SPUR: ScenarioDef = {
   id: 'googleplex-spur',
   siteId: 'googleplex',
   title: 'Googleplex spur',
-  description:
-    'San Antonio Caltrain is 2.6 km from the Googleplex and nothing on rails covers the gap. Launch one straight TBM drive, then allow homes around the stations so it pays. Fictional project; the employer money is a game assumption.',
+  description: 'A 2.6 km tunnel from San Antonio Caltrain to Google. Allow homes at the stations so it pays. Fictional.',
   briefing: {
     what: 'A fictional 2.6 km twin-bore branch: San Antonio Caltrain, north-east under US-101 to a station beside the Googleplex. Two stations, one straight drive. Nobody has proposed it.',
-    officialCost: 'No official figure exists. The game prices the same line under 2026 rules and shows that as the status quo.',
+    officialCost: "None. You race the game's estimate under today's rules.",
     officialDate: 'No official date exists.',
     why: 'North Bayshore has about 45,000 jobs and no railway. San Antonio is the nearest Caltrain station to the campus, so the tunnel is short; the riders have to come from homes you allow around it.',
     source: "doc 05 section 5 (campus locations); a fictional project, and the jobs figure is the game's own estimate",
@@ -119,7 +118,7 @@ export const GOOGLEPLEX_SPUR: ScenarioDef = {
     // The tunnel alone carries about 1,700 (cost-benefit table): the objective is met by allowing homes at a station.
     {
       id: 'riders',
-      title: 'Carry 2,500 riders a day (the tunnel alone brings about 1,700: allow homes)',
+      title: 'Carry 2,500 riders a day (needs homes)',
       kind: 'minRiders',
       riders: 2_500,
     },

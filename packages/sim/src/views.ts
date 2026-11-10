@@ -476,25 +476,15 @@ export function projectNextAction(
     if (!checks.ok) return action('fixAlignment', id, `Fix the alignment of ${name}`, checks.problems[0], 'plan');
     const missing = missingStationEnd(state, project);
     if (missing)
-      return action(
-        'addStation',
-        id,
-        `Put a station at ${missing.name}`,
-        `Add a station inside the ring at ${missing.name} (within ${missing.radiusM} m).`,
-        'station',
-      );
+      return action('addStation', id, `Put a station at ${missing.name}`, `Place a station inside the ring at ${missing.name}.`, 'station');
     if (project.stations.length < 2)
       return action('addStation', id, `Give ${name} two stations`, 'A line needs a station at each end.', 'station');
-    const tip = cheaper
-      ? ` A cheaper design is unlocked: ${cheaper.label} saves $${(cheaper.savingCents / 1e8).toFixed(0)}M.`
-      : canAffordReform
-        ? ` You have ${pc} political capital: reforms change the price before you commit.`
-        : '';
+    const tip = cheaper ? ` Cheaper: ${cheaper.label} saves $${(cheaper.savingCents / 1e8).toFixed(0)}M.` : '';
     return action(
       'approveProject',
       id,
       `Approve ${name}`,
-      `Approve the plan to start the clock. The design can change until tender.${tip}`,
+      `Approve to start the clock. The design stays open until tender.${tip}`,
       'project',
       {
         t: 'approveProject',
@@ -503,37 +493,22 @@ export function projectNextAction(
     );
   }
   if (state.pendingEvents.some((e) => e.projectId === id))
-    return action(
-      'resolveEvent',
-      id,
-      `${name}: a decision is waiting`,
-      'Pick an option on the card. Time stands still until you do.',
-      'event',
-    );
+    return action('resolveEvent', id, `${name}: a decision is waiting`, 'Pick an option on the card.', 'event');
   if (project.awaiting === 'advancePhase') {
     // An older save, or a line made unbuildable by a rule that changed: it is fixed before it is tendered.
     if (!checks.ok) return action('fixAlignment', id, `Fix the alignment of ${name}`, checks.problems[0], 'plan');
-    return action(
-      'advancePhase',
-      id,
-      `Send ${name} to tender`,
-      canAffordReform
-        ? `Tender fixes the design and the contract prices. You have ${pc} political capital: spend it first.`
-        : 'Tender fixes the design and the contract prices: procurement, staffing and utilities.',
-      'project',
-      { t: 'advancePhase', projectId: id },
-    );
+    return action('advancePhase', id, `Send ${name} to tender`, 'Tender locks the design and the contract prices.', 'project', {
+      t: 'advancePhase',
+      projectId: id,
+    });
   }
   if (project.awaiting === 'launchTBM') {
     const launch = launchLabel(project, flags);
-    const spend = canAffordReform ? ` ${pc} political capital in hand.` : '';
     return action(
       'launchTBM',
       id,
       `${launch.verb} ${launch.what} of ${name}`,
-      launch.label === 'Launch the TBM'
-        ? `The launch pit is ready. Launch, then drive the TBM or leave it on autopilot.${spend}`
-        : `The site is ready.${spend}`,
+      launch.label === 'Launch the TBM' ? 'The launch pit is ready.' : 'The site is ready.',
       'project',
       { t: 'launchTBM', projectId: id },
     );
@@ -550,14 +525,7 @@ export function projectNextAction(
         return action('wait', id, `${verb} ${name}`, `${machine.name} is stopped for ${machine.downDays} more days.`, 'speed');
       if (d && !d.autopilot && d.thrust <= 0)
         return action('drive', id, `${verb} ${name}`, `${machine.name} is holding. W for thrust, or Space for autopilot.`, 'drive');
-      if (d && !d.autopilot)
-        return action(
-          'drive',
-          id,
-          `${verb} ${name}`,
-          `You are driving ${machine.name}. A and D steer, R and F pitch, Space hands it back to the autopilot.`,
-          'drive',
-        );
+      if (d && !d.autopilot) return action('drive', id, `${verb} ${name}`, `You are driving ${machine.name}.`, 'drive');
       return action(
         'drive',
         id,
@@ -690,9 +658,7 @@ export function reformNotes(state: SimState, project: ProjectState, r: ReformDef
   if (keys.includes('tbm.smallBore')) {
     const cap = K.smallBoreRidersPerDay.value.toLocaleString('en-US');
     const share = Math.round(K.smallBoreRiderShare.value * 100);
-    notes.push(
-      `Pods, not trains: a line with a bored tunnel keeps ${share} percent of its riders and carries at most ${cap} a day. Only twin-tube drives change; stations, track and other methods cost what they did.`,
-    );
+    notes.push(`Pods, not trains: the line keeps ${share} percent of its riders, at most ${cap} a day. Only bored drives get cheaper.`);
   }
   if (keys.some((k) => k === 'tbm.rate' || k === 'tbm.breakdown' || k === 'tbm.geologyRelief' || k === 'tbm.smallBore')) {
     const bores =
@@ -723,7 +689,7 @@ export function gameNextAction(state: SimState, mission: ProjectState | null, mi
   if (!mission || !missionAction) {
     const goal = requiredConnects(state)[0]?.title ?? state.scenario.objectives[0]?.title ?? state.scenario.title;
     const hint = state.scenario.reference
-      ? 'Use the official alignment, or draw your own: click the map to add waypoints.'
+      ? 'Use the official alignment or click the map to draw one.'
       : 'Draw an alignment: click the map to add waypoints.';
     return action('drawAlignment', null, goal, hint, 'plan');
   }

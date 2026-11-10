@@ -57,10 +57,11 @@ describe('missions', () => {
     expect(cards.map((c) => c.siteId)).toEqual(['portal', 'googleplex', 'meta', 'googleplex', 'portal']);
     expect(cards.map((c) => c.freeBuild)).toEqual([false, false, false, false, true]);
     for (const c of cards) expect(c.lockReason, c.id).toBeNull();
-    // The Portal states its theme and its target up front.
-    expect(cards[0].pitch).toMatch(/authors of Fable 5\.2/);
-    expect(cards[0].pitch).toMatch(/2x Poland on cost and on time/);
+    // The Portal states its theme in the briefing (the tagline and the target stand on the title screen itself), and
+    // every pitch fits its two lines on the list.
+    expect(cards[0].briefing.what).toMatch(/authors of Fable 5\.2/);
     expect(cards[0].briefing.what).toMatch(/fictional/);
+    for (const c of cards.filter((x) => !x.freeBuild)) expect(c.pitch.length, c.id).toBeLessThanOrEqual(110);
     for (const c of cards) {
       expect(c.completed).toBe(false);
       expect(c.bestStars).toBeNull();
@@ -81,7 +82,7 @@ describe('missions', () => {
     expect(cards[0].briefing.officialCost).toMatch(/\$6\.84 billion/);
     expect(cards[0].briefing.officialDate).toMatch(/2036/);
     expect(cards[2].briefing.officialCost).toMatch(/\$1\.6 billion/);
-    for (const i of [1, 3, 4]) expect(cards[i].briefing.officialCost).toMatch(/^No official figure/);
+    for (const i of [1, 3, 4]) expect(cards[i].briefing.officialCost).toMatch(/^(None\.|No official figure)/);
   });
 
   test('no mission is locked whatever has been opened, and results show on the card', () => {
@@ -655,7 +656,7 @@ describe('The Portal calibration, on the receipt', () => {
     expect(g.priceLevel.factor.statusQuo).toBeCloseTo(CONSTANTS.priceLevelFactor.value, 6);
     expect(g.priceLevel.factor.poland).toBeCloseTo(1, 9);
     expect(rq.lines.at(-1)).toMatchObject({ id: 'priceLevel', group: 'priceLevel' });
-    expect(rq.lines.at(-1)?.label).toMatch(/Price level/);
+    expect(rq.lines.at(-1)?.label).toBe('Bay Area wages and prices');
     // Poland pays for delay only: escalation over its own schedule and its own standing organisation.
     expect(g.designScope.cents.poland).toBeLessThan(100_000);
     expect(Math.abs(g.institutional.cents.poland)).toBeLessThan(100_000);

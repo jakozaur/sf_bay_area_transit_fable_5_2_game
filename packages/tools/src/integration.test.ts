@@ -97,7 +97,6 @@ test('plan and station tools drive the real sim: every edit is accepted and ackn
   const value = (rid: string): string => status.readouts.find((o) => o.id === rid)?.value ?? '';
   expect(value('length')).toMatch(/^1\.\d\d km$/);
   expect(value('cost')).toMatch(/^\$\d/);
-  expect(value('ratio')).toMatch(/^\d+\.\dx /);
   expect(value('radius')).toMatch(/^R \d+ m \(min 150\)$/);
   // Insert on the first segment, drag the new point, lower it, delete it again.
   s.host.handle({ type: 'tool.primary', ...at(20_300, -65_002) });

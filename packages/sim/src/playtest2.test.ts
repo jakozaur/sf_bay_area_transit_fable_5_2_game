@@ -278,7 +278,7 @@ describe('reforms and the tender', () => {
     const atTender = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
     atTender.dispatch([...DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
     toGate(atTender, 'advancePhase');
-    expect(atTender.snapshot().nextAction.hint).toMatch(/Tender fixes the design and the contract prices/);
+    expect(atTender.snapshot().nextAction.hint).toMatch(/Tender locks the design and the contract prices/);
     const offer = never.snapshot().reforms.find((r) => r.id === 'bestValueAward')?.preview;
     expect(offer?.costDeltaCents).toBe(0);
     expect(offer?.notes?.join(' ')).toMatch(/contracts of Line were let at tender/);
@@ -352,7 +352,7 @@ describe('the receipt compares like with like', () => {
     // One sponsor figure, one ratio: 11.8 times on a hand-drawn line and 18.7 on the official one was the report.
     expect(b.receipt.ratios.ghostToPoland).toBe(a.receipt.ratios.ghostToPoland);
     expect(b.receipt.ghost?.polandPerKmCents).toBe(a.receipt.columns.poland.costPerKmCents);
-    expect(b.scorecard.verdict).toContain(`${(a.receipt.ratios.ghostToPoland ?? 0).toFixed(1)} times`);
+    expect(b.scorecard.verdict).toContain(`${(a.receipt.ratios.ghostToPoland ?? 0).toFixed(1)}x.`);
     // On the official route the status quo column is the official plan; on a drawn line it is that line under
     // the rules of day one, so the three columns have one length and start from one base.
     expect(a.receipt.columns.statusQuo.basis).toMatch(/^The official plan, under the rules of 2026/);
@@ -381,7 +381,7 @@ describe('the receipt compares like with like', () => {
     const weakest = card.axes.filter((a) => a.stars === card.stars);
     expect(card.stars).toBe(Math.min(...card.axes.map((a) => a.stars)));
     if (card.stars < 3) {
-      expect(card.starsReason).toMatch(/^The rating is the weakest of the three: /);
+      expect(card.starsReason).toMatch(/^Rating is your weakest axis: /);
       for (const a of weakest) expect(card.starsReason).toContain(a.id === 'date' ? 'opening date' : a.id);
     }
     const date = sim.snapshot().objectives.find((o) => o.id === 'date');

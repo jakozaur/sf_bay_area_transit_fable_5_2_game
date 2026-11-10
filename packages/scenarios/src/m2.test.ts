@@ -106,10 +106,10 @@ describe('The Portal: a train to the authors of Fable 5.2, at no more than 2x Po
   test('the theme and the target are stated up front; ids, the official figures and the place names are the real ones', () => {
     expect(THE_PORTAL.id).toBe('the-portal');
     expect(THE_PORTAL.title).toBe('The Portal');
-    expect(THE_PORTAL.description).toMatch(/Can you build a train to the HQ of the authors of Fable 5\.2\?/);
-    expect(THE_PORTAL.description).toMatch(/at most 2x Poland on cost and on time/);
+    // The tagline and the target stand on the title and the briefing screens (ui); the pitch is one line under them.
+    expect(THE_PORTAL.description).toMatch(/Official plan: \$6\.84B, 2036/);
+    expect(THE_PORTAL.briefing?.what).toMatch(/authors of Fable 5\.2/);
     expect(THE_PORTAL.briefing?.what).toMatch(/fictional/);
-    expect(THE_PORTAL.briefing?.what).toMatch(/2x the Polish cost and 2x the Polish timeline/);
     expect(THE_PORTAL.briefing?.officialCost).toMatch(/\$6\.84 billion/);
     expect(THE_PORTAL.reference?.officialCostCents).toBe(6.84e11);
     expect(THE_PORTAL.objectives.map((o) => o.id)).toEqual([
@@ -122,7 +122,7 @@ describe('The Portal: a train to the authors of Fable 5.2, at no more than 2x Po
     ]);
     const cost = THE_PORTAL.objectives.find((o) => o.id === 'near-poland');
     expect(cost).toMatchObject({ kind: 'maxRatioToPoland', ratio: 2 });
-    expect(THE_PORTAL.objectives[0].title).toMatch(/authors of Fable 5\.2/);
+    expect(THE_PORTAL.objectives[0].title).toMatch(/Salesforce Transit Center/);
     const connect = THE_PORTAL.objectives[0];
     if (connect.kind !== 'connect') throw new Error('first objective is not the connection');
     expect(connect.b.name).toBe('Salesforce Transit Center');

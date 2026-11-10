@@ -396,7 +396,7 @@ test('drive: unavailable without a machine; activation takes manual control and 
   expect(r.fake.follows).toEqual(['cutaway:portal/tbm-1']);
   const s = r.host.port.status.get();
   expect(s.id).toBe('drive');
-  expect(s.hint).toBe('W S thrust, A D steer, R F pitch, Space autopilot, Esc release.');
+  expect(s.hint).toBe('Stay on the green line.');
   expect(s.values[TOOL_KEYS.driveHeadingId]).toBe('portal/tbm-1');
   expect(r.readout('thrust').value).toBe('100%');
   expect(r.readout('ground').value).toBe('Soft ground');

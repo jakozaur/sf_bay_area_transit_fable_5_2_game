@@ -23,10 +23,10 @@ describe('The Portal briefing says what the game shows', () => {
     const why = THE_PORTAL.briefing?.why ?? '';
     // Doc 06 section 3.2: East Side Access in New York is dearer per km. The briefing no longer says "the most expensive on the continent".
     expect(why).not.toMatch(/most expensive/);
-    expect(why).toMatch(/only New York has beaten/);
-    // "$140 million per km" is the Warsaw record; the headline's Poland is the model for this route. Both are named,
-    // and the second is the number the top bar shows a minute later.
-    expect(why).toMatch(/\$140 million per km/);
+    expect(why).toMatch(/Only New York has paid more per km/);
+    // One Polish figure: the model for this route, the number the top bar shows a minute later. The Warsaw record
+    // ($140 million per km) stood beside it and read as a second Poland.
+    expect(why).not.toMatch(/\$140 million/);
     const perKm = official().snapshot().headline?.polandPerKmCents ?? 0;
     expect(why).toContain(`about $${Math.round(perKm / 1e8)} million per km`);
   });
@@ -58,7 +58,7 @@ describe('The Portal: reforms and gates', () => {
     early.dispatch([{ t: 'approveProject', projectId: PORTAL_PROJECT_ID }]);
     toGate(early, 'advancePhase');
     // At the tender gate the game says what the gate fixes, and the same capital buys the same reforms where they count.
-    expect(early.snapshot().nextAction.hint).toMatch(/Tender fixes the design and the contract prices/);
+    expect(early.snapshot().nextAction.hint).toMatch(/Tender locks the design and the contract prices/);
     early.dispatch([{ t: 'enactReform', id: 'bestValueAward' }]);
     early.dispatch([{ t: 'enactReform', id: 'roundTheClock' }]);
     expect(early.snapshot().notices).toEqual([]);

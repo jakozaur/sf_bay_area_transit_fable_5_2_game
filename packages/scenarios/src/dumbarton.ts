@@ -79,8 +79,7 @@ export const DUMBARTON_TO_META: ScenarioDef = {
   id: 'dumbarton-to-meta',
   siteId: 'meta',
   title: 'Dumbarton to Meta',
-  description:
-    'SamTrans bought this right-of-way for $6.9 million in 1994. Estimates for a railway on it went from $50 million (1998) to $1.6 billion (2017); the current study is for a busway. Lay track to Meta, then decide whether to cross the Bay.',
+  description: 'The tracks to Meta exist and carry no passengers. Estimates grew from $50M to $1.6B. Lay the rails.',
   briefing: {
     what: 'A railway already runs most of the way: the Dumbarton Cutoff from Redwood Junction to Willow Road, 7.5 km, freight only. SamTrans has owned it since 1994.',
     officialCost: '$1.6 billion, phased, for the whole 33 km corridor to Union City with a new bridge (2017). It was $50 million in 1998.',
@@ -127,10 +126,10 @@ export const DUMBARTON_TO_META: ScenarioDef = {
       radiusM: 800,
       stretch: true,
     },
-    { id: 'budget', title: 'Spend no more than the 2017 estimate for the whole corridor, $1.6B', kind: 'maxCost', cents: usd(1.6e9) },
+    { id: 'budget', title: 'Spend under $1.6B', kind: 'maxCost', cents: usd(1.6e9) },
     {
       id: 'early',
-      title: 'Stretch: open before the busway would start construction (2031)',
+      title: 'Stretch: open before 2031',
       kind: 'openBy',
       date: '2031-12-31',
       stretch: true,

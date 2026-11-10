@@ -208,7 +208,7 @@ export function createDriveToolImpl(): DriveTool {
           ? 'Autopilot cruises along the plan. Space takes the controls back. Esc releases the machine.'
           : view?.deviation.offPlan === true
             ? 'Off the plan: every metre here costs more. Steer back to the green line.'
-            : 'W S thrust, A D steer, R F pitch, Space autopilot, Esc release.';
+            : 'Stay on the green line.';
     return {
       id: 'drive',
       hint,

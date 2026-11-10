@@ -128,7 +128,7 @@ export const RECEIPT_LINE_DEFS: Record<ReceiptLineId, LineDef> = {
   },
   priceLevel: {
     group: 'priceLevel',
-    label: 'Price level: Bay Area wages and prices against Polish ones',
+    label: 'Bay Area wages and prices',
     evidence: 'doc 11 sections 4.2 and 5.1 (3.71 PLN/USD market rate over 2.3 construction PPP: 1.61). Not a lever: no reform removes it',
   },
 };
@@ -583,12 +583,9 @@ export function buildScorecard(i: ScoreInput): Scorecard {
   const stars = Math.min(costStars, dateStars, riderStars);
   const AXIS_NAME: Record<StarAxis, string> = { cost: 'cost', date: 'opening date', riders: 'riders' };
   const weakest = axes.filter((a) => a.stars === stars).map((a) => AXIS_NAME[a.id]);
-  const starsReason =
-    stars === 3
-      ? 'Three stars on every axis.'
-      : `The rating is the weakest of the three: ${weakest.join(' and ')}. Three stars on an axis means within a quarter of the way from Poland to ${ghost.label}.`;
+  const starsReason = stars === 3 ? 'Three stars on every axis.' : `Rating is your weakest axis: ${weakest.join(' and ')}.`;
   const tense = r.final ? 'You paid' : 'You are on course to pay';
-  const verdict = `${tense} ${money(yours.costCents)}, ${rYours.toFixed(1)} times what Poland would have paid per km. ${ghost.label}: ${money(ghost.costCents)}, ${rGhost.toFixed(1)} times.`;
+  const verdict = `${tense} ${money(yours.costCents)}: ${rYours.toFixed(1)}x Poland per km. ${ghost.label}: ${rGhost.toFixed(1)}x.`;
   return {
     projectId: r.projectId,
     final: r.final,
