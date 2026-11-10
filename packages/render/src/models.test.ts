@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import { discRows, hexToLinear, MeshBuilder } from './mesh-builder.ts';
 import {
   buildBoxFrame,
+  buildMachine,
   buildPit,
   buildRing,
   buildStation,
@@ -9,6 +10,9 @@ import {
   buildTbm,
   buildTrackPanel,
   buildTrainCar,
+  deckDropM,
+  MACHINE_DIAMETER_M,
+  MACHINE_KINDS,
   RAIL_DROP_M,
   RING_LOWER_SEGMENTS,
   RING_SEGMENTS,
@@ -16,6 +20,7 @@ import {
   stationLevels,
   TBM_LENGTH_M,
   TRACK_PANEL_M,
+  TRENCH_FLOOR_M,
   trackOffsets,
 } from './models.ts';
 
@@ -105,7 +110,16 @@ test('track: rails RAIL_DROP_M below the axis in a bore, on the axis at grade, t
   expect(trackOffsets(3.3)).toEqual([0]);
   expect(trackOffsets(6.5)).toEqual([-2.2, 2.2]);
   expect(buildTrackPanel(6.5, 'ring').boxes).toBeGreaterThan(tube.boxes);
-  expect(() => buildTrackPanel(2, 'ring')).toThrow(/too small for track/);
+  // The 3.7 m small bore has no room for rails 2 m under its axis: a paved deck for pods, inside the tube.
+  const pod = buildTrackPanel(1.85, 'ring');
+  expect(pod.boxes).toBe(3);
+  expect(pod.min[1]).toBeGreaterThan(-1.85);
+  expect(pod.max[1]).toBeLessThan(0);
+  expect(Math.max(-pod.min[0], pod.max[0])).toBeLessThan(1.85);
+  expect(deckDropM(1.85, 'ring')).toBeCloseTo(0.925, 9);
+  expect(deckDropM(3.3, 'ring')).toBe(RAIL_DROP_M);
+  expect(deckDropM(3.3, 'none')).toBe(0);
+  expect(() => buildTrackPanel(0.5, 'ring')).toThrow(/too small for a deck/);
 });
 
 test('the machine fits its bore: cutterhead at the origin facing +z, shield and gantry behind', () => {
@@ -123,6 +137,71 @@ test('the machine fits its bore: cutterhead at the origin facing +z, shield and 
   expect(buildTbm(6).head.max[0]).toBeGreaterThan(5);
   expect(() => buildTbm(0.5)).toThrow(/radius/);
   expect(buildSurfaceRig().min[1]).toBe(0);
+});
+
+test('every machine kind builds behind its face, and the five are different models', () => {
+  const sizes = new Set<string>();
+  for (const kind of MACHINE_KINDS) {
+    const m = buildMachine(kind, MACHINE_DIAMETER_M[kind]);
+    const front = Math.max(m.body.max[2], m.tool.max[2] + m.toolAt[2]);
+    const back = Math.min(m.body.min[2], m.tool.min[2] + m.toolAt[2]);
+    expect(front, kind).toBeLessThanOrEqual(0.1);
+    expect(front, kind).toBeGreaterThan(-0.5);
+    expect(back, kind).toBeGreaterThanOrEqual(-m.lengthM - 0.01);
+    expect(back, kind).toBeLessThan(-m.lengthM + 1.5);
+    sizes.add(`${m.body.boxes}|${m.tool.boxes}|${m.lengthM.toFixed(1)}`);
+  }
+  expect(sizes.size).toBe(MACHINE_KINDS.length);
+  // The twin bore is the machine drawn before kinds existed, one per tube.
+  expect(buildMachine('twinBore', 6.6).body.positions).toEqual(buildTbm(3.3).body.positions);
+  // The small bore has no gantry; the large one is longer than the standard machine.
+  expect(buildMachine('smallBore', 3.7).lengthM).toBeLessThan(TBM_LENGTH_M / 3);
+  expect(buildMachine('singleBore', 12).lengthM).toBeGreaterThan(TBM_LENGTH_M);
+  // Shield and wheel colours tell the three shields apart.
+  const tint = (kind: 'twinBore' | 'singleBore' | 'smallBore'): string => {
+    const d = MACHINE_DIAMETER_M[kind];
+    const m = buildMachine(kind, d);
+    return `${[...m.body.colors.slice(0, 3)]}|${[...m.tool.colors.slice(m.tool.colors.length - 3)]}`;
+  };
+  expect(new Set([tint('twinBore'), tint('singleBore'), tint('smallBore')]).size).toBe(3);
+  expect(buildMachine('roadheader', 6.6).motion).toBe('spin');
+  expect(buildMachine('excavator', 6.6).motion).toBe('dig');
+  expect(() => buildMachine('singleBore', 1)).toThrow(/diameter must be > 2 m/);
+  expect(() => buildMachine('roadheader', Number.NaN)).toThrow(/diameter/);
+});
+
+test('shields and the roadheader are sized from the diameter and stay inside their bore', () => {
+  for (const kind of ['twinBore', 'singleBore', 'smallBore', 'roadheader'] as const) {
+    for (const d of [MACHINE_DIAMETER_M[kind], MACHINE_DIAMETER_M[kind] * 1.5]) {
+      const m = buildMachine(kind, d);
+      let reach = 0;
+      for (const [part, at] of [
+        [m.body, [0, 0, 0]],
+        [m.tool, m.toolAt],
+      ] as const) {
+        for (let i = 0; i < part.positions.length; i += 3) {
+          reach = Math.max(reach, Math.hypot((part.positions[i] as number) + at[0], (part.positions[i + 1] as number) + at[1]));
+        }
+      }
+      expect(reach, `${kind} ${d}`).toBeLessThan((d / 2) * 1.05);
+      // The shields fill the bore; the roadheader works in a cavern wider than itself.
+      expect(reach, `${kind} ${d}`).toBeGreaterThan((d / 2) * (kind === 'roadheader' ? 0.85 : 0.97));
+      if (kind !== 'roadheader') expect(m.tool.max[0] - m.tool.min[0], `${kind} ${d}`).toBeCloseTo(d, 0);
+    }
+  }
+  expect(buildMachine('roadheader', 9.9).lengthM).toBeCloseTo(buildMachine('roadheader', 6.6).lengthM * 1.5, 6);
+});
+
+test('the excavator stands on the trench floor with its bucket at the face, whatever the diameter', () => {
+  const m = buildMachine('excavator', 14);
+  expect(m.body.min[1]).toBeCloseTo(-TRENCH_FLOOR_M, 6);
+  expect(m.body.positions).toEqual(buildMachine('excavator', 0).body.positions);
+  // The arm is in the frame of its foot pin: the bucket reaches the floor just behind the face.
+  expect(m.tool.min[1] + m.toolAt[1]).toBeGreaterThanOrEqual(-TRENCH_FLOOR_M);
+  expect(m.tool.min[1] + m.toolAt[1]).toBeLessThan(-TRENCH_FLOOR_M + 0.5);
+  expect(m.tool.max[2] + m.toolAt[2]).toBeGreaterThan(-0.5);
+  // Boom well above the cab.
+  expect(m.tool.max[1] + m.toolAt[1]).toBeGreaterThan(m.body.max[1] + 1.5);
 });
 
 test('a train car stands on the rails, is as long as asked, and a cab car has a nose', () => {

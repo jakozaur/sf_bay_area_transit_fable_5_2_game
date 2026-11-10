@@ -24,7 +24,14 @@ import {
   loadSite,
   TiledSiteSource,
 } from '@bayvox/world';
-import { createEntityLayer, type EntityLayerStats, VoxelRenderer } from '../src/index.ts';
+import {
+  createEntityLayer,
+  type EntityLayerStats,
+  MACHINE_DIAMETER_M,
+  MACHINE_KINDS,
+  type MachineKind,
+  VoxelRenderer,
+} from '../src/index.ts';
 
 interface Demo {
   ready: Promise<void>;
@@ -151,8 +158,18 @@ async function boot(): Promise<Omit<Demo, 'ready'>> {
     open: fitOut >= 1,
   });
   const face = at(DRIVE_M);
+  const driveTbm: EntityScene['tbms'][number] = {
+    id: 'tbm',
+    position: face,
+    yaw,
+    pitch: 0,
+    radiusM: TUBE_R,
+    laterals: LATERALS,
+    status: 'running',
+    thrust: 0.75,
+  };
   const scene: EntityScene = {
-    tbms: [{ id: 'tbm', position: face, yaw, pitch: 0, radiusM: TUBE_R, laterals: LATERALS, status: 'running', thrust: 0.75 }],
+    tbms: [driveTbm],
     tunnels: [
       {
         id: 'drive',
@@ -289,7 +306,50 @@ async function boot(): Promise<Omit<Demo, 'ready'>> {
     },
   };
 
+  // One view per machine kind, each on its own stand beside the drive: the bore (or trench) it works in is
+  // carved once, and the cut plane takes the ground off at the axis so the whole machine shows.
+  const stands: Record<MachineKind, { s: number; lateral: number }> = {
+    twinBore: { s: 250, lateral: -60 },
+    singleBore: { s: 250, lateral: -105 },
+    smallBore: { s: 110, lateral: 60 },
+    roadheader: { s: 180, lateral: 60 },
+    excavator: { s: 250, lateral: 60 },
+  };
+  const carved = new Set<MachineKind>();
+  for (const kind of MACHINE_KINDS) {
+    views[`machine-${kind}`] = () => {
+      const { s, lateral } = stands[kind];
+      const d = MACHINE_DIAMETER_M[kind];
+      const laterals = kind === 'twinBore' ? LATERALS : [0];
+      const trench = kind === 'excavator';
+      if (!carved.has(kind)) {
+        carved.add(kind);
+        for (const l of laterals) {
+          // The excavator's trench: its floor 2.6 m below the axis.
+          const y = trench ? AXIS_Y + 2.4 : AXIS_Y;
+          store.applyEdit({
+            t: 'carveCapsule',
+            a: voxel(at(s - 80, lateral + l, y)),
+            b: voxel(at(s, lateral + l, y)),
+            radius: trench ? 5 : d / 2,
+          });
+        }
+        remeshAll();
+      }
+      const machine = { machine: kind, diameterM: d };
+      scene.tbms = [{ ...driveTbm, ...machine, id: kind, position: at(s, lateral), radiusM: trench ? 0 : d / 2, laterals }];
+      renderer.setView({ cutRadius: 140 });
+      const reach = kind === 'twinBore' || kind === 'singleBore' ? 14 + d * 1.6 : 11;
+      look(
+        at(s + reach * 0.75, lateral + reach, AXIS_Y + reach * 0.75),
+        at(s - reach * 0.45, lateral, AXIS_Y - 1),
+        AXIS_Y + (trench ? -0.5 : 0.5),
+      );
+    };
+  }
+
   const reset = (): void => {
+    scene.tbms = [driveTbm];
     scene.possessedTbmId = null;
     scene.preview = null;
     scene.stations = [station('compact', 150, 'compactBox', 110, 19, 8, 1)];

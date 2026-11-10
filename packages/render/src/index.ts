@@ -1,15 +1,28 @@
 export { CAP_MAX_CHUNKS, CAP_MAX_RADIUS, type CapRegion, capRegion, fillCapLayer } from './cap.ts';
 export { ChunkScene, LAYER_OVERLAY, LAYER_SKY, LAYER_TERRAIN, LAYER_WATER } from './chunk-scene.ts';
 export { BATCH_MAX_PATCHES, BATCH_MAX_SLABS, type ColumnBatchPart, type ColumnBatchPlacement, ColumnScene } from './column-scene.ts';
-export { createEntityLayer, type EntityLayer, type EntityLayerOptions, type EntityLayerStats, type TrackPath } from './entities.ts';
+export {
+  createEntityLayer,
+  type EntityLayer,
+  type EntityLayerOptions,
+  type EntityLayerStats,
+  type MachineSpec,
+  machineOf,
+  type TrackPath,
+} from './entities.ts';
 export { hexToLinear, MeshBuilder, type MeshData } from './mesh-builder.ts';
 export {
+  buildMachine,
   buildPit,
   buildRing,
   buildStation,
   buildTbm,
   buildTrackPanel,
   buildTrainCar,
+  MACHINE_DIAMETER_M,
+  MACHINE_KINDS,
+  type MachineKind,
+  type MachineModel,
   RAIL_DROP_M,
   type StationModelSpec,
   stationLevels,

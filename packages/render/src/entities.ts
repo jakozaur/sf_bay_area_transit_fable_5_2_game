@@ -44,6 +44,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { hexToLinear, type MeshData } from './mesh-builder.ts';
 import {
   buildBoxFrame,
+  buildMachine,
   buildPit,
   buildRing,
   buildStation,
@@ -51,7 +52,10 @@ import {
   buildTbm,
   buildTrackPanel,
   buildTrainCar,
-  RAIL_DROP_M,
+  deckDropM,
+  MACHINE_DIAMETER_M,
+  type MachineKind,
+  type MachineModel,
   stationLevels,
   TBM_LENGTH_M,
   TRACK_HALF_SPACING_M,
@@ -150,11 +154,38 @@ function assertUnit(v: number, what: string): void {
   if (!(v >= 0 && v <= 1)) throw new RangeError(`EntityLayer: ${what} must be in [0, 1], got ${v}`);
 }
 
+/** What the layer draws for one heading. */
+export interface MachineSpec {
+  /** null: the heading names no known machine and is drawn as before kinds existed (buildTbm, or the surface rig). */
+  kind: MachineKind | null;
+  /** Excavated diameter of one tube, metres. */
+  diameterM: number;
+}
+
+/**
+ * The one place the layer reads the machine kind and diameter of a heading (core TbmEntity.machine and
+ * TbmEntity.diameterM, both optional). An absent or unknown kind gives `kind: null`; an absent diameter is
+ * twice the radius, or the usual size of the kind for a heading without a radius.
+ */
+export function machineOf(e: TbmEntity): MachineSpec {
+  const kind = e.machine ?? null;
+  const d = e.diameterM;
+  const diameterM = d !== undefined && d > 0 ? d : e.radiusM > 0 ? e.radiusM * 2 : kind === null ? 0 : MACHINE_DIAMETER_M[kind];
+  return { kind, diameterM };
+}
+
+/** Furthest the bucket is lifted in a dig cycle, radians at the foot of the arm. */
+const DIG_SWING = 0.18;
+
 interface TbmEntry {
   e: TbmEntity;
   key: string;
   tilt: Group;
   heads: Mesh[];
+  motion: 'spin' | 'dig';
+  /** Face to tail, and the furthest the model reaches from the heading axis across and up, metres. */
+  lengthM: number;
+  halfM: number;
   spin: number;
 }
 
@@ -218,6 +249,7 @@ class Layer implements EntityLayer {
   private readonly material = new MeshLambertMaterial({ vertexColors: true });
   private readonly geometries = new Map<string, BufferGeometry>();
   private readonly tbms = new Map<string, TbmEntry>();
+  private readonly machines = new Map<string, MachineModel>();
   private readonly tunnels = new Map<string, TunnelEntry>();
   private readonly stations = new Map<string, StationEntry>();
   private readonly pits = new Map<string, { key: string; e: LaunchPitEntity; depth: number }>();
@@ -324,7 +356,8 @@ class Layer implements EntityLayer {
       seen.add(e.id);
       assertUnit(e.thrust, `tbm "${e.id}" thrust`);
       const id = `${ID}tbm.${e.id}`;
-      const key = `${e.radiusM}|${e.laterals.join(',')}`;
+      const spec = machineOf(e);
+      const key = `${spec.kind}|${spec.diameterM}|${e.radiusM}|${e.laterals.join(',')}`;
       let entry = this.tbms.get(e.id);
       if (entry === undefined || entry.key !== key) {
         if (entry !== undefined) this.drop(id);
@@ -333,7 +366,43 @@ class Layer implements EntityLayer {
         tilt.rotation.order = 'YXZ';
         root.add(tilt);
         const heads: Mesh[] = [];
-        if (e.radiusM > 1) {
+        let motion: 'spin' | 'dig' = 'spin';
+        let lengthM = e.radiusM > 1 ? TBM_LENGTH_M : 12;
+        let halfM = Math.max(2, e.radiusM);
+        if (spec.kind !== null) {
+          const kind = spec.kind;
+          const name = `machine.${kind}.${spec.diameterM}`;
+          let model = this.machines.get(name);
+          if (model === undefined) {
+            model = buildMachine(kind, spec.diameterM);
+            this.machines.set(name, model);
+          }
+          const m = model;
+          const body = this.geometry(`${name}.body`, () => m.body);
+          const tool = this.geometry(`${name}.tool`, () => m.tool);
+          // One machine per tube; a heading without tubes (a trench) has one on its axis.
+          for (const lateral of e.laterals.length === 0 ? [0] : e.laterals) {
+            const b = new Mesh(body, this.material);
+            b.position.x = lateral;
+            const h = new Mesh(tool, this.material);
+            h.position.set(lateral + m.toolAt[0], m.toolAt[1], m.toolAt[2]);
+            tilt.add(b, h);
+            heads.push(h);
+          }
+          motion = m.motion;
+          lengthM = m.lengthM;
+          halfM = 0;
+          for (const part of [m.body, m.tool]) {
+            const at = part === m.tool ? m.toolAt : [0, 0, 0];
+            for (let a = 0; a < 2; a++) {
+              halfM = Math.max(
+                halfM,
+                Math.abs((part.min[a] as number) + (at[a] as number)),
+                Math.abs((part.max[a] as number) + (at[a] as number)),
+              );
+            }
+          }
+        } else if (e.radiusM > 1) {
           const body = this.geometry(`tbm.body.${e.radiusM}`, () => buildTbm(e.radiusM).body);
           const head = this.geometry(`tbm.head.${e.radiusM}`, () => buildTbm(e.radiusM).head);
           if (e.laterals.length === 0)
@@ -349,7 +418,7 @@ class Layer implements EntityLayer {
         } else {
           tilt.add(new Mesh(this.geometry('tbm.surface', buildSurfaceRig), this.material));
         }
-        entry = { e, key, tilt, heads, spin: entry?.spin ?? 0 };
+        entry = { e, key, tilt, heads, motion, lengthM, halfM, spin: entry?.spin ?? 0 };
         this.tbms.set(e.id, entry);
         this.overlay.setObject(id, root, { position: e.position, yaw: e.yaw });
       } else if (
@@ -366,10 +435,11 @@ class Layer implements EntityLayer {
       }
       entry.e = e;
       // The lamp sits just behind the face, above the axis: it lights the face, the shield and the first rings.
-      const up = Math.max(1, e.radiusM * 0.4);
+      const lampR = spec.diameterM / 2;
+      const up = Math.max(1, lampR * 0.4);
       this.overlay.setLight(id, {
         position: { x: e.position.x - Math.sin(e.yaw) * 3, y: e.position.y + up, z: e.position.z - Math.cos(e.yaw) * 3 },
-        radiusM: Math.max(30, e.radiusM * 11),
+        radiusM: Math.max(30, lampR * 11),
         color: WORK_LIGHT,
         intensity: e.status === 'running' ? 0.9 : e.status === 'stopped' ? 0.55 : 0.35,
       });
@@ -751,7 +821,7 @@ class Layer implements EntityLayer {
       if (n.distanceM >= bestD) continue;
       bestD = n.distanceM;
       const tubes = t.e.laterals.length > 1 ? t.e.laterals : trackOffsets(t.e.radiusM).map((o) => o + (t.e.laterals[0] ?? 0));
-      best = { cursor: t.cursor, chainageM: n.chainageM, railDropM: t.e.lining === 'none' ? 0 : RAIL_DROP_M, tubes };
+      best = { cursor: t.cursor, chainageM: n.chainageM, railDropM: deckDropM(t.e.radiusM, t.e.lining), tubes };
     }
     for (const t of this.trackPaths) {
       const n = t.cursor.nearest(p);
@@ -1068,7 +1138,10 @@ class Layer implements EntityLayer {
   private syncCutaway(scene: EntityScene): void {
     const opt = this.options.cutaway;
     const tbm = opt === false || scene.possessedTbmId === null ? undefined : scene.tbms.find((t) => t.id === scene.possessedTbmId);
-    if (tbm === undefined || !(tbm.radiusM > 1)) {
+    // A heading with a machine kind opens the trench whatever its radius: an excavator's trench has none.
+    const spec = tbm === undefined ? null : machineOf(tbm);
+    const entry = tbm === undefined ? undefined : this.tbms.get(tbm.id);
+    if (tbm === undefined || spec === null || entry === undefined || (spec.kind === null && !(tbm.radiusM > 1))) {
       if (this.ownsCutaway) this.overlay.setCutaway(null);
       this.ownsCutaway = false;
       return;
@@ -1083,8 +1156,9 @@ class Layer implements EntityLayer {
       // in a floor of solid ground, with the shields in them, the lined tunnel behind and uncut ground ahead of
       // the faces. Cut to the invert (as it was) the machines stood in an open pit and nothing said "tunnel".
       aheadM: o.aheadM ?? 28,
-      behindM: o.behindM ?? TBM_LENGTH_M + 34,
-      halfWidthM: reach + tbm.radiusM + (o.sideM ?? 9),
+      // The whole machine and 34 m of lined tunnel behind it: 14 m for a roadheader, 95 m for a single bore.
+      behindM: o.behindM ?? (spec.kind === null ? TBM_LENGTH_M : entry.lengthM) + 34,
+      halfWidthM: reach + Math.max(tbm.radiusM, spec.diameterM / 2) + (o.sideM ?? 9),
       floorY: Math.floor(tbm.position.y - (o.floorBelowAxisM ?? 0)),
     });
     this.ownsCutaway = true;
@@ -1098,8 +1172,9 @@ class Layer implements EntityLayer {
         if (t === undefined) return null;
         let reach = 0;
         for (const l of t.laterals) reach = Math.max(reach, Math.abs(l));
-        const r = Math.max(2, t.radiusM);
-        const len = t.radiusM > 1 ? TBM_LENGTH_M : 12;
+        const entry = this.tbms.get(ref.id) as TbmEntry;
+        const r = entry.halfM;
+        const len = entry.lengthM;
         return {
           center: { x: t.position.x - (Math.sin(t.yaw) * len) / 2, y: t.position.y, z: t.position.z - (Math.cos(t.yaw) * len) / 2 },
           yaw: t.yaw,
@@ -1168,7 +1243,12 @@ class Layer implements EntityLayer {
       if (t.e.status !== 'running' || t.heads.length === 0) continue;
       // A third of a turn per second at full thrust, a slow idle turn at none.
       t.spin = (t.spin + dtSeconds * (0.35 + 1.75 * t.e.thrust)) % (2 * Math.PI);
-      for (let i = 0; i < t.heads.length; i++) (t.heads[i] as Mesh).rotation.z = i % 2 === 0 ? t.spin : -t.spin;
+      for (let i = 0; i < t.heads.length; i++) {
+        const head = t.heads[i] as Mesh;
+        // A digging arm lifts its bucket off the floor and lowers it again, once per turn of the same clock.
+        if (t.motion === 'dig') head.rotation.x = -DIG_SWING * 0.5 * (1 - Math.cos(t.spin));
+        else head.rotation.z = i % 2 === 0 ? t.spin : -t.spin;
+      }
       changed = true;
     }
     for (let i = this.pops.length - 1; i >= 0; i--) {
@@ -1343,6 +1423,7 @@ class Layer implements EntityLayer {
     if (this.ownsCutaway) this.overlay.setCutaway(null);
     for (const g of this.geometries.values()) g.dispose();
     this.geometries.clear();
+    this.machines.clear();
     this.handleGeometry.dispose();
     this.material.dispose();
     this.tbms.clear();

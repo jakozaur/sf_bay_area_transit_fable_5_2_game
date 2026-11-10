@@ -6,7 +6,7 @@
  * RAIL_DROP_M below the axis in every lined tunnel and underground station, so a train centred on the axis
  * fits a 6.6 m bore. At grade (lining 'none', surface and elevated stations) the axis is the top of rail.
  */
-import { ENTITY_COLORS, type StationStyle } from '@bayvox/core';
+import { ENTITY_COLORS, type MachineKind, type StationStyle } from '@bayvox/core';
 import { MeshBuilder, type MeshData, shade } from './mesh-builder.ts';
 
 /** Top of rail below the bore centre, metres. */
@@ -51,6 +51,10 @@ const C = {
   pit: ENTITY_COLORS.pit,
   pile: shade(ENTITY_COLORS.pit, 0.78),
   crane: 0xf2b01e,
+  single: 0x2f6fb5,
+  singleCutter: 0xd6453a,
+  small: 0x4a9d5b,
+  road: 0xd9531e,
 } as const;
 
 // ---------------------------------------------------------------- lining and track
@@ -103,6 +107,17 @@ export function buildBoxFrame(radiusM: number, lengthM: number): { lower: MeshDa
   return { lower: lower.build(), upper: upper.build() };
 }
 
+/** A lined tube too small for rails RAIL_DROP_M below its axis (the 3.7 m small bore): it gets a paved deck for pods. */
+export function isPodTube(radiusM: number): boolean {
+  return !(radiusM > RAIL_DROP_M + 0.6);
+}
+
+/** Top of rail (or of the pod deck) below the axis of a tube, metres: 0 at grade, half the radius in a pod tube. */
+export function deckDropM(radiusM: number, lining: 'ring' | 'arch' | 'box' | 'none'): number {
+  if (lining === 'none') return 0;
+  return lining !== 'box' && isPodTube(radiusM) ? radiusM * 0.5 : RAIL_DROP_M;
+}
+
 /** Lateral positions of the tracks inside one tube, metres to the left of the tube axis. */
 export function trackOffsets(radiusM: number): number[] {
   return radiusM >= TWO_TRACK_MIN_RADIUS_M ? [-TRACK_HALF_SPACING_M, TRACK_HALF_SPACING_M] : [0];
@@ -137,7 +152,15 @@ export function buildTrackPanel(radiusM: number, lining: 'ring' | 'arch' | 'box'
     for (const x of trackOffsets(radiusM)) addTrack(b, x, railY, 0, len, 0.75);
     return b.build();
   }
-  if (!(radiusM > RAIL_DROP_M + 0.6)) throw new RangeError(`buildTrackPanel: a ${radiusM} m radius bore is too small for track`);
+  if (!(radiusM > 1)) throw new RangeError(`buildTrackPanel: a ${radiusM} m radius bore is too small for a deck`);
+  if (isPodTube(radiusM)) {
+    // A small bore carries pods, not trains: a paved deck across the invert with a kerb each side, no rails.
+    const deck = -deckDropM(radiusM, lining);
+    const half = Math.sqrt(radiusM * radiusM - deck * deck) - 0.25;
+    b.span(-half, deck - 0.35, 0, half, deck, len, C.slab);
+    for (const side of [-1, 1]) b.span(side * half - 0.1, deck, 0, side * half + 0.1, deck + 0.12, len, C.warning);
+    return b.build();
+  }
   // Invert fill in two steps so it follows the bore: the chord at the slab top and a narrower one near the bottom.
   const inner = radiusM - Math.min(0.6, Math.max(0.3, radiusM * 0.1));
   const halfTop = Math.sqrt(Math.max(0.25, inner * inner - top * top));
@@ -151,47 +174,80 @@ export function buildTrackPanel(radiusM: number, lining: 'ring' | 'arch' | 'box'
 
 // ---------------------------------------------------------------- tunnelling machine
 
-/**
- * A tunnel boring machine for one tube. `head` is the cutterhead (spun about z by the layer), `body` the shield,
- * tail skin and trailing gantry. Origin: centre of the cutterhead face; everything extends towards -z.
- */
-export function buildTbm(radiusM: number): { head: MeshData; body: MeshData } {
-  if (!(radiusM > 1)) throw new RangeError(`buildTbm: radius must be > 1 m, got ${radiusM}`);
-  const r = radiusM;
+interface ShieldStyle {
+  shield: number;
+  cutter: number;
+  hub: number;
+  /** Spokes of the cutterhead, even: long and short ones alternate. */
+  spokes: number;
+  shieldLengthM: number;
+  lengthM: number;
+  /** Cars of the trailing gantry; 0 draws a single short sled instead. */
+  cars: number;
+  /** Half width and top of the gantry frames, metres from the axis. */
+  halfWidthM: number;
+  topM: number;
+}
+
+function shieldMachine(r: number, st: ShieldStyle): { head: MeshData; body: MeshData } {
   const cell = r / 5;
+  // Lengths along the shield are those of the 11.5 m one, scaled.
+  const k = st.shieldLengthM / TBM_SHIELD_LENGTH_M;
 
   const head = new MeshBuilder();
   // Back plate of the wheel.
   head.discZ(r * 0.99, cell, -0.75, -0.3, () => C.steel);
-  // Four main spokes and four short ones, with cutter bits standing proud: this is what makes the spin readable.
-  for (let k = 0; k < 8; k++) {
-    const a = (k * Math.PI) / 4;
-    const main = k % 2 === 0;
+  // Long spokes and short ones, with cutter bits standing proud: this is what makes the spin readable.
+  for (let i = 0; i < st.spokes; i++) {
+    const a = (i * 2 * Math.PI) / st.spokes;
+    const main = i % 2 === 0;
     const len = main ? r * 0.92 : r * 0.55;
     const start = main ? r * 0.06 : r * 0.38;
-    head.box(0, -(start + len / 2), -0.2, r * (main ? 0.2 : 0.14), len, 0.3, main ? C.cutter : shade(C.cutter, 0.8), a);
+    head.box(0, -(start + len / 2), -0.2, r * (main ? 0.2 : 0.14), len, 0.3, main ? st.cutter : shade(st.cutter, 0.8), a);
     const bits = main ? 5 : 3;
-    for (let i = 0; i < bits; i++) {
-      head.box(0, -(start + ((i + 0.6) * len) / bits), -0.04, r * 0.11, r * 0.09, 0.14, C.bit, a);
+    for (let j = 0; j < bits; j++) {
+      head.box(0, -(start + ((j + 0.6) * len) / bits), -0.04, r * 0.11, r * 0.09, 0.14, C.bit, a);
     }
   }
   // Gauge ring and hub.
-  for (let k = 0; k < 16; k++) head.box(0, -r * 0.95, -0.25, r * 0.4, r * 0.1, 0.4, C.steelDark, (k * Math.PI) / 8);
-  head.box(0, 0, -0.08, r * 0.3, r * 0.3, 0.3, C.hub);
+  for (let i = 0; i < 16; i++) head.box(0, -r * 0.95, -0.25, r * 0.4, r * 0.1, 0.4, C.steelDark, (i * Math.PI) / 8);
+  head.box(0, 0, -0.08, r * 0.3, r * 0.3, 0.3, st.hub);
 
   const body = new MeshBuilder();
-  const tail = -TBM_SHIELD_LENGTH_M;
-  // Shield: yellow front, dark articulation joint, white tail skin.
-  body.discZ(r * 0.97, cell, -0.8, -4.6, (y) => (y > r * 0.55 ? shade(C.tbm, 1.06) : C.tbm));
-  body.discZ(r * 0.9, cell, -4.6, -5.2, () => C.steelDark);
-  body.discZ(r * 0.97, cell, -5.2, -8.6, (y) => (Math.abs(y) < cell * 0.6 ? C.steelDark : C.white));
-  body.discZ(r * 0.93, cell, -8.6, tail, () => shade(C.white, 0.86));
+  const tail = -st.shieldLengthM;
+  // Shield: coloured front, dark articulation joint, white tail skin.
+  body.discZ(r * 0.97, cell, -0.8, -4.6 * k, (y) => (y > r * 0.55 ? shade(st.shield, 1.06) : st.shield));
+  body.discZ(r * 0.9, cell, -4.6 * k, -5.2 * k, () => C.steelDark);
+  body.discZ(r * 0.97, cell, -5.2 * k, -8.6 * k, (y) => (Math.abs(y) < cell * 0.6 ? C.steelDark : C.white));
+  body.discZ(r * 0.93, cell, -8.6 * k, tail, () => shade(C.white, 0.86));
+  // Work lamps on the tail skin.
+  const lamps = (): void => {
+    for (const x of [-r * 0.5, r * 0.5]) body.span(x - 0.3, r * 0.45, tail - 0.3, x + 0.3, r * 0.45 + 0.4, tail, C.lamp);
+  };
+  if (st.cars === 0) {
+    // A small machine: one sled with a power pack and a muck skip behind the shield, no gantry.
+    const z1 = tail - 0.8;
+    const z0 = -st.lengthM;
+    const hw = r * 0.5;
+    const deckY = -r * 0.5;
+    body.span(-hw, deckY, z0, hw, deckY + 0.2, z1, C.steelDark);
+    for (const z of [z0 + 1, z1 - 1]) {
+      body.span(-hw, deckY - r * 0.22, z - 0.4, -hw + 0.25, deckY, z + 0.4, C.steelDark);
+      body.span(hw - 0.25, deckY - r * 0.22, z - 0.4, hw, deckY, z + 0.4, C.steelDark);
+    }
+    const mid = (z0 + z1) / 2;
+    body.span(-hw + 0.1, deckY + 0.2, mid + 0.3, hw - 0.1, deckY + 0.2 + r * 0.6, z1 - 0.3, st.shield);
+    body.span(-hw + 0.1, deckY + 0.2, z0 + 0.3, hw - 0.1, deckY + 0.2 + r * 0.4, mid - 0.3, C.steel);
+    body.span(-0.25, r * 0.3, z0 + 0.5, 0.25, r * 0.3 + 0.2, -5.2 * k, C.belt);
+    lamps();
+    return { head: head.build(), body: body.build() };
+  }
   // Trailing gantry: decks on wheels above the rails, equipment on top, a conveyor running the whole length.
   const deckY = -RAIL_DROP_M + 0.55;
-  const cars = 5;
-  const carLen = (TBM_LENGTH_M - TBM_SHIELD_LENGTH_M - 1.5) / cars - 1;
-  const hw = Math.min(r * 0.52, 2.1);
-  const top = Math.min(r * 0.55, 2.4);
+  const cars = st.cars;
+  const carLen = (st.lengthM - st.shieldLengthM - 1.5) / cars - 1;
+  const hw = st.halfWidthM;
+  const top = st.topM;
   for (let i = 0; i < cars; i++) {
     const z1 = tail - 1.5 - i * (carLen + 1);
     const z0 = z1 - carLen;
@@ -207,21 +263,22 @@ export function buildTbm(radiusM: number): { head: MeshData; body: MeshData } {
       body.span(hw - 0.3, deckY + 0.25, z - 0.2, hw, top, z + 0.2, frame);
       body.span(-hw, top - 0.3, z - 0.2, hw, top, z + 0.2, frame);
     }
-    body.span(-hw, top - 0.2, z0, -hw + 0.2, top, z1, C.tbm);
-    body.span(hw - 0.2, top - 0.2, z0, hw, top, z1, C.tbm);
+    body.span(-hw, top - 0.2, z0, -hw + 0.2, top, z1, st.shield);
+    body.span(hw - 0.2, top - 0.2, z0, hw, top, z1, st.shield);
     // Equipment: a different load on every car (control cabin, transformer, grout tanks, cable reel, ventilation).
     const mid = (z0 + z1) / 2;
     const base = deckY + 0.25;
-    if (i === 0) {
+    const load = i % 5;
+    if (load === 0) {
       body.span(-hw + 0.4, base, mid - 2.4, 0, base + 1.9, mid + 2.4, C.white);
       body.span(-hw + 0.38, base + 0.9, mid - 2.0, -hw + 0.42, base + 1.6, mid + 2.0, C.glass);
       body.span(0.4, base, mid - 1.5, hw - 0.4, base + 1.2, mid + 1.5, C.green);
-    } else if (i === 1) {
+    } else if (load === 1) {
       body.span(-hw + 0.4, base, mid - 2.6, hw - 0.4, base + 1.5, mid - 0.4, C.green);
       body.span(-hw + 0.5, base, mid + 0.4, hw - 0.5, base + 1.1, mid + 2.8, C.steel);
-    } else if (i === 2) {
+    } else if (load === 2) {
       for (const z of [mid - 2.2, mid, mid + 2.2]) body.span(-0.9, base, z - 0.8, 0.9, base + 1.6, z + 0.8, C.white);
-    } else if (i === 3) {
+    } else if (load === 3) {
       body.span(-hw + 0.5, base, mid - 1.6, hw - 0.5, base + 1.8, mid + 1.6, C.cutter);
       body.span(-hw + 0.3, base + 0.6, mid - 0.4, hw - 0.3, base + 1.2, mid + 0.4, C.steelDark);
     } else {
@@ -230,10 +287,208 @@ export function buildTbm(radiusM: number): { head: MeshData; body: MeshData } {
     }
   }
   // Conveyor from the shield to the last car.
-  body.span(-0.45, top, -TBM_LENGTH_M + 1, 0.45, top + 0.3, -7.5, C.belt);
-  // Work lamps on the tail skin.
-  for (const x of [-r * 0.5, r * 0.5]) body.span(x - 0.3, r * 0.45, tail - 0.3, x + 0.3, r * 0.45 + 0.4, tail, C.lamp);
+  body.span(-0.45, top, -st.lengthM + 1, 0.45, top + 0.3, -7.5 * k, C.belt);
+  lamps();
   return { head: head.build(), body: body.build() };
+}
+
+/**
+ * A tunnel boring machine for one tube. `head` is the cutterhead (spun about z by the layer), `body` the shield,
+ * tail skin and trailing gantry. Origin: centre of the cutterhead face; everything extends towards -z.
+ * This is the model of a heading that names no machine kind, and of one tube of a 'twinBore'.
+ */
+export function buildTbm(radiusM: number): { head: MeshData; body: MeshData } {
+  if (!(radiusM > 1)) throw new RangeError(`buildTbm: radius must be > 1 m, got ${radiusM}`);
+  return shieldMachine(radiusM, {
+    shield: C.tbm,
+    cutter: C.cutter,
+    hub: C.hub,
+    spokes: 8,
+    shieldLengthM: TBM_SHIELD_LENGTH_M,
+    lengthM: TBM_LENGTH_M,
+    cars: 5,
+    halfWidthM: Math.min(radiusM * 0.52, 2.1),
+    topM: Math.min(radiusM * 0.55, 2.4),
+  });
+}
+
+/** The machine kinds of the tunnel types (core TbmEntity.machine). */
+export const MACHINE_KINDS: readonly MachineKind[] = ['twinBore', 'singleBore', 'smallBore', 'roadheader', 'excavator'];
+export type { MachineKind };
+
+/** Diameter each kind is drawn at when the entity gives none, metres. */
+export const MACHINE_DIAMETER_M: Record<MachineKind, number> = {
+  twinBore: 6.6,
+  singleBore: 12,
+  smallBore: 3.7,
+  roadheader: 6.6,
+  excavator: 6.6,
+};
+
+/** Floor of an open trench below the heading axis, metres: the floor of the box frame (buildBoxFrame). */
+export const TRENCH_FLOOR_M = RAIL_DROP_M + 0.6;
+
+export interface MachineModel {
+  /** Everything that does not move. */
+  body: MeshData;
+  /** The working part, in its own frame at `toolAt`: cutterhead, cutting head or digging arm. */
+  tool: MeshData;
+  toolAt: [number, number, number];
+  /** 'spin': the tool turns about z. 'dig': the tool rocks about x (an arm lifting and lowering its bucket). */
+  motion: 'spin' | 'dig';
+  /** From the face to the last trailing part, metres. */
+  lengthM: number;
+}
+
+/**
+ * The machine of one tube or heading, by kind. Origin: centre of the face on the heading axis; everything
+ * extends towards -z. The three shields and the roadheader are sized from `diameterM` (the excavated diameter);
+ * the excavator is one size and stands on the trench floor, TRENCH_FLOOR_M below the axis.
+ */
+export function buildMachine(kind: MachineKind, diameterM: number): MachineModel {
+  if (kind === 'excavator') return excavator();
+  if (!(diameterM > 2) || !Number.isFinite(diameterM))
+    throw new RangeError(`buildMachine: ${kind} diameter must be > 2 m, got ${diameterM}`);
+  const r = diameterM / 2;
+  if (kind === 'roadheader') return roadheader(diameterM);
+  let m: { head: MeshData; body: MeshData };
+  let lengthM: number;
+  if (kind === 'twinBore') {
+    m = buildTbm(r);
+    lengthM = TBM_LENGTH_M;
+  } else if (kind === 'singleBore') {
+    // The large single bore: a longer shield, a wider and taller gantry of six cars, blue with a red wheel.
+    const shieldLengthM = Math.max(TBM_SHIELD_LENGTH_M, r * 2.3);
+    lengthM = shieldLengthM + 61;
+    m = shieldMachine(r, {
+      shield: C.single,
+      cutter: C.singleCutter,
+      hub: C.white,
+      spokes: 12,
+      shieldLengthM,
+      lengthM,
+      cars: 6,
+      halfWidthM: Math.max(2.1, r * 0.55),
+      topM: Math.max(2.4, r * 0.5),
+    });
+  } else {
+    // The small bore: a short green shield and one sled.
+    const shieldLengthM = Math.max(4, r * 3.2);
+    lengthM = shieldLengthM + 8;
+    m = shieldMachine(r, {
+      shield: C.small,
+      cutter: C.warning,
+      hub: C.steelDark,
+      spokes: 6,
+      shieldLengthM,
+      lengthM,
+      cars: 0,
+      halfWidthM: 0,
+      topM: 0,
+    });
+  }
+  return { body: m.body, tool: m.head, toolAt: [0, 0, 0], motion: 'spin', lengthM };
+}
+
+/** Boxes stepping from (y0, z0) to (y1, z1) in the y-z plane: a sloping beam in the voxel look. */
+function beam(b: MeshBuilder, x0: number, x1: number, y0: number, z0: number, y1: number, z1: number, thick: number, color: number): void {
+  const n = Math.max(2, Math.round(Math.hypot(y1 - y0, z1 - z0) / (thick * 0.8)));
+  const dy = (y1 - y0) / n;
+  const dz = (z1 - z0) / n;
+  for (let i = 0; i < n; i++) {
+    const y = y0 + (i + 0.5) * dy;
+    const z = z0 + (i + 0.5) * dz;
+    b.box((x0 + x1) / 2, y, z, x1 - x0, Math.abs(dy) + thick, Math.abs(dz) + thick, color);
+  }
+}
+
+/** Two crawler tracks with rollers, from z0 to z1 on the floor `f`. */
+function crawler(b: MeshBuilder, inner: number, outer: number, f: number, height: number, z0: number, z1: number): void {
+  for (const side of [-1, 1]) {
+    const xa = Math.min(side * inner, side * outer);
+    const xb = Math.max(side * inner, side * outer);
+    b.span(xa, f, z0, xb, f + height, z1, C.steelDark);
+    const xo = side * outer;
+    const lip = side * (outer + height * 0.08);
+    const n = 4;
+    for (let i = 0; i < n; i++) {
+      const z = z0 + ((i + 0.5) * (z1 - z0)) / n;
+      b.span(Math.min(xo, lip), f + height * 0.2, z - height * 0.3, Math.max(xo, lip), f + height * 0.8, z + height * 0.3, C.steel);
+    }
+  }
+}
+
+/** A roadheader for a mined tunnel: crawler body, loading apron, a boom and a small cutting head on the axis. */
+function roadheader(diameterM: number): MachineModel {
+  const u = diameterM / 6.6;
+  const f = -2.64 * u;
+  const b = new MeshBuilder();
+  const S = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: number): void => {
+    b.span(x0 * u, f + y0 * u, z0 * u, x1 * u, f + y1 * u, z1 * u, color);
+  };
+  crawler(b, 1.0 * u, 1.6 * u, f, 0.7 * u, -8.4 * u, -2.8 * u);
+  S(-1.0, 0.35, -8.6, 1.0, 0.9, -2.6, C.steel);
+  S(-1.15, 0.9, -8.6, 1.15, 2.0, -3.6, C.road);
+  S(-0.8, 2.0, -8.4, 0.8, 2.4, -5.6, shade(C.road, 0.8));
+  // Cab on the left, glass to the front and the side.
+  S(0.25, 2.0, -5.4, 1.1, 3.0, -3.9, C.white);
+  S(0.35, 2.3, -3.9, 1.0, 2.9, -3.86, C.glass);
+  S(1.1, 2.3, -5.2, 1.14, 2.9, -4.1, C.glass);
+  // Turret, boom rising to the axis, a cylinder under it.
+  S(-0.6, 1.2, -3.6, 0.6, 2.3, -2.9, C.steelDark);
+  beam(b, -0.3 * u, 0.3 * u, f + 1.9 * u, -3.0 * u, -0.05 * u, -1.1 * u, 0.6 * u, C.road);
+  beam(b, -0.12 * u, 0.12 * u, f + 1.1 * u, -2.8 * u, -0.6 * u, -1.5 * u, 0.22 * u, C.rail);
+  // Loading apron with two gathering stars, conveyor rising out of the back.
+  S(-1.7, 0, -2.8, 1.7, 0.3, -1.3, C.steel);
+  for (const x of [-0.85, 0.85]) S(x - 0.45, 0.3, -2.5, x + 0.45, 0.42, -1.6, C.warning);
+  beam(b, -0.35 * u, 0.35 * u, f + 1.7 * u, -8.4 * u, f + 2.5 * u, -11.4 * u, 0.25 * u, C.belt);
+  for (const x of [-0.9, -0.4]) S(x - 0.15, 2.0, -3.75, x + 0.15, 2.3, -3.6, C.lamp);
+
+  // Cutting head: a drum and a nose with picks, turning about the tunnel axis.
+  const h = new MeshBuilder();
+  h.discZ(0.62 * u, 0.25 * u, -1.15 * u, -0.5 * u, () => C.steelDark);
+  h.discZ(0.42 * u, 0.21 * u, -0.5 * u, -0.08 * u, () => C.steel);
+  h.box(0, 0, -0.06 * u, 0.3 * u, 0.3 * u, 0.12 * u, C.warning);
+  for (let i = 0; i < 8; i++) {
+    h.box(0, -0.66 * u, (i % 2 === 0 ? -0.95 : -0.68) * u, 0.14 * u, 0.2 * u, 0.16 * u, C.bit, (i * Math.PI) / 4);
+  }
+  for (let i = 0; i < 6; i++) h.box(0, -0.46 * u, -0.28 * u, 0.12 * u, 0.18 * u, 0.14 * u, C.bit, ((i + 0.5) * Math.PI) / 3);
+  return { body: b.build(), tool: h.build(), toolAt: [0, 0, 0], motion: 'spin', lengthM: 11.6 * u };
+}
+
+/** A tracked excavator in an open trench: undercarriage, house with cab and counterweight, boom, stick and bucket at the face. */
+function excavator(): MachineModel {
+  const f = -TRENCH_FLOOR_M;
+  const b = new MeshBuilder();
+  const S = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, color: number): void => {
+    b.span(x0, f + y0, z0, x1, f + y1, z1, color);
+  };
+  crawler(b, 1.0, 1.7, f, 0.8, -10, -5.2);
+  S(-1.0, 0.4, -9.2, 1.0, 0.95, -6, C.steel);
+  // House: engine cover, counterweight at the back, cab at the front left.
+  S(-1.45, 0.95, -10.6, 1.45, 2.3, -5.6, C.crane);
+  S(-1.45, 0.95, -11.2, 1.45, 2.1, -10.6, C.steelDark);
+  S(-1.3, 2.3, -10.4, 0.3, 2.7, -7.6, shade(C.crane, 0.82));
+  S(-0.9, 2.7, -9.6, -0.6, 3.2, -9.3, C.steelDark);
+  S(0.45, 2.3, -7.2, 1.4, 3.3, -5.5, C.crane);
+  S(0.55, 1.9, -5.5, 1.3, 3.2, -5.46, C.glass);
+  S(1.4, 2.2, -7.0, 1.44, 3.2, -5.7, C.glass);
+  S(0.45, 3.3, -7.2, 1.4, 3.4, -5.5, C.steelDark);
+
+  // Arm in the frame of its foot pin: boom up and forward, stick down to the bucket on the trench floor.
+  const pin: [number, number, number] = [-0.3, f + 2.1, -5.9];
+  const a = new MeshBuilder();
+  beam(a, -0.3, 0.3, 0, 0, 3.0, 2.2, 0.7, C.crane);
+  beam(a, -0.3, 0.3, 3.0, 2.2, 3.3, 3.6, 0.7, C.crane);
+  beam(a, -0.24, 0.24, 3.3, 3.6, -0.6, 4.9, 0.55, shade(C.crane, 0.88));
+  // Cylinders: under the boom and on the back of the stick.
+  beam(a, -0.1, 0.1, 0.2, 0.9, 2.2, 2.2, 0.22, C.rail);
+  beam(a, -0.1, 0.1, 3.9, 2.9, 2.2, 3.5, 0.22, C.rail);
+  // Bucket with teeth.
+  a.span(-0.65, -1.85, 4.3, 0.65, -0.6, 5.4, C.steelDark);
+  a.span(-0.55, -1.7, 4.45, 0.55, -0.75, 5.42, C.belt);
+  for (const x of [-0.5, -0.17, 0.17, 0.5]) a.span(x - 0.08, -1.9, 5.3, x + 0.08, -1.65, 5.6, C.bit);
+  return { body: b.build(), tool: a.build(), toolAt: pin, motion: 'dig', lengthM: 11.2 };
 }
 
 /** A surface heading (track gang, viaduct crew): a track machine standing on the rails. Origin on the rails at its front. */

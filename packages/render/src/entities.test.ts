@@ -1,9 +1,9 @@
 import { ENTITY_COLORS, type EntityScene, type StationEntity, type TunnelEntity, type WorldPos } from '@bayvox/core';
 import type { Group, InstancedMesh, Mesh, Object3D } from 'three';
 import { expect, test } from 'vitest';
-import { createEntityLayer } from './entities.ts';
+import { createEntityLayer, machineOf } from './entities.ts';
 import { hexToLinear } from './mesh-builder.ts';
-import { RAIL_DROP_M, TBM_LENGTH_M } from './models.ts';
+import { buildMachine, buildTbm, MACHINE_DIAMETER_M, MACHINE_KINDS, RAIL_DROP_M, TBM_LENGTH_M } from './models.ts';
 import { OverlayLayer } from './overlay.ts';
 
 // A drive heading east (+x): yaw 90 degrees, left of travel is north (-z).
@@ -192,6 +192,110 @@ test('a possessed machine opens the cutaway around itself, hides the crowns and 
   expect(o.size).toBe(0);
   expect(() => layer.sync(scene({ tbms: [{ ...tbm, thrust: 2 }] }))).toThrow(/thrust must be in \[0, 1\]/);
   expect(() => layer.sync(scene({ tbms: [tbm, tbm] }))).toThrow(/duplicate tbm id/);
+});
+
+const heading = { id: 'h', position: AT(120), yaw: YAW, pitch: 0, radiusM: 3.3, laterals: [0], status: 'running' as const, thrust: 1 };
+/** The meshes of the one machine item in the overlay, body then tool per tube. */
+function machineMeshes(o: OverlayLayer): Mesh[] {
+  const item = o.group.children.find((c) => c.rotation.y === YAW && c.children.length === 1) as Group;
+  return (item.children[0]?.children ?? []) as Mesh[];
+}
+/** A ray straight down onto the heading axis, `behindM` behind the face. */
+const down = (behindM: number): { origin: WorldPos; dir: WorldPos } => ({ origin: AT(120 - behindM, 100), dir: { x: 0, y: -1, z: 0 } });
+const vertices = (m: Mesh | undefined): number => m?.geometry.getAttribute('position').count ?? -1;
+
+test('machineOf: kind and diameter when the heading has them, the old model when it does not', () => {
+  expect(machineOf(heading)).toEqual({ kind: null, diameterM: 6.6 });
+  expect(machineOf({ ...heading, machine: 'singleBore', diameterM: 12.4 })).toEqual({ kind: 'singleBore', diameterM: 12.4 });
+  // No diameter: twice the radius; no radius either: the usual size of the kind.
+  expect(machineOf({ ...heading, machine: 'smallBore', radiusM: 1.85 })).toEqual({ kind: 'smallBore', diameterM: 3.7 });
+  expect(machineOf({ ...heading, machine: 'excavator', radiusM: 0 })).toEqual({
+    kind: 'excavator',
+    diameterM: MACHINE_DIAMETER_M.excavator,
+  });
+});
+
+test('each machine kind draws its own model, sized by diameterM; a twin bore draws two', () => {
+  for (const kind of MACHINE_KINDS) {
+    const o = new OverlayLayer();
+    const layer = createEntityLayer(o);
+    const d = MACHINE_DIAMETER_M[kind];
+    const laterals = kind === 'twinBore' ? [-5.5, 5.5] : [0];
+    layer.sync(scene({ tbms: [{ ...heading, machine: kind, diameterM: d, radiusM: kind === 'excavator' ? 0 : d / 2, laterals }] }));
+    const meshes = machineMeshes(o);
+    const model = buildMachine(kind, d);
+    expect(meshes.length, kind).toBe(kind === 'twinBore' ? 4 : 2);
+    expect(vertices(meshes[0]), kind).toBe(model.body.positions.length / 3);
+    expect(vertices(meshes[1]), kind).toBe(model.tool.positions.length / 3);
+    expect(meshes[1]?.position.toArray(), kind).toEqual([(laterals[0] as number) + model.toolAt[0], model.toolAt[1], model.toolAt[2]]);
+    if (kind === 'twinBore') {
+      // Two shields, two cutterheads, sharing geometry: one each side of the heading axis.
+      expect(meshes.map((m) => m.position.x)).toEqual([-5.5, -5.5, 5.5, 5.5]);
+      expect(meshes[2]?.geometry).toBe(meshes[0]?.geometry);
+      expect(meshes[3]?.geometry).toBe(meshes[1]?.geometry);
+    }
+    // Follow bounds come from the model: its length behind the face, its reach across.
+    expect(layer.pick(down(model.lengthM * 0.95), 500), kind).toEqual({ type: 'tbm', id: 'h' });
+    expect(layer.pick(down(model.lengthM * 1.05), 500), kind).toBeNull();
+    // The working part moves with the same clock as the cutterhead: it spins, or the arm lifts its bucket.
+    // Possessed, every kind opens the cutaway: as long as its own model plus lined tunnel, as wide as its trench.
+    layer.sync(
+      scene({
+        tbms: [{ ...heading, machine: kind, diameterM: d, radiusM: kind === 'excavator' ? 0 : d / 2, laterals }],
+        possessedTbmId: 'h',
+      }),
+    );
+    expect(o.cutaway?.behindM, kind).toBeCloseTo(model.lengthM + 34, 9);
+    expect(o.cutaway?.halfWidthM, kind).toBeCloseTo(Math.abs(laterals[0] as number) + d / 2 + 9, 9);
+    layer.update(0.5);
+    if (model.motion === 'spin') expect(meshes[1]?.rotation.z, kind).toBeCloseTo(0.5 * 2.1, 9);
+    else {
+      expect(meshes[1]?.rotation.z, kind).toBe(0);
+      expect(meshes[1]?.rotation.x, kind).toBeLessThan(0);
+      expect(meshes[1]?.rotation.x, kind).toBeGreaterThan(-0.2);
+    }
+    layer.dispose();
+  }
+});
+
+test('the drawn machine tracks diameterM, and a change of kind or diameter rebuilds it', () => {
+  const o = new OverlayLayer();
+  const layer = createEntityLayer(o);
+  const width = (): number => {
+    const g = (machineMeshes(o)[1] as Mesh).geometry;
+    g.computeBoundingBox();
+    return (g.boundingBox?.max.x ?? 0) - (g.boundingBox?.min.x ?? 0);
+  };
+  layer.sync(scene({ tbms: [{ ...heading, machine: 'singleBore', diameterM: 12, radiusM: 6 }] }));
+  expect(width()).toBeCloseTo(12, 0);
+  layer.sync(scene({ tbms: [{ ...heading, machine: 'singleBore', diameterM: 9, radiusM: 4.5 }] }));
+  expect(width()).toBeCloseTo(9, 0);
+  layer.sync(scene({ tbms: [{ ...heading, machine: 'smallBore', diameterM: 3.7, radiusM: 1.85 }] }));
+  expect(width()).toBeCloseTo(3.7, 0);
+  expect(o.size).toBe(1);
+  layer.sync(scene());
+  expect(o.size).toBe(0);
+});
+
+test('a heading with no machine kind is drawn as before', () => {
+  const old = buildTbm(3.3);
+  for (const extra of [{}, { machine: undefined, diameterM: undefined }]) {
+    const o = new OverlayLayer();
+    const layer = createEntityLayer(o);
+    layer.sync(scene({ tbms: [{ ...heading, laterals: [-5.5, 5.5], ...extra }] }));
+    const meshes = machineMeshes(o);
+    expect(meshes.length).toBe(4);
+    expect(vertices(meshes[0])).toBe(old.body.positions.length / 3);
+    expect(vertices(meshes[1])).toBe(old.head.positions.length / 3);
+    expect(layer.pick(down(TBM_LENGTH_M - 1), 500)).toEqual({ type: 'tbm', id: 'h' });
+    expect(layer.pick(down(TBM_LENGTH_M + 1), 500)).toBeNull();
+    layer.dispose();
+  }
+  // A surface heading without a kind is still the track machine: one mesh, nothing that turns.
+  const o = new OverlayLayer();
+  const layer = createEntityLayer(o);
+  layer.sync(scene({ tbms: [{ ...heading, radiusM: 0, laterals: [] }] }));
+  expect(machineMeshes(o).length).toBe(1);
 });
 
 test('cutaway: false never opens the ground', () => {
