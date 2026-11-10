@@ -35,6 +35,10 @@ export interface UiStoreInternal extends UiStore {
   readonly costBenefit: readonly CostBenefitRow[];
   /** Backlash posts the player closed (postKey). UI-local: the sim keeps the posts. */
   readonly postsClosed: Signal<ReadonlySet<string>>;
+  /** Posts of a pile-on that have not arrived yet (postKey): they come one after another, POST_STAGGER_MS apart. */
+  readonly postsPending: Signal<ReadonlySet<string>>;
+  /** The post that arrived last (postKey), or null: it shakes and the box flashes. */
+  readonly postFresh: Signal<string | null>;
   closePost(key: string): void;
   closeAllPosts(): void;
   dispose(): void;
@@ -69,6 +73,8 @@ const PAUSING_PANELS: ReadonlySet<PanelId> = new Set(['reforms', 'design']);
 /** How long a toast and a banner stay, milliseconds. */
 export const TOAST_MS = 6000;
 export const BANNER_MS = 4500;
+/** Gap between two posts of one pile-on. */
+export const POST_STAGGER_MS = 400;
 /** Three notices at most: the second playtest had four over a map label and over the breakthrough banner. */
 const MAX_TOASTS = 3;
 
@@ -95,6 +101,8 @@ export function createStore(services: BayServices, extras: UiExtras = {}): UiSto
   // Posts already in the snapshot when the UI mounts (a loaded save) are history, not news.
   const postsClosed = signal<ReadonlySet<string>>(new Set(socialPosts(first).map(postKey)));
   let lastPostId = socialPosts(first).at(-1)?.id ?? 0;
+  const postsPending = signal<ReadonlySet<string>>(new Set());
+  const postFresh = signal<string | null>(null);
   // Items already in the feed when the UI mounts (a loaded save) are history, not news.
   const feedSeen = signal(first.feed.length > 0 ? first.feed[first.feed.length - 1].seq : 0);
   const noticesSeen = new Set(first.notices.map(noticeKey));
@@ -121,6 +129,19 @@ export function createStore(services: BayServices, extras: UiExtras = {}): UiSto
     later(TOAST_MS, () => dismiss(t.key));
   };
 
+  /** A post comes on screen. A staggered one that is no longer waiting (close all, a restart) stays away. */
+  const arrive = (key: string, staggered: boolean): void => {
+    if (staggered) {
+      if (!postsPending.value.has(key)) return;
+      const pending = new Set(postsPending.value);
+      pending.delete(key);
+      postsPending.value = pending;
+    }
+    if (postsClosed.value.has(key)) return;
+    postFresh.value = key;
+    services.audio.cue('event.raised');
+  };
+
   const onSnapshot = (s: GameSnapshot): void => {
     const last = s.feed.length > 0 ? s.feed[s.feed.length - 1].seq : 0;
     // A snapshot that arrives while a mission or a save loads is the state being restored: its feed and notices are history.
@@ -129,12 +150,29 @@ export function createStore(services: BayServices, extras: UiExtras = {}): UiSto
       for (const n of s.notices) noticesSeen.add(noticeKey(n));
       postsClosed.value = new Set(socialPosts(s).map(postKey));
       lastPostId = socialPosts(s).at(-1)?.id ?? 0;
+      postsPending.value = new Set();
+      postFresh.value = null;
       return;
     }
     // A restart rewinds the post ids: what was closed in the previous run says nothing about this one.
     const newestPost = socialPosts(s).at(-1)?.id ?? 0;
-    if (newestPost < lastPostId) postsClosed.value = new Set();
+    if (newestPost < lastPostId) {
+      postsClosed.value = new Set();
+      postsPending.value = new Set();
+      postFresh.value = null;
+      lastPostId = 0;
+    }
+    // A pile-on arrives one post after another: the first now, each next one a beat later.
+    const arrivals = socialPosts(s).filter((p) => p.id > lastPostId);
     lastPostId = newestPost;
+    if (arrivals.length > 0) {
+      postsPending.value = new Set([...postsPending.value, ...arrivals.slice(1).map(postKey)]);
+      arrivals.forEach((p, i) => {
+        const key = postKey(p);
+        if (i === 0) arrive(key, false);
+        else later(i * POST_STAGGER_MS, () => arrive(key, true));
+      });
+    }
     // A restart or a load of an older save rewinds the feed: forget what the previous run showed.
     if (last < feedSeen.value) feedSeen.value = last;
     for (const item of s.feed) {
@@ -210,10 +248,13 @@ export function createStore(services: BayServices, extras: UiExtras = {}): UiSto
     gateDismissed,
     costBenefit: extras.costBenefit ?? [],
     postsClosed,
+    postsPending,
+    postFresh,
     closePost(key) {
       postsClosed.value = new Set([...postsClosed.value, key]);
     },
     closeAllPosts() {
+      postsPending.value = new Set();
       postsClosed.value = new Set(socialPosts(snapshot.value).map(postKey));
     },
     openReform(reformId) {

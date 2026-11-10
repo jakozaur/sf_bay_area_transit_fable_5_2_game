@@ -1,9 +1,20 @@
 import type { FeedItem } from '@bayvox/sim';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createUiStore } from './index.ts';
-import { actionButton, missionProject, polandTarget, postKey, type SocialPost, safeRatio, selectTool, visibleLines } from './model.ts';
+import {
+  actionButton,
+  angryCount,
+  missionProject,
+  polandTarget,
+  postKey,
+  postStats,
+  type SocialPost,
+  safeRatio,
+  selectTool,
+  visibleLines,
+} from './model.ts';
 import { nextMissionToPlay } from './screens.tsx';
-import { BANNER_MS, createStore, TOAST_MS } from './store.ts';
+import { BANNER_MS, createStore, POST_STAGGER_MS, TOAST_MS } from './store.ts';
 import { createFakeServices, SCENES, snapshot } from './testing/index.ts';
 
 beforeEach(() => void vi.useFakeTimers());
@@ -213,6 +224,33 @@ test('backlash posts: closing one hides it, close all hides every post, a restar
   // Restart: ids start over, and the same post at the same tick is news again.
   services.setSnapshot(withPosts([post(1, 3)]));
   expect(open()).toEqual([1]);
+  store.dispose();
+});
+
+test('a pile-on arrives one post after another, the newest is the fresh one, and close all drops the ones still on their way', () => {
+  const services = fake('drive');
+  const base = services.sim.snapshot.get();
+  const post = (id: number): SocialPost => ({ id, tick: 9, handle: `@voter${id}`, text: `post ${id}`, cause: 'reform:x', burst: 1 });
+  const store = createStore(services);
+  const pending = (): number => store.postsPending.value.size;
+  services.setSnapshot({ ...base, socialPosts: [post(1), post(2), post(3)] });
+  expect(pending()).toBe(2);
+  expect(store.postFresh.value).toBe(postKey(post(1)));
+  vi.advanceTimersByTime(POST_STAGGER_MS);
+  expect(pending()).toBe(1);
+  expect(store.postFresh.value).toBe(postKey(post(2)));
+  vi.advanceTimersByTime(POST_STAGGER_MS);
+  expect(pending()).toBe(0);
+  expect(store.postFresh.value).toBe(postKey(post(3)));
+  expect(services.calls.filter((c) => c.name === 'audio.cue' && c.args[0] === 'event.raised')).toHaveLength(3);
+  // Three posters and their likes and reposts: everyone counts.
+  expect(angryCount([post(1), { ...post(2), likes: 10, reposts: 2 }])).toBe(1 + postStats(post(1)).likes + postStats(post(1)).reposts + 13);
+  // Close all while two of the next pile-on are still on their way: they never show.
+  services.setSnapshot({ ...base, socialPosts: [post(1), post(2), post(3), post(4), post(5), post(6)] });
+  store.closeAllPosts();
+  vi.advanceTimersByTime(POST_STAGGER_MS * 3);
+  expect(pending()).toBe(0);
+  expect(store.postFresh.value).toBe(postKey(post(4)));
   store.dispose();
 });
 

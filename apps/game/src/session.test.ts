@@ -9,6 +9,8 @@ import { SimDriver } from './sim-driver.ts';
 import { createMemoryStore, GameStorage, type KeyValueStore } from './storage.ts';
 
 const PORTAL = SCENARIOS[0] as ScenarioDef;
+/** The last campaign mission, whatever the scenarios package lists. */
+const LAST_MISSION = (SCENARIOS.filter((s) => s.sandbox !== true).at(-1) as ScenarioDef).id;
 
 interface Rig {
   session: Session;
@@ -97,8 +99,8 @@ test('title, briefing, start: screens, no locks and the hooks in order', async (
   expect(sites).toEqual(['googleplex']);
   expect(log.slice(-3)).toEqual(['siteLoaded', 'detach', 'start:googleplex-spur']);
   // A mission the old campaign order kept shut is briefed without The Portal being opened.
-  port.brief('oracle-shuttle');
-  expect(port.state.get()).toMatchObject({ screen: 'briefing', missionId: 'oracle-shuttle', error: null });
+  port.brief(LAST_MISSION);
+  expect(port.state.get()).toMatchObject({ screen: 'briefing', missionId: LAST_MISSION, error: null });
 });
 
 test('a mission that fails to load goes back to where it came from with the reason', async () => {
@@ -184,6 +186,6 @@ test('opening the line records the result, unlocks the next mission and brings u
   // From the scorecard the next mission is briefed; the last campaign mission has none.
   await port.nextMission();
   expect(port.state.get()).toMatchObject({ screen: 'briefing', missionId: 'googleplex-spur' });
-  await session.startUnlocked('oracle-shuttle');
+  await session.startUnlocked(LAST_MISSION);
   await expect(port.nextMission()).rejects.toThrow(/last mission/);
 });

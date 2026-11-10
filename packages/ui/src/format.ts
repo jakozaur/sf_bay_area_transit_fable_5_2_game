@@ -107,6 +107,7 @@ const MANDATE_LABEL: Readonly<Record<string, string>> = {
   'design.oversizeStations': 'Full-length mezzanines are no longer required',
   'design.bespoke': 'Stations come from a catalogue',
   'design.terminalOversize': 'The terminal is fitted out for the trains it will see',
+  'tbm.smallBore': 'One 3.7 m small bore for pods in place of two railway tubes',
   'design.twinBoreDefault': 'Caverns and giant bores nobody chose are redrawn as twin bores',
 };
 
@@ -165,6 +166,13 @@ export function length(m: number): string {
 /** Whole number with thousands separators: 41,200. */
 export function count(n: number): string {
   return Math.round(finite(n, 'count')).toLocaleString('en-US');
+}
+
+/** Social counts: 940, 1.2k, 38k. */
+export function compact(n: number): string {
+  const v = Math.round(finite(n, 'compact'));
+  if (Math.abs(v) < 1000) return String(v);
+  return Math.abs(v) < 10_000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v / 1000)}k`;
 }
 
 /** Political capital: 40 PC. */

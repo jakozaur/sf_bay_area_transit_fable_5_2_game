@@ -11,7 +11,6 @@ const EXPECT: Record<SceneId, string[]> = {
     'mission-the-portal',
     'mission-googleplex',
     'mission-dumbarton',
-    'mission-oracle',
     'mission-sandbox',
     'title-credits',
   ],
@@ -79,6 +78,8 @@ const EXPECT: Record<SceneId, string[]> = {
     'score-next',
     'score-keep',
   ],
+  backlash: ['panel-project', 'housing', 'housing-enact-saltPonds', 'backlash', 'backlash-angry', 'backlash-close-all'],
+  'backlash-plain': ['backlash', 'backlash-angry', 'backlash-more', 'toolbar'],
   menu: ['panel-menu', 'menu-save', 'menu-restart', 'menu-missions', 'menu-help', 'menu-credits', 'menu-mute'],
   help: ['panel-help'],
   credits: ['panel-credits', 'credits'],
@@ -106,6 +107,7 @@ async function regions(page: Page): Promise<Box[]> {
       ['briefing', '.bv-brief .bv-sheet'],
       ['gate card', '.bv-gatecard .bv-sheet'],
       ['notices', '.bv-toasts'],
+      ['backlash', '.bv-backlash'],
     ];
     const out: { name: string; x: number; y: number; w: number; h: number }[] = [];
     for (const [name, sel] of pick) {
@@ -144,7 +146,9 @@ for (const id of SCENE_IDS) {
       for (let j = i + 1; j < boxes.length; j++)
         expect(overlap(boxes[i], boxes[j]), `${boxes[i].name} overlaps ${boxes[j].name}`).toBe(false);
     }
-    if (!MODAL.has(id)) for (const b of boxes) expect(overlap(b, CENTRE), `${b.name} covers the map centre`).toBe(false);
+    // The backlash box is the one exception: a pile-on is meant to be in the way until it is closed.
+    if (!MODAL.has(id))
+      for (const b of boxes) if (b.name !== 'backlash') expect(overlap(b, CENTRE), `${b.name} covers the map centre`).toBe(false);
 
     // No text is clipped sideways, except the two lines that are built to truncate with an ellipsis.
     const clipped = await page.evaluate(() => {

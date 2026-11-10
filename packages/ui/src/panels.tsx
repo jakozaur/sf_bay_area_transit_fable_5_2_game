@@ -34,7 +34,7 @@ import {
   ratio,
   years,
 } from './format.ts';
-import { act, actionButton, command, missionProject, selectTool, visibleLines } from './model.ts';
+import { act, actionButton, command, housingOptions, missionProject, selectTool, visibleLines } from './model.ts';
 
 // ---------------------------------------------------------------- tool panel
 
@@ -410,6 +410,49 @@ export function DesignPanel({ store }: StoreProps): JSX.Element {
 
 // ---------------------------------------------------------------- project
 
+/**
+ * Housing and upzoning beside the line: each option costs political capital (so it draws backlash), adds homes
+ * and so riders. Nothing when the mission has no options.
+ */
+export function HousingSection({ store }: StoreProps): JSX.Element | null {
+  const s = store.snapshot.value;
+  const options = housingOptions(s);
+  if (options.length === 0) return null;
+  return (
+    <div class="bv-sec" data-testid="housing">
+      <h3>Housing</h3>
+      <p class="bv-note">
+        Homes beside the stations are riders. Each rezoning costs political capital, and the internet will have opinions.
+      </p>
+      <ul class="bv-housing">
+        {options.map((o) => (
+          <li key={o.id} class={cx(o.enacted && 'is-enacted')} data-testid={`housing-${o.id}`}>
+            <b>{o.title}</b>
+            <span class="bv-small">{o.blurb}</span>
+            <span class="nums">
+              +{count(o.homes)} homes, +{count(o.ridersPerDayAdded)} riders a day
+            </span>
+            {o.enacted ? (
+              <span class="bv-tag is-good">Enacted</span>
+            ) : (
+              <Btn
+                kind="primary"
+                testId={`housing-enact-${o.id}`}
+                disabledReason={
+                  s.politicalCapital >= o.capitalCost ? null : `Costs ${capital(o.capitalCost)}, you have ${capital(s.politicalCapital)}`
+                }
+                onClick={() => command(store, { t: 'enactHousing', optionId: o.id })}
+              >
+                Enact for {capital(o.capitalCost)}
+              </Btn>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function ProjectPanel({ store }: StoreProps): JSX.Element {
   const s = store.snapshot.value;
   const project = missionProject(s);
@@ -425,6 +468,7 @@ export function ProjectPanel({ store }: StoreProps): JSX.Element {
             {a.label}
           </Btn>
         )}
+        <HousingSection store={store} />
         <Objectives store={store} />
       </Sheet>
     );
@@ -443,6 +487,7 @@ export function ProjectPanel({ store }: StoreProps): JSX.Element {
           </Btn>
         )}
       </div>
+      <HousingSection store={store} />
       <div class="bv-sec" data-testid="project-design">
         <h3>Design</h3>
         <ul class="bv-rows">
@@ -611,6 +656,11 @@ const SPECUSTAWA = 'specustawa';
 const SPECUSTAWA_NOTE =
   'The Polish special-purpose act: the corridor becomes a special zone where every permit phase takes zero time. It costs a lot of political capital, expect backlash, and it is the fastest way under the 2x Poland timeline.';
 
+/** The Vegas-style small bore (M2 shared contract id). */
+const SMALL_BORE = 'smallBoreLoop';
+const SMALL_BORE_NOTE =
+  'The Vegas-style small bore: a 3.7 m single-lane tunnel, mined continuously, launched from the surface with no launch pit. Much faster and much cheaper per km. The catch: a Caltrain train does not fit. It carries low-capacity pods, so the line serves far fewer riders or runs as a separate shuttle. Precedent: The Boring Company, Las Vegas Convention Center loop.';
+
 function reformCost(r: ReformView): string {
   const parts: string[] = [];
   if (r.cost.pc > 0) parts.push(capital(r.cost.pc));
@@ -652,6 +702,7 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
         <span class="title">
           {r.title}
           {r.id === SPECUSTAWA && r.status !== 'enacted' && <span class="bv-tag is-hi bv-tag-gap">skips permitting</span>}
+          {r.id === SMALL_BORE && r.status !== 'enacted' && <span class="bv-tag is-hi bv-tag-gap">fast, cheap, tiny</span>}
         </span>
         <span class="cost">{r.status === 'enacted' ? <span class="bv-tag is-good">Enacted</span> : reformCost(r)}</span>
         {!open && p !== null && (
@@ -667,6 +718,11 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
           {r.id === SPECUSTAWA && (
             <p class="bv-small bv-spec" data-testid="reform-specustawa-note">
               {SPECUSTAWA_NOTE}
+            </p>
+          )}
+          {r.id === SMALL_BORE && (
+            <p class="bv-small bv-spec" data-testid="reform-smallBoreLoop-note">
+              {SMALL_BORE_NOTE}
             </p>
           )}
           <ul class="bv-fxlist" data-testid={`reform-effects-${r.id}`}>

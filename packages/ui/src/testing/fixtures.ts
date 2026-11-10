@@ -40,6 +40,7 @@ import {
   type ReceiptLineId,
   type ReformView,
   type Scorecard,
+  type SocialPost,
   type StationView,
   type TbmView,
 } from '@bayvox/sim';
@@ -87,7 +88,6 @@ const MISSIONS: MissionCard[] = [
     [
       ['googleplex', 'Googleplex spur', 'A branch off Caltrain to the campus nobody planned a station for.', 'googleplex'],
       ['dumbarton', 'Dumbarton to Meta', 'The rail bridge has been out of service since 1982.', 'meta'],
-      ['oracle', 'Oracle Redwood Shores tunnel', 'Under the lagoon, into the towers.', 'oracle'],
     ] as const
   ).map(
     ([id, title, pitch, siteId]): MissionCard => ({
@@ -999,6 +999,53 @@ export interface Scene {
   followUp?: GameSnapshot;
 }
 
+/** Two spends of political capital: a pile-on of three, then of four. */
+const PILE_ON: SocialPost[] = (
+  [
+    ['@ParkingFirst94', 'Day 1 of asking who voted for this tunnel tyrant. Nobody. Nobody did.', 412, 88],
+    ['@SaveOurLawns', 'For 15 political capital you could have bought every commuter a pony. Ponies do not need permits.', 1890, 240],
+    ['@BayAreaDad_Real', 'This person plans railways the way my toddler plans dinner: loudly, and with a shovel.', 96, 12],
+    ['@HeronWatchSouthBay', 'Homes on the salt ponds?? The herons had ONE job site and you took it.', 12400, 3100],
+    ['@CupertinoKaren7', 'A dictator, but for trains. Worse than a group project with no shared doc.', 733, 150],
+    ['@TunnelTruth', 'For that money you could have paved the bay and called it a parking lot. I would have voted for that.', 2210, 310],
+    ['@NextdoorNeil', 'I have seen uglier ideas, but only on this same account, yesterday.', 58, 9],
+  ] as const
+).map(([handle, text, likes, reposts], i) => ({
+  id: i + 1,
+  tick: i < 3 ? 1700 : 1731,
+  handle,
+  text,
+  cause: i < 3 ? 'reform:twoTracks' : 'housing:saltPonds',
+  likes,
+  reposts,
+  burst: i < 3 ? 1 : 2,
+}));
+
+/** The snapshot with two housing options (one enacted) and, optionally, backlash posts. */
+function withHousing(s: GameSnapshot, posts: SocialPost[] = []): GameSnapshot {
+  const housing = [
+    {
+      id: 'saltPonds',
+      title: 'Homes on the salt works',
+      blurb: 'Rezone the Redwood City salt ponds beside the corridor for mid-rise housing. Assumption: 120 homes per hectare.',
+      homes: 24_000,
+      capitalCost: 30,
+      ridersPerDayAdded: 9_600,
+      enacted: false,
+    },
+    {
+      id: 'stationUpzone',
+      title: 'Upzone around the stations',
+      blurb: 'Six storeys within 800 m of every station.',
+      homes: 6_000,
+      capitalCost: 15,
+      ridersPerDayAdded: 2_400,
+      enacted: true,
+    },
+  ];
+  return { ...s, socialPosts: posts, housing };
+}
+
 const NO_DRIVE: ToolAvailability = { ...ALL_TOOLS_AVAILABLE, drive: 'No machine to drive yet. Launch the TBM first.' };
 const VIEW: GameViewState = { cut: false, cutY: 0, cutRadius: 96, xray: false };
 
@@ -1361,6 +1408,17 @@ export const SCENES = {
         next: { kind: 'viewScorecard', objective: 'The line is open', hint: 'See how you did.', focus: 'receipt' },
       }),
     ),
+  }),
+  backlash: scene('Backlash pile-on beside the project sheet with housing options', {
+    snapshot: withHousing(buildSnap()),
+    panel: 'project',
+    availability: ALL_TOOLS_AVAILABLE,
+    followUp: withHousing(buildSnap(), PILE_ON),
+  }),
+  'backlash-plain': scene('Backlash pile-on over the map', {
+    snapshot: buildSnap(),
+    availability: ALL_TOOLS_AVAILABLE,
+    followUp: { ...buildSnap(), socialPosts: PILE_ON },
   }),
   menu: scene('Menu', { snapshot: buildSnap(), panel: 'menu', availability: ALL_TOOLS_AVAILABLE }),
   help: scene('Controls help', { snapshot: buildSnap(), panel: 'help', availability: ALL_TOOLS_AVAILABLE }),

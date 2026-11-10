@@ -5,8 +5,20 @@ import type { JSX } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Bar, Btn, Bullet, cx, type StoreProps } from './bits.tsx';
 import type { PanelId } from './contract.ts';
-import { capital, dateLong, duration, money, moneyPerKm, ratio } from './format.ts';
-import { act, actionButton, missionProject, polandTarget, postKey, selectTool, socialPosts } from './model.ts';
+import { capital, compact, count, dateLong, duration, money, moneyPerKm, ratio } from './format.ts';
+import {
+  act,
+  actionButton,
+  angryCount,
+  missionProject,
+  polandTarget,
+  postKey,
+  postStats,
+  type SocialPost,
+  selectTool,
+  socialPosts,
+} from './model.ts';
+import { gateCardShowing } from './play.tsx';
 
 const SPEED_LABEL: Readonly<Record<GameSpeed, string>> = { 0: 'Pause', 1: '1x', 10: '10x', 100: '100x' };
 const HOLD_TEXT = { event: 'Time waits: answer the card', gate: 'Time waits: your move' } as const;
@@ -477,30 +489,60 @@ export function Toasts({ store }: StoreProps): JSX.Element {
 }
 
 /** Posts shown at once; the rest is a count. */
-const MAX_POSTS = 3;
+const MAX_POSTS = 4;
+
+function PostStats({ p }: { p: SocialPost }): JSX.Element {
+  const st = postStats(p);
+  return (
+    <span class="stats">
+      <b>{compact(st.likes)}</b> likes <b>{compact(st.reposts)}</b> reposts
+    </span>
+  );
+}
+
+/** "14 people are angry at you". */
+export function angryLine(posts: readonly SocialPost[]): string {
+  const n = angryCount(posts);
+  return n === 1 ? '1 person is angry at you' : `${count(n)} people are angry at you`;
+}
 
 /**
- * Social media backlash: a small box at the bottom with the posts the sim wrote when political capital was spent,
- * newest on top. Closing is UI-local. Nothing here takes focus: the buttons are clicked, and a click blurs them.
+ * Social media backlash: a wide box at the bottom centre, above the toolbar, with the pile-on the sim wrote when
+ * political capital was spent, newest on top. Posts of one spend arrive one after another (the store staggers
+ * them); the newest shakes and the box flashes red. Closing is UI-local. Nothing here takes focus: the buttons
+ * are clicked, and a click blurs them. Only the box itself takes pointer events.
  */
 export function Backlash({ store }: StoreProps): JSX.Element | null {
   const closed = store.postsClosed.value;
-  const open = socialPosts(store.snapshot.value)
-    .filter((p) => !closed.has(postKey(p)))
-    .reverse();
+  const pending = store.postsPending.value;
+  const arrived = socialPosts(store.snapshot.value).filter((p) => !pending.has(postKey(p)));
+  const open = arrived.filter((p) => !closed.has(postKey(p))).reverse();
   if (open.length === 0) return null;
-  const more = open.length - MAX_POSTS;
+  // Under a gate card the box folds to its header: the count stays, the decision stays clickable.
+  const shown = gateCardShowing(store) ? 0 : MAX_POSTS;
+  const more = open.length - shown;
+  const fresh = store.postFresh.value;
+  const tool = store.tool.value.id;
   return (
     <aside
-      class={cx('bv-backlash bv-live', store.panel.value !== null && 'is-beside-sheet')}
+      class={cx(
+        'bv-backlash bv-live',
+        store.panel.value !== null && 'is-beside-sheet',
+        tool !== null && tool !== 'drive' && 'is-beside-tool',
+        tool === 'drive' && 'is-over-drive',
+      )}
       aria-label="Social media backlash"
       data-testid="backlash"
     >
+      <div key={`flash-${fresh}`} class="flash" aria-hidden="true" />
       <div class="head">
-        <span>Backlash</span>
+        <span class="title">Backlash</span>
+        <span class="angry" data-testid="backlash-angry">
+          {angryLine(arrived)}
+        </span>
         {more > 0 && (
           <span class="more" data-testid="backlash-more">
-            +{more}
+            {shown === 0 ? `${more} ${more === 1 ? 'post' : 'posts'}` : `+${more} more`}
           </span>
         )}
         <button type="button" class="bv-link on-ink" tabIndex={-1} data-testid="backlash-close-all" onClick={() => store.closeAllPosts()}>
@@ -508,9 +550,10 @@ export function Backlash({ store }: StoreProps): JSX.Element | null {
         </button>
       </div>
       <ul>
-        {open.slice(0, MAX_POSTS).map((p) => (
-          <li key={postKey(p)} data-testid={`post-${p.id}`} data-cause={p.cause}>
+        {open.slice(0, shown).map((p) => (
+          <li key={postKey(p)} class={cx(postKey(p) === fresh && 'is-fresh')} data-testid={`post-${p.id}`} data-cause={p.cause}>
             <span class="handle">{p.handle}</span>
+            <PostStats p={p} />
             <button
               type="button"
               class="x"
@@ -526,6 +569,28 @@ export function Backlash({ store }: StoreProps): JSX.Element | null {
         ))}
       </ul>
     </aside>
+  );
+}
+
+/** The scorecard's record of the backlash: the count and the last posts of the run, closed or not. */
+export function BacklashRecord({ store }: StoreProps): JSX.Element | null {
+  const posts = socialPosts(store.snapshot.value);
+  if (posts.length === 0) return null;
+  const last = posts.slice(-MAX_POSTS).reverse();
+  return (
+    <div class="bv-sec bv-backlash-record" data-testid="score-backlash">
+      <h3>The internet on you: {angryLine(posts)}</h3>
+      <ul>
+        {last.map((p) => (
+          <li key={postKey(p)}>
+            <span class="handle">{p.handle}</span>
+            <PostStats p={p} />
+            <p>{p.text}</p>
+          </li>
+        ))}
+      </ul>
+      {posts.length > last.length && <p class="bv-small">+{posts.length - last.length} more posts over the project.</p>}
+    </div>
   );
 }
 

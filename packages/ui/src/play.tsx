@@ -91,6 +91,16 @@ const GATE_OFFERS = 3;
 const OFFER_MIN_CENTS = 100_000_000;
 const OFFER_MIN_DAYS = 30;
 
+/** Whether the gate card is on screen. The backlash box folds to its header then: it never covers the decision. */
+export function gateCardShowing(store: StoreProps['store']): boolean {
+  const s = store.snapshot.value;
+  const project = missionProject(s);
+  if (project === null || project.awaiting === null || s.clock.hold !== 'gate') return false;
+  if (store.panel.value !== null || store.tool.value.id !== null || store.banner.value !== null) return false;
+  if (store.gateDismissed.value === `${project.id}:${project.awaiting}`) return false;
+  return actionButton(store, project.nextAction) !== null && project.nextAction.command !== null;
+}
+
 /**
  * The gate as a decision, not a button in the corner: what going through it fixes for good, where the project
  * stands, and what the political capital in hand would still buy first. The second playtest clicked through
@@ -99,12 +109,10 @@ const OFFER_MIN_DAYS = 30;
 export function GateCard({ store }: StoreProps): JSX.Element | null {
   const s = store.snapshot.value;
   const project = missionProject(s);
-  if (project === null || project.awaiting === null || s.clock.hold !== 'gate') return null;
-  if (store.panel.value !== null || store.tool.value.id !== null || store.banner.value !== null) return null;
+  if (project === null || project.awaiting === null || !gateCardShowing(store)) return null;
   const key = `${project.id}:${project.awaiting}`;
-  if (store.gateDismissed.value === key) return null;
   const go = actionButton(store, project.nextAction);
-  if (go === null || project.nextAction.command === null) return null;
+  if (go === null) return null;
   const copy = GATE_COPY[project.awaiting];
   const r = project.receipt;
   const offers = s.reforms

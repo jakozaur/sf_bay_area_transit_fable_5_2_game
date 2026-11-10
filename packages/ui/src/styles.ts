@@ -388,6 +388,8 @@ export const CSS = `
 
 /* ---------------------------------------------------------------- the gate card */
 .bv-gatecard { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); width: 540px; max-width: calc(100% - 24px); max-height: calc(100% - 196px); display: flex; pointer-events: none; }
+/* With the backlash box up (folded to its header under a gate), the card ends above it. */
+.bv-gatecard:has(~ .bv-backlash) { max-height: calc(100% - 232px); }
 .bv-gatecard .bv-sheet { width: 100%; max-height: 100%; pointer-events: auto; border-top: 5px solid var(--hi); }
 .bv-gatecard .what { font-size: 15px; line-height: 1.4; }
 .bv .bv-offer { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; align-items: baseline; width: 100%; padding: 5px 9px 4px; margin-top: 4px; border: 1.5px solid var(--rule); border-radius: 3px; background: #fff; }
@@ -434,18 +436,42 @@ export const CSS = `
 .bv-tag-gap { margin-left: 8px; }
 .bv-spec { padding: 5px 9px; border-left: 3px solid var(--hi); background: #fff; }
 .bv .bv-spec-call { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 7px 10px 6px; font-size: 13px; line-height: 1.35; border: 1.5px solid var(--ink); border-radius: 3px; background: #fff; box-shadow: inset 4px 0 0 var(--hi); }
-/* Social media backlash: small, bottom right, clear of the toolbar; beside the sheet when a panel is open. */
-.bv-backlash { position: absolute; right: 12px; bottom: 14px; width: 290px; max-width: calc(100% - 24px); background: var(--ink); color: #fff; border-radius: 3px; border-top: 3px solid var(--bad); box-shadow: 0 10px 26px rgba(6, 14, 24, 0.5); font-size: 12px; }
-.bv-backlash.is-beside-sheet { right: 424px; bottom: 76px; }
-.bv-backlash .head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 3px; color: var(--fog); font-size: 11px; }
-.bv-backlash .head .bv-link { margin-left: auto; font-size: 11px; }
+/* Social media backlash: wide, bottom centre, above the toolbar; centred in what the open sheet and tool panel leave free. */
+.bv-backlash { --l: 0px; --r: 0px; position: absolute; left: calc(var(--l) + (100% - var(--l) - var(--r)) / 2); bottom: 76px; transform: translateX(-50%); width: min(600px, calc(100% - var(--l) - var(--r) - 24px)); background: var(--ink); color: #fff; border-radius: 3px; border-top: 4px solid var(--bad); box-shadow: 0 0 0 1.5px var(--bad), 0 14px 34px rgba(6, 14, 24, 0.6); font-size: 13px; }
+.bv-backlash.is-beside-sheet { --r: 424px; }
+.bv-backlash.is-beside-tool { --l: 312px; }
+.bv-backlash.is-over-drive { bottom: 176px; }
+.bv-backlash .flash { position: absolute; inset: 0; border-radius: 3px; background: var(--bad); opacity: 0; pointer-events: none; animation: bv-post-flash 0.5s ease-out; }
+.bv-backlash .head { display: flex; align-items: baseline; gap: 10px; padding: 6px 10px 4px; color: var(--fog); font-size: 12px; }
+.bv-backlash .head .title { font: 700 15px/1 var(--f-sign); letter-spacing: 0.03em; color: #fff; }
+.bv-backlash .head .angry { color: var(--bad-on-ink); font-weight: 700; font-size: 13px; }
+.bv-backlash .head .bv-link { margin-left: auto; font-size: 12px; }
 .bv-backlash .more { color: #fff; font-weight: 700; }
 .bv-backlash ul { list-style: none; margin: 0; padding: 0; }
-.bv-backlash li { display: grid; grid-template-columns: 1fr auto; gap: 0 6px; align-items: baseline; padding: 4px 8px; border-top: 1px solid var(--ink-3); }
+.bv-backlash li { display: grid; grid-template-columns: auto 1fr auto; gap: 0 10px; align-items: baseline; padding: 5px 10px; border-top: 1px solid var(--ink-3); }
+.bv-backlash li.is-fresh { animation: bv-post-shake 0.45s ease-out; }
 .bv-backlash .handle { font-weight: 700; color: var(--hi); }
+.bv-backlash .stats { color: var(--fog); font-size: 11.5px; white-space: nowrap; }
+.bv-backlash .stats b { color: #fff; }
 .bv .bv-backlash .x { color: var(--fog); font-weight: 700; padding: 0 4px; line-height: 1; }
 .bv .bv-backlash .x:hover { color: #fff; }
 .bv-backlash p { grid-column: 1 / -1; margin: 1px 0 0; line-height: 1.3; }
+@keyframes bv-post-flash { from { opacity: 0.6; } to { opacity: 0; } }
+@keyframes bv-post-shake { 0% { transform: translateX(0); background: rgba(212, 34, 43, 0.45); } 20% { transform: translateX(-8px); } 40% { transform: translateX(7px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(3px); } 100% { transform: translateX(0); background: transparent; } }
+/* The backlash on the scorecard: the same posts on paper. */
+.bv-backlash-record ul { list-style: none; margin: 0; padding: 0; }
+.bv-backlash-record li { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid var(--paper-2); font-size: 12.5px; }
+.bv-backlash-record li:last-child { border-bottom: 0; }
+.bv-backlash-record .handle { font-weight: 700; color: var(--bad); }
+.bv-backlash-record .stats { color: var(--soft); font-size: 11.5px; }
+.bv-backlash-record p { grid-column: 1 / -1; margin: 1px 0 0; line-height: 1.3; }
+/* Housing options: a title, what it is, the numbers, one button. */
+.bv-housing { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.bv-housing > li { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: 6px 9px; border-left: 3px solid var(--hi); background: #fff; }
+.bv-housing > li.is-enacted { border-left-color: var(--good); }
+.bv-housing .nums { font-size: 12.5px; font-weight: 700; }
+.bv-cb tr.with-housing td { padding-top: 0; font-size: 11.5px; color: var(--soft); }
+.bv-cb tr.has-housing td { border-bottom: 0; }
 .bv-section-mark { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--fog); font-size: 12px; }
 /* Twin bore cross-section with its dimension: the Polish baseline, drawn once. */
 .bv-bore { display: flex; align-items: center; gap: 6px; }
@@ -538,7 +564,7 @@ export const CSS = `
 @media (max-width: 900px) {
   .bv-headline .pair, .bv-headline .vs, .bv-headline .none { display: none; }
   .bv-cb { display: none; }
-  .bv-backlash.is-beside-sheet { right: 12px; }
+  .bv-backlash.is-beside-sheet, .bv-backlash.is-beside-tool { --l: 0px; --r: 0px; }
   .bv-headline { flex: 1 1 0; justify-content: center; }
   .bv-nav { gap: 3px; padding: 0 6px; }
   .bv .bv-nav .bv-btn { padding: 4px 6px 3px; font-size: 12px; }
@@ -554,6 +580,7 @@ export const CSS = `
   .bv-toolbar { flex-wrap: wrap; justify-content: center; max-width: calc(100% - 12px); }
   .bv-toolbar .grp { padding: 4px 5px; }
   .bv-camhelp { display: none; }
+  .bv-backlash, .bv-backlash.is-over-drive { bottom: 124px; }
   .bv-left, .bv-right, .bv-right.is-wide { width: calc(100% - 24px); }
 }
 

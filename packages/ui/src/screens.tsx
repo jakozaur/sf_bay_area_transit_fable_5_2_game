@@ -1,10 +1,11 @@
 /** Screens driven by the session state: title with mission select, briefing card, loading, scorecard. */
 import type { MissionCard } from '@bayvox/core';
 import { playerSource, type ScoreColumn } from '@bayvox/sim';
-import type { JSX } from 'preact';
+import { Fragment, type JSX } from 'preact';
 import { Bar, Btn, Bullet, cx, Dim, Stars, type StoreProps } from './bits.tsx';
 import { count, dateLong, dateMonth, money, moneyPerKm, ratio, years } from './format.ts';
-import { act, missionProject, POLAND_TARGET_LIMIT, polandTarget, safeRatio } from './model.ts';
+import { BacklashRecord } from './hud.tsx';
+import { act, missionProject, POLAND_TARGET_LIMIT, polandTarget, safeRatio, scorecardHousing } from './model.ts';
 import { ReceiptTable } from './panels.tsx';
 
 export const GAME_TITLE = 'Polish the Public Transport';
@@ -45,25 +46,37 @@ function CostBenefit({ store, onPick }: StoreProps & { onPick: (id: string) => v
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.scenarioId} data-testid={`cb-${r.scenarioId}`}>
-                <td>
-                  {known.has(r.scenarioId) ? (
-                    <button type="button" class="bv-link" onClick={() => onPick(r.scenarioId)}>
-                      {r.name}
-                    </button>
-                  ) : (
-                    r.name
-                  )}
-                </td>
-                <td>{r.lengthKm.toFixed(1)} km</td>
-                <td>{money(r.polandCostCents)}</td>
-                <td>{r.officialCostCents > 0 ? money(r.officialCostCents) : 'none'}</td>
-                <td>{count(r.dailyRiders)}</td>
-                <td>{money(r.polandCostPerRiderUsd * 100)}</td>
-                <td class={r.benefitCostRatio >= 1 ? 'bv-good' : 'bv-bad'}>
-                  <b>{r.benefitCostRatio.toFixed(2)}</b>
-                </td>
-              </tr>
+              <Fragment key={r.scenarioId}>
+                <tr class={cx(r.withHousing !== undefined && 'has-housing')} data-testid={`cb-${r.scenarioId}`}>
+                  <td>
+                    {known.has(r.scenarioId) ? (
+                      <button type="button" class="bv-link" onClick={() => onPick(r.scenarioId)}>
+                        {r.name}
+                      </button>
+                    ) : (
+                      r.name
+                    )}
+                  </td>
+                  <td>{r.lengthKm.toFixed(1)} km</td>
+                  <td>{money(r.polandCostCents)}</td>
+                  <td>{r.officialCostCents > 0 ? money(r.officialCostCents) : 'none'}</td>
+                  <td>{count(r.dailyRiders)}</td>
+                  <td>{money(r.polandCostPerRiderUsd * 100)}</td>
+                  <td class={r.benefitCostRatio >= 1 ? 'bv-good' : 'bv-bad'}>
+                    <b>{r.benefitCostRatio.toFixed(2)}</b>
+                  </td>
+                </tr>
+                {r.withHousing !== undefined && (
+                  <tr class="with-housing" data-testid={`cb-${r.scenarioId}-housing`}>
+                    <td colSpan={4}>with all housing enacted: +{count(r.withHousing.homes)} homes</td>
+                    <td>{count(r.withHousing.dailyRiders)}</td>
+                    <td />
+                    <td class={r.withHousing.benefitCostRatio >= 1 ? 'bv-good' : 'bv-bad'}>
+                      <b>{r.withHousing.benefitCostRatio.toFixed(2)}</b>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -264,6 +277,7 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
   // ghost has no route of its own and is measured on this one.
   const ghostToPoland = project.receipt.ratios.ghostToPoland ?? safeRatio(sc.ghost.costPerKmCents, sc.poland.costPerKmCents);
   const target = polandTarget(project);
+  const housing = scorecardHousing(project);
   const session = store.services.session;
   const missions = store.session.value.missions;
   const at = missions.findIndex((m) => m.id === store.session.value.missionId);
@@ -344,6 +358,13 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
                 <b>{count(sc.ridersPerDay)} riders a day.</b>
                 {sc.costPerRiderCents > 0 && ` ${money(sc.costPerRiderCents)} of construction per daily rider.`}
               </p>
+              {housing !== null && (
+                <p class="bv-small" data-testid="score-housing">
+                  <b>Housing you enacted: {count(housing.homes)} homes,</b> {count(housing.ridersPerDayAdded)} of those riders a day come
+                  from them.
+                </p>
+              )}
+              <BacklashRecord store={store} />
             </div>
             <div class="bv-score-side">
               <div class="bv-sec">

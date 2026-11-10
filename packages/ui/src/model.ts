@@ -4,6 +4,7 @@ import {
   type GameCommand,
   type GameSnapshot,
   type Geology,
+  type HousingView,
   type NextAction,
   POLAND_TARGET_LIMIT,
   type PolandTarget,
@@ -25,10 +26,36 @@ export interface CostBenefitRow {
   dailyRiders: number;
   polandCostPerRiderUsd: number;
   benefitCostRatio: number;
+  /** The same row with every housing option of the mission enacted; absent for a mission without options. */
+  withHousing?: { homes: number; dailyRiders: number; benefitCostRatio: number };
+}
+
+/** The mission's housing options. Read at the boundary: a snapshot from before the options has none. */
+export function housingOptions(s: GameSnapshot): readonly HousingView[] {
+  return s.housing ?? [];
+}
+
+/** Homes and riders the enacted housing added to a project's scorecard, or null when it added none. */
+export function scorecardHousing(p: ProjectView): { homes: number; ridersPerDayAdded: number } | null {
+  const h = p.scorecard.housing;
+  return h !== undefined && h.homes > 0 ? h : null;
 }
 
 export type { PolandTarget, SocialPost };
 export { POLAND_TARGET_LIMIT };
+
+/** Likes and reposts of a post. A post without counts (an older save) gets small ones made from its id. */
+export function postStats(p: SocialPost): { likes: number; reposts: number } {
+  return { likes: p.likes ?? 7 + ((p.id * 37) % 90), reposts: p.reposts ?? 2 + ((p.id * 13) % 30) };
+}
+
+/** How many people are angry at the player: everyone who posted, liked or reposted. */
+export function angryCount(posts: readonly SocialPost[]): number {
+  return posts.reduce((n, p) => {
+    const st = postStats(p);
+    return n + 1 + st.likes + st.reposts;
+  }, 0);
+}
 
 /** The snapshot's backlash posts, oldest first. Read at the boundary: a snapshot from before M2 has none. */
 export function socialPosts(s: GameSnapshot): readonly SocialPost[] {
