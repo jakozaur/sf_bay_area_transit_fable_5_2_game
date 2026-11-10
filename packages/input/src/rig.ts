@@ -3,7 +3,7 @@
  * The rig works in absolute world metres in JS doubles and never renders: it hands a CameraState to the
  * renderer, which converts to camera-relative float32. Its PerspectiveCamera is private bookkeeping.
  */
-import type { CameraBookmark, CameraState, WorldPos } from '@bayvox/core';
+import type { CameraBookmark, CameraState, EntityPose, FollowMode, WorldPos } from '@bayvox/core';
 import CameraControls from 'camera-controls';
 import { Box3, Matrix4, PerspectiveCamera, Quaternion, Raycaster, Sphere, Spherical, Vector2, Vector3, Vector4 } from 'three';
 import type { CameraAxes } from './actions.ts';
@@ -21,8 +21,52 @@ export interface CameraRigOptions {
   maxPolarDeg?: number;
   /** Seconds a focus or bookmark transition takes to mostly settle. Default 0.35. */
   smoothTime?: number;
+  /** Closest zoom while following an entity (a 6.6 m machine needs a closer look than the map). Default 12. */
+  followMinDistance?: number;
+  /** Metres the camera keeps above the surface under it when a ground function is set. Default 3. */
+  groundClearance?: number;
 }
 
+/**
+ * Surface elevation in world metres under a plan position (terrain, or roofs if the provider knows them),
+ * or null where it is unknown (outside the loaded data): the rig then leaves the camera alone.
+ */
+export type GroundFn = (x: number, z: number) => number | null;
+
+/** Camera placement per follow mode when the follow starts. Distances in metres, polar angle from straight down. */
+export const FOLLOW_DEFAULTS: Readonly<Record<FollowMode, { distance: number; polarDeg: number; lookAheadM: number; dropM: number }>> = {
+  /**
+   * Behind and above the cutterhead, looking along the drive. The focus sits on the shield a little behind the
+   * face and `dropM` below the axis, so the machine is drawn in the upper half of the screen, clear of the HUD.
+   */
+  chase: { distance: 48, polarDeg: 58, lookAheadM: -5, dropM: 3 },
+  /** Free orbit around the machine inside the cutaway. */
+  cutaway: { distance: 90, polarDeg: 55, lookAheadM: 0, dropM: 0 },
+  /** The player's own angle and distance; only the focus moves. */
+  orbit: { distance: 0, polarDeg: 0, lookAheadM: 0, dropM: 0 },
+};
+
+/** Seconds for the focus to close in on a newly followed entity, and for the chase camera to swing behind it. */
+const FOLLOW_TAU = 0.25;
+const TWO_PI = Math.PI * 2;
+
+/** Shortest signed difference a - b of two angles, in (-pi, pi]. */
+function angleDiff(a: number, b: number): number {
+  let d = (a - b) % TWO_PI;
+  if (d > Math.PI) d -= TWO_PI;
+  else if (d <= -Math.PI) d += TWO_PI;
+  return d;
+}
+
+function assertPose(p: EntityPose, who: string): void {
+  const { x, y, z } = p.position;
+  if (!Number.isFinite(x + y + z + p.yaw + p.pitch)) {
+    throw new RangeError(`${who}: pose is not finite: position (${x}, ${y}, ${z}), yaw ${p.yaw}, pitch ${p.pitch}`);
+  }
+}
+
+/** A followed camera that moved less than this in a frame is at rest, metres. */
+const REST_EPSILON_M = 1e-4;
 const DEG = Math.PI / 180;
 /** Keyboard pan speed: fraction of the focus distance per second. */
 const PAN_RATE = 0.9;
@@ -36,7 +80,23 @@ export class CameraRig {
   private readonly camera: PerspectiveCamera;
   private readonly controls: CameraControls;
   private readonly tmp = new Vector3();
+  private readonly tmp2 = new Vector3();
   private moving = false;
+  /** Camera position and focus after the last update: x, y, z, x, y, z. */
+  private readonly lastPose = [0, 0, 0, 0, 0, 0];
+  private readonly followMinDistance: number;
+  private readonly groundClearance: number;
+  private ground: GroundFn | null = null;
+  private followState: {
+    mode: FollowMode;
+    pose: EntityPose;
+    /** Focus minus the followed anchor; decays to zero so the focus glides onto the entity. */
+    offset: Vector3;
+    /** Chase only: smoothed azimuth and polar angle the rig holds. */
+    azimuth: number;
+    polar: number;
+    polarGoal: number;
+  } | null = null;
 
   constructor(opts: CameraRigOptions = {}) {
     this.minDistance = opts.minDistance ?? 50;
@@ -64,6 +124,149 @@ export class CameraRig {
     c.setLookAt(0, 300, 300, 0, 0, 0, false);
     c.update(0);
     this.controls = c;
+    this.followMinDistance = opts.followMinDistance ?? 12;
+    this.groundClearance = opts.groundClearance ?? 3;
+    if (!(this.followMinDistance > 0) || this.followMinDistance > this.minDistance) {
+      throw new RangeError(`CameraRig: need 0 < followMinDistance <= minDistance, got ${this.followMinDistance}`);
+    }
+    if (!(this.groundClearance >= 0)) throw new RangeError(`CameraRig: groundClearance must be >= 0, got ${this.groundClearance}`);
+  }
+
+  /**
+   * Lets a tool take the pointer: false cancels any camera drag in progress and makes the rig ignore mouse and
+   * wheel until it is true again. Wire it to InputMapper.onClaim (see linkClaims). Keyboard axes are unaffected.
+   */
+  setPointerEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
+  /**
+   * Terrain following. With a ground function the focus rides on the surface (so orbiting pivots on what the
+   * player looks at) and the camera is lifted whenever it would sit inside a hill or building. Not applied to
+   * the focus while following an entity, nor to the camera in the 'chase' and 'cutaway' modes, where the
+   * renderer cuts the ground away around the machine.
+   */
+  setGround(ground: GroundFn | null): void {
+    this.ground = ground;
+  }
+
+  /**
+   * Starts following an entity, or changes the mode. `pose` is the entity now; feed setFollowPose every frame
+   * with the pose to draw (the interpolated one). The focus glides onto the entity; nothing snaps.
+   * - 'orbit': the player's angle and distance stay, the focus moves with the entity.
+   * - 'cutaway': the same, and a camera further out than the cutaway is brought in to its default distance.
+   * - 'chase': the rig holds the camera behind and above the entity, looking along its direction of travel;
+   *   the tilt keys and the wheel still work, horizontal orbit does not.
+   */
+  follow(mode: FollowMode, pose: EntityPose): void {
+    if (!(mode in FOLLOW_DEFAULTS)) throw new RangeError(`CameraRig.follow: unknown mode ${String(mode)}`);
+    assertPose(pose, 'CameraRig.follow');
+    const c = this.controls;
+    const def = FOLLOW_DEFAULTS[mode];
+    const anchor = this.anchorOf(mode, pose, c.azimuthAngle, this.tmp2);
+    const offset = c.getTarget(this.tmp, false).clone().sub(anchor);
+    c.minDistance = this.followMinDistance;
+    this.followState = {
+      mode,
+      pose: { position: { ...pose.position }, yaw: pose.yaw, pitch: pose.pitch },
+      offset,
+      azimuth: c.azimuthAngle,
+      polar: c.polarAngle,
+      polarGoal: Math.min(c.maxPolarAngle, Math.max(c.minPolarAngle, def.polarDeg * DEG)),
+    };
+    if (mode === 'chase' || (mode === 'cutaway' && c.distance > def.distance * 2)) void c.dollyTo(def.distance, true);
+  }
+
+  /** The followed entity moved: its pose for this frame. Throws when nothing is followed. */
+  setFollowPose(pose: EntityPose): void {
+    const f = this.followState;
+    if (f === null) throw new Error('CameraRig.setFollowPose: not following anything, call follow first');
+    assertPose(pose, 'CameraRig.setFollowPose');
+    f.pose = { position: { ...pose.position }, yaw: pose.yaw, pitch: pose.pitch };
+  }
+
+  /** Ends the follow where the camera is. The map zoom limit returns; a closer camera backs out smoothly. */
+  stopFollow(): void {
+    if (this.followState === null) return;
+    this.followState = null;
+    const c = this.controls;
+    c.minDistance = this.minDistance;
+    if (c.distance < this.minDistance) void c.dollyTo(this.minDistance, true);
+  }
+
+  /** Mode of the follow in progress, or null. */
+  get following(): FollowMode | null {
+    return this.followState?.mode ?? null;
+  }
+
+  /**
+   * Point the focus sits on: the entity, or in the chase view a little ahead of it along the direction the
+   * camera looks (the smoothed heading, so a sudden turn of the machine does not jerk the focus).
+   */
+  private anchorOf(mode: FollowMode, pose: EntityPose, cameraAzimuth: number, out: Vector3): Vector3 {
+    const { lookAheadM: ahead, dropM } = FOLLOW_DEFAULTS[mode];
+    return out.set(
+      pose.position.x - Math.sin(cameraAzimuth) * ahead,
+      pose.position.y - dropM,
+      pose.position.z - Math.cos(cameraAzimuth) * ahead,
+    );
+  }
+
+  private applyFollow(dt: number, axes: CameraAxes | undefined): void {
+    const f = this.followState;
+    if (f === null) return;
+    const c = this.controls;
+    const k = dt > 0 ? Math.exp(-dt / FOLLOW_TAU) : 1;
+    f.offset.multiplyScalar(k);
+    if (f.offset.lengthSq() < 1e-6) f.offset.set(0, 0, 0);
+    if (f.mode === 'chase') {
+      // Behind the machine: the camera sits opposite the direction of travel (sin yaw, 0, cos yaw).
+      if (axes !== undefined && axes.tilt !== 0) {
+        f.polarGoal = Math.min(c.maxPolarAngle, Math.max(c.minPolarAngle, f.polarGoal - axes.tilt * TILT_RATE * dt));
+      }
+      f.azimuth += angleDiff(f.pose.yaw + Math.PI, f.azimuth) * (1 - k);
+      f.polar += (f.polarGoal - f.polar) * (1 - k);
+      void c.rotateTo(f.azimuth, f.polar, false);
+    }
+    const a = this.anchorOf(f.mode, f.pose, f.azimuth, this.tmp2).add(f.offset);
+    void c.moveTo(a.x, a.y, a.z, false);
+  }
+
+  /** Puts the end value of the focus on the surface; the current value eases there with the rig's smoothing. */
+  private rideGround(): void {
+    if (this.ground === null) return;
+    const c = this.controls;
+    const end = c.getTarget(this.tmp, true);
+    const g = this.ground(end.x, end.z);
+    if (g === null) return;
+    if (!Number.isFinite(g)) throw new RangeError(`CameraRig: ground function returned ${g} at (${end.x}, ${end.z})`);
+    if (Math.abs(g - end.y) > 0.01) void c.moveTo(end.x, g, end.z, true);
+  }
+
+  /** Lifts a camera that sits below the surface plus the clearance: tilts towards top-down, then backs out. */
+  private keepAboveGround(): void {
+    if (this.ground === null) return;
+    const c = this.controls;
+    for (let i = 0; i < 6; i++) {
+      const p = c.getPosition(this.tmp, false);
+      const g = this.ground(p.x, p.z);
+      if (g === null) return;
+      if (!Number.isFinite(g)) throw new RangeError(`CameraRig: ground function returned ${g} at (${p.x}, ${p.z})`);
+      const need = g + this.groundClearance;
+      if (p.y >= need - 1e-6) return;
+      const t = c.getTarget(this.tmp2, false);
+      let d = c.distance;
+      // Height above the focus the camera needs, as a share of the distance; the extra metre makes the loop converge on slopes.
+      const rise = need + i - t.y;
+      const steepest = Math.cos(c.minPolarAngle);
+      if (rise > d * steepest) {
+        d = Math.min(c.maxDistance, rise / steepest);
+        void c.dollyTo(d, false);
+      }
+      const polar = Math.acos(Math.min(steepest, Math.max(-1, rise / d)));
+      void c.rotateTo(c.azimuthAngle, polar, false);
+      c.update(0);
+    }
   }
 
   /** Starts listening for drags and wheel on `el` (pointer capture is handled by camera-controls). */
@@ -86,14 +289,43 @@ export class CameraRig {
    */
   update(dt: number, axes?: CameraAxes): boolean {
     const c = this.controls;
+    const f = this.followState;
     if (axes !== undefined && dt > 0) {
       const d = c.distance;
-      if (axes.panX !== 0) void c.truck(axes.panX * d * PAN_RATE * dt, 0, false);
-      if (axes.panZ !== 0) void c.forward(axes.panZ * d * PAN_RATE * dt, false);
-      if (axes.rotate !== 0 || axes.tilt !== 0) void c.rotate(-axes.rotate * ROTATE_RATE * dt, -axes.tilt * TILT_RATE * dt, false);
+      // While following, the focus belongs to the entity: pan keys do nothing. The chase view also owns the angles.
+      if (f === null) {
+        if (axes.panX !== 0) void c.truck(axes.panX * d * PAN_RATE * dt, 0, false);
+        if (axes.panZ !== 0) void c.forward(axes.panZ * d * PAN_RATE * dt, false);
+      }
+      if (f?.mode !== 'chase' && (axes.rotate !== 0 || axes.tilt !== 0)) {
+        void c.rotate(-axes.rotate * ROTATE_RATE * dt, -axes.tilt * TILT_RATE * dt, false);
+      }
       if (axes.zoom !== 0) void c.dollyTo(d * Math.exp(-axes.zoom * ZOOM_RATE * dt), false);
     }
-    this.moving = c.update(dt);
+    if (f === null) this.rideGround();
+    else this.applyFollow(dt, axes);
+    const updated = c.update(dt);
+    if (f === null || f.mode === 'orbit') this.keepAboveGround();
+    // A follow re-applies its focus and angles every frame, which camera-controls reports as an update even
+    // when the entity stands still: the camera is moving only if its position or focus actually changed.
+    const p = c.getPosition(this.tmp, false);
+    const t = c.getTarget(this.tmp2, false);
+    const last = this.lastPose;
+    const shift = Math.max(
+      Math.abs(p.x - last[0]),
+      Math.abs(p.y - last[1]),
+      Math.abs(p.z - last[2]),
+      Math.abs(t.x - last[3]),
+      Math.abs(t.y - last[4]),
+      Math.abs(t.z - last[5]),
+    );
+    last[0] = p.x;
+    last[1] = p.y;
+    last[2] = p.z;
+    last[3] = t.x;
+    last[4] = t.y;
+    last[5] = t.z;
+    this.moving = f === null ? updated : shift > REST_EPSILON_M;
     return this.moving;
   }
 
@@ -135,8 +367,9 @@ export class CameraRig {
     return { position: this.position(), target: this.target(), fovYDeg: this.camera.fov };
   }
 
-  /** Moves to a saved pose. Distance and pitch are clamped to the rig limits. */
+  /** Moves to a saved pose. Distance and pitch are clamped to the rig limits. Ends any follow. */
   setBookmark(b: CameraBookmark, animate: boolean): void {
+    this.stopFollow();
     const { position: p, target: t } = b;
     for (const [name, v] of [
       ['position', p],
@@ -171,12 +404,28 @@ export class CameraRig {
   }
 
   private settleNow(): void {
-    this.controls.update(0);
+    const c = this.controls;
+    c.update(0);
+    // An instant move lands on the surface at once: easing the focus there would keep the camera moving
+    // (and the picture redrawing) for a second after a move that was asked to be instant.
+    if (this.ground !== null && this.followState === null) {
+      const end = c.getTarget(this.tmp, true);
+      const g = this.ground(end.x, end.z);
+      if (g !== null) {
+        if (!Number.isFinite(g)) throw new RangeError(`CameraRig: ground function returned ${g} at (${end.x}, ${end.z})`);
+        if (Math.abs(g - end.y) > 0.01) {
+          void c.moveTo(end.x, g, end.z, false);
+          c.update(0);
+        }
+      }
+      this.keepAboveGround();
+    }
     this.moving = false;
   }
 
-  /** Smoothly re-centres on a world point, keeping the current viewing angle. Optionally sets the zoom distance. */
+  /** Smoothly re-centres on a world point, keeping the current viewing angle. Optionally sets the zoom distance. Ends any follow. */
   focusOn(target: WorldPos, opts: { distance?: number; animate?: boolean } = {}): void {
+    this.stopFollow();
     const animate = opts.animate ?? true;
     void this.controls.moveTo(target.x, target.y, target.z, animate);
     if (opts.distance !== undefined) void this.controls.dollyTo(opts.distance, animate);
@@ -186,4 +435,16 @@ export class CameraRig {
   dispose(): void {
     this.controls.dispose();
   }
+}
+
+/**
+ * Hands the pointer to a tool for the length of a claimed gesture: the rig ignores mouse and wheel from the
+ * pointer.down a tool claimed until its release. Returns an unsubscribe function, which also re-enables the rig.
+ */
+export function linkClaims(mapper: { onClaim(cb: (claimed: boolean) => void): () => void }, rig: CameraRig): () => void {
+  const off = mapper.onClaim((claimed) => rig.setPointerEnabled(!claimed));
+  return () => {
+    off();
+    rig.setPointerEnabled(true);
+  };
 }

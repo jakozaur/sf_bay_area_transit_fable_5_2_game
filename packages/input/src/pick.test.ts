@@ -1,6 +1,6 @@
 import { type CameraState, FACE_NEG_X, FACE_POS_Y, Material, type VoxelCoord } from '@bayvox/core';
 import { expect, test } from 'vitest';
-import { pickVoxel, screenRay } from './pick.ts';
+import { pickGround, pickVoxel, REGIONAL_PICK_RANGE_M, screenRay } from './pick.ts';
 
 interface Box {
   min: [number, number, number];
@@ -88,4 +88,80 @@ test('screenRay: centre ray points at the target, corners follow fov and aspect'
   expect(t.dir.y).toBeCloseTo(0, 12);
   expect(t.dir.z).toBeCloseTo(-1, 12);
   expect(() => screenRay({ ...cam, target: { x: 100, y: 0, z: 300 } }, 0, 0)).toThrow(/y axis/);
+});
+
+test('slab clipping gives the same hit as the full walk and visits far fewer voxels', () => {
+  const w = slab();
+  let visits = 0;
+  const counted = {
+    getVoxel(c: VoxelCoord): number {
+      visits++;
+      return w.getVoxel(c);
+    },
+  };
+  // A camera 90 km up and 120 km out, looking at the slab: the regional view.
+  const origin = { x: 30.5 + 120_000, y: 90_000, z: 30.5 };
+  const l = Math.hypot(120_000, 90_000 - 9.5);
+  const ray = { origin, dir: { x: -120_000 / l, y: -(90_000 - 9.5) / l, z: 0 } };
+  const full = pickVoxel(counted, ray, { maxDistance: REGIONAL_PICK_RANGE_M });
+  const fullVisits = visits;
+  visits = 0;
+  const clipped = pickVoxel(counted, ray, { maxDistance: REGIONAL_PICK_RANGE_M, maxY: 64, minY: -64 });
+  // Aimed at (30.5, 9.5) on a 3:4 slope: the ray meets the rock top (y = 10) two thirds of a metre earlier, in column 31.
+  expect(full?.voxel).toEqual({ x: 31, y: 9, z: 30 });
+  expect(clipped?.voxel).toEqual(full?.voxel);
+  expect(clipped?.face).toBe(full?.face);
+  expect(clipped?.distance).toBeCloseTo(full?.distance ?? Number.NaN, 3);
+  expect(fullVisits).toBeGreaterThan(100_000);
+  expect(visits).toBeLessThan(300);
+});
+
+test('slab clipping: rays that never enter the slab, or leave it, end without a hit', () => {
+  const w = slab();
+  const up = { origin: { x: 20.5, y: 500, z: 30.5 }, dir: { x: 0, y: 1, z: 0 } };
+  expect(pickVoxel(w, up, { maxDistance: 1000, maxY: 64 })).toBeNull();
+  // Beside the ground, going down: leaves through minY long before maxDistance.
+  let visits = 0;
+  const counted = {
+    getVoxel(c: VoxelCoord): number {
+      visits++;
+      return w.getVoxel(c);
+    },
+  };
+  const beside = { origin: { x: 200.5, y: 500, z: 30.5 }, dir: { x: 0, y: -1, z: 0 } };
+  expect(pickVoxel(counted, beside, { maxDistance: 100_000, maxY: 64, minY: -64 })).toBeNull();
+  expect(visits).toBeLessThan(200);
+  // The slab top is further than the range.
+  expect(pickVoxel(w, { origin: { x: 20.5, y: 500, z: 30.5 }, dir: { x: 0, y: -1, z: 0 } }, { maxDistance: 100, maxY: 64 })).toBeNull();
+  // A voxel exactly under the slab top is entered through its top face.
+  const top = boxes({ min: [0, 0, 0], max: [64, 64, 64], material: Material.ROCK });
+  const hit = pickVoxel(top, { origin: { x: 20.5, y: 500, z: 30.5 }, dir: { x: 0, y: -1, z: 0 } }, { maxDistance: 1000, maxY: 64 });
+  expect(hit?.voxel).toEqual({ x: 20, y: 63, z: 30 });
+  expect(hit?.face).toBe(FACE_POS_Y);
+  expect(hit?.distance).toBeCloseTo(436, 4);
+  expect(() => pickVoxel(w, up, { maxDistance: 10, maxY: 0, minY: 5 })).toThrow(/minY < maxY/);
+});
+
+test('pickGround returns the entry point, the ground height and works from the regional view', () => {
+  const w = slab();
+  const cam: CameraState = {
+    position: { x: 32, y: 60_000, z: 32 + 80_000 },
+    target: { x: 32, y: 10, z: 32 },
+    fovYDeg: 45,
+    aspect: 1,
+    near: 100,
+    far: 1_200_000,
+  };
+  const hit = pickGround(w, cam, 400, 300, 800, 600, { maxY: 128, minY: -128, groundAt: () => 10 });
+  expect(hit).not.toBeNull();
+  expect(hit?.voxel.y).toBe(9);
+  expect(hit?.point.y).toBeCloseTo(10, 3);
+  expect(hit?.point.x).toBeCloseTo(32, 1);
+  expect(hit?.point.z).toBeCloseTo(32, 1);
+  expect(hit?.groundY).toBe(10);
+  // Without a ground function the height is the top of the hit voxel.
+  expect(pickGround(w, cam, 400, 300, 800, 600)?.groundY).toBe(10);
+  // A corner of the screen looks past the 64 m slab.
+  expect(pickGround(w, cam, 0, 0, 800, 600, { maxY: 128, minY: -128 })).toBeNull();
+  expect(() => pickGround(w, cam, 0, 0, 0, 600)).toThrow(/canvas size/);
 });
