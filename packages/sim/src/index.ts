@@ -123,10 +123,12 @@ export { evaluateObjectives, validateScenario } from './scenario.ts';
 export { createSim, EVENT_CARDS, type GameSim, hashState, loadSim, type SaveOptions, type SimOptions, type WorldSink } from './sim.ts';
 export {
   fillSocialTemplate,
+  SOCIAL_BANNED,
   SOCIAL_BURST_MAX,
   SOCIAL_BURST_MIN,
   SOCIAL_HANDLES,
   SOCIAL_POSTS_KEPT,
+  SOCIAL_RULER_WORDS,
   SOCIAL_TEMPLATE_COUNT,
   SOCIAL_TEMPLATES,
   type SocialCause,

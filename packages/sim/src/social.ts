@@ -1,6 +1,7 @@
 /**
  * Social media backlash: a pile-on of 2 to 4 posts every time the player spends political capital. Satire: every
- * handle and every post is invented, no real person or account is meant, and the target is the player. The posts
+ * handle and every post is invented, no real person or account is meant, and the target is the player: wounded
+ * residents taking a reform as a personal catastrophe. The posts
  * are picked by a generator seeded from the sim seed and the id of the first post of the pile-on, so the same seed
  * and commands give the same posts and the event dice (state.rng) are not touched.
  */
@@ -48,144 +49,169 @@ export const SOCIAL_HANDLES: readonly string[] = [
 
 /**
  * Post templates by group. A spend draws a pile-on (pushSocialBurst): the first post comes from the group of the
- * cause (a cause without one falls back to `any`), the second is a cost comparison (`compare`, or `money` when
- * cash was spent too), the rest come from `personal` and `pileOn`.
- * Placeholders: `{what}` the thing the capital was spent on, in the words of the reform tree or the event card;
- * `{pc}` the political capital spent; `{x:N}` that capital times N; `{usd}` the cash spent ("$60M");
- * `{div:N}` the cash in dollars divided by N. `money` templates are only drawn when cash was spent.
+ * cause (a cause without one falls back to `any`), the second is personal ruin (`ruin`, or `money` when cash was
+ * spent too), the rest come from `personal` and `pileOn`.
+ * The voice: wounded residents catastrophising about trivial losses, aimed at the player ("you"). No post names
+ * the game's currency or any other mechanic; SOCIAL_BANNED is the test for that.
+ * Placeholders: `{what}` the thing that was decided, in the words of the reform tree or the event card;
+ * `{usd}` the cash spent ("$60M"); `{div:N}` the cash in dollars divided by N. `money` templates are only drawn
+ * when cash was spent.
  */
 export const SOCIAL_TEMPLATES: Readonly<Record<string, readonly string[]>> = {
   specustawa: [
-    'A SPECIAL ZONE where permits do not exist?? Ugly little dictator. I had a 400-page comment letter ready.',
-    'So the act IS the permit now. Tyrant. In my day a railway waited eleven years like everybody else.',
-    'They drew a line on a map and called it law. This is how tyrants start. First no permits, then trains.',
-    'Specustawa. I cannot pronounce it and I am against it. Dictator with a ruler and a highlighter.',
-    'Who voted for a zone where nobody may sue? I sue recreationally. Ugly, ugly behaviour.',
-    'Imported a law from Poland to skip MY hearing. Emperor of Townsend Street, this one.',
+    'You drew a zone on a map and now my 400-page comment letter is a hobby. How dare you. I laminated it.',
+    'Nobody may sue? I sue recreationally. It is my cardio. {what} has destroyed my life and my resting heart rate.',
+    'Are you stupid? Now the railway does not wait eleven years. My father waited eleven years. HIS father waited eleven years.',
+    'I cannot pronounce {what} and it has ruined me. I had the whole decade planned around the hearings.',
+    'No permits inside the zone. I LIVE inside the zone. Am I even permitted now? You have made me a peasant in my own cul-de-sac.',
+    'You imported a law from Poland to skip MY hearing. I bought a blazer for that hearing, you ugly little tyrant.',
+    'How can you do this to me. {what}. I was going to object in person, in writing and in interpretive dance.',
   ],
   permitting: [
-    '"{what}". Translation: the tyrant has decided my objections are too long.',
-    'Just heard about "{what}". The tyrant killed democracy today, between the scoping meeting and the second scoping meeting.',
-    '{what}? I was promised nine more years of review. Dictator. Ugly one too.',
-    'They passed "{what}" without asking the people who would have said no. Petty despot energy.',
-    'With "{what}" a railway might actually be approved. Is that what we want? A tyrant who approves things?',
-    'I do not oppose trains. I oppose "{what}", the train, the tunnel and this ugly autocrat personally.',
+    'How dare you. {what}. I was promised nine more years of review and I have nothing else going on.',
+    '{what}?? My objection was 212 pages. What do I do with it now? Read it to my children? They have heard it.',
+    'You are stupid. {what} has destroyed my life and I have not read what it is.',
+    'Because of {what} the scoping meeting is cancelled. That meeting was where I saw my friends. I have no friends now. Happy?',
+    'I do not oppose trains. I oppose {what}, the train, the tunnel and you personally. You have ruined my Tuesday evenings forever.',
+    '{what}. So things just get approved now? We will live like peasants, with no second scoping meeting to our name.',
+    'Dictator. I had a folding chair with my name on it at the planning commission. {what} has made it an ordinary chair.',
+    'My therapist says to name the feeling. The feeling is {what}. How can you destroy me like this?',
   ],
   procurement: [
-    '"{what}": so the consultants who supervise the consultants are out of work. Heartless tyrant.',
-    'Ugly dictator announces "{what}". My cousin bills by the hour and he is devastated.',
-    '{what}. Sure. Next the despot will want to know what things cost BEFORE buying them.',
-    'Read the fine print of "{what}": the lowest bidder is sad now. Who speaks for the lowest bidder? Not this tyrant.',
-    'First they came for the change orders. "{what}" is the work of a cold, ugly little tsar.',
-    'Three shifts? Bidders from abroad? "{what}" is how a tyrant says hello.',
+    '{what}. My cousin supervises the consultants who supervise the consultants. He cried at dinner. Into the good soup. How dare you.',
+    'Are you stupid? {what} means somebody will know what things cost BEFORE buying them. That is not how I was raised.',
+    'You have destroyed my life. {what}. I had a fourth study lined up. It was going to study the third study.',
+    'How dare you. Because of {what} my brother-in-law bills by the job now. By the JOB. We will have to eat the boat.',
+    '{what}?? I was going to send my daughter to college on change orders. Now she will have to be interesting instead.',
+    'First you came for the change orders. Then {what}. I am a simple man with eleven subcontracts and you have made me poor.',
+    'Bidders from abroad. Three shifts. {what}. Who is going to stand around the site with a clipboard now? Me? I have a bad knee, tyrant.',
+    'We will be peasants. {what} took the contingency, and the contingency was where my family kept its hopes.',
   ],
   design: [
-    '"{what}". The dictator has cancelled the mezzanine I was never going to use. I am grieving.',
-    "So the station will be the size of a train. {what}. Ugly, cheap and efficient: a tyrant's taste.",
-    'Our city deserved a cathedral with platforms. Instead: "{what}". Small-minded despot.',
-    '{what}?? What about the trains that may come in forty years? Nobody thinks of them. Dictator.',
-    'A standard station. Standard! "{what}" is an attack on bespoke tile. Ugly inside and out.',
-    'They call it "{what}". I call it a tyrant with a tape measure.',
+    'How dare you. We will be peasants. Poor people without even a THIRD TRACK that we might need in two years. {what}.',
+    'You have destroyed my life. {what}. I had plans for that mezzanine. I was going to stand on it and feel important.',
+    'Are you stupid? Who will need a third track in two years? ME. I will. {what} has left my family with two.',
+    'Two tracks?? What if I want to look at a third one. {what}. You have ruined me.',
+    '{what}. So the station will be the size of a train. Where does my sense of grandeur go? In a locker? There are no lockers.',
+    'Our city deserved a cathedral with platforms. You gave us {what}. My grandchildren will ask what a mezzanine was and I will have to draw one.',
+    'A standard station. STANDARD. {what}. I am not standard. My tile was going to be bespoke. You are ugly inside and out.',
+    'I was going to be poor in a normal way. Thanks to {what} I am poor next to a small, sensible station.',
+    '{what}?? What about the trains that may come in forty years? I will be 109 and I will have NOWHERE to put them, tyrant.',
   ],
   tunnelling: [
-    '"{what}": the autocrat now tells machines how to dig. Ugly business.',
-    'Heard the despot spent favours on "{what}". The mud was fine as it was.',
-    'A tyrant with a drill. "{what}". The worms had a neighbourhood plan and nobody consulted them.',
-    '"{what}"?? I have lived above undisturbed dirt for thirty years and I intend to die above it. Tyrant.',
-    'So the dictator found a faster way to dig a hole to put my taxes in. "{what}". Uglier than the hole.',
+    '{what}. I have lived above undisturbed dirt for thirty years. It was MY dirt. How can you destroy me from below?',
+    'How dare you. {what}. The worms had a neighbourhood plan. I helped them write it.',
+    'You are stupid and you are under my house. {what}. My wine glasses will tremble once, in 2031, and I will never recover.',
+    'A faster hole. {what}. I had ten good years of complaining about the slow hole ahead of me and you took them.',
+    '{what}?? Do you know what is in that mud? My childhood. Probably. You have drilled through my childhood, despot.',
+    'Because of {what} the machine works at night. I do not hear it. I do not feel it. But I KNOW. You have ruined sleep for me.',
+    'We will be like peasants, with a tunnel. {what}. In my day a hole took a generation and we were grateful.',
   ],
   smallBore: [
-    'A TUNNEL FOR CARS. In a tube. One lane. The tyrant has invented the road, but worse, and underground.',
-    'The dictator bought a sewer pipe and is calling it transit. "{what}". I have seen bigger straws.',
-    'So it does not fit a train. The despot dug a railway tunnel that does not fit a RAILWAY. Ugly and also narrow.',
-    'Pods. PODS. We asked for nothing and the tyrant gave us pods in a drainpipe.',
-    'No launch pit? Where am I supposed to stand and object? "{what}" is an attack on my hobby, dictator.',
-    'It is a 3.7 metre hole. My ego does not fit in that and neither does that of the dictator.',
+    'A TUNNEL FOR CARS. In a tube. One lane. You have invented the road, but worse, and you did it to ME.',
+    'Are you stupid? It does not fit a train. You dug a railway tunnel that does not fit a RAILWAY. My model trains are humiliated.',
+    'Pods. PODS. I asked for nothing and you gave me pods in a drainpipe. How dare you destroy my life.',
+    '{what}. I have seen bigger straws. We will be peasants in a pipe, one behind another, forever.',
+    'No launch pit? Where am I supposed to stand and object? {what} has taken my hobby and my view of a pit.',
+    'It is a 3.7 metre hole. My ego does not fit in that. My hat barely fits in that. You have ruined me, dictator.',
+    'I told everyone at the club we were getting a real tunnel. {what}. I can never go back to the club.',
   ],
   housing: [
-    'HOMES?! The tyrant wants PEOPLE to live near a TRAIN. "{what}". Where will the empty land live?',
-    '"{what}". Thousands of new neighbours and not one of them asked my permission to exist. Dictator.',
-    'I moved here in 1987 for the uninterrupted view of nothing in particular and this ugly despot wants to put families in it.',
-    'Upzoning. The tyrant said the U word. "{what}". My property value just looked at me with fear.',
-    'First a railway, now people to ride it. "{what}". This is how a dictator manufactures consent: with tenants.',
-    'A six-storey building casts a shadow. A shadow! "{what}" will cast THOUSANDS. The emperor of shade.',
-    'Who will think of the neighbourhood character? It is mostly parking, and it is beautiful. "{what}" is the work of a tyrant.',
-    'They will build homes so the train has riders so the train looks like a good idea. "{what}". Diabolical. Ugly. Efficient.',
-    'I am not against housing. I am against "{what}", housing near me, housing far from me, and this despot.',
-    'The brine shrimp of the Bay were here first. "{what}". Not one shrimp was invited to the hearing, tyrant.',
+    'HOMES?! {what}. You want PEOPLE to live near a TRAIN. Where will the empty land live? Did you think about the empty land?',
+    'How dare you. {what}. Thousands of new neighbours and not one of them asked my permission to exist.',
+    'I moved here in 1987 for the uninterrupted view of a parking lot. {what} puts families in it. You have destroyed my life.',
+    'You are stupid. A six-storey building casts a shadow. On my HEDGE. {what}. The hedge was all I had.',
+    '{what}. My property value looked at me with fear this morning. We will be peasants. Peasants with only one guest bathroom.',
+    'Who will think of the neighbourhood character? It is mostly parking and it is beautiful. {what}. I am in mourning.',
+    'I am not against housing. I am against {what}, housing near me, housing far from me, and you.',
+    'The brine shrimp were here first. {what}. Not one shrimp was invited to the hearing. I speak for them. They are furious, tyrant.',
+    'Because of {what} a child might one day wave at me from a window. I did not consent to waving. You have ruined my street.',
+    'New people will park where I look at parking. {what}. How can you do this to a man and his view?',
+    '{what}?? I was the newest person on this block for thirty-eight years. It was my whole identity.',
+    'Are you stupid? If people live near the station they will USE it. Then it will be full of people. {what}. My life is over.',
   ],
-  compare: [
-    'For {pc} political capital you could have renamed {x:3} bridges after yourself, tyrant. Instead: "{what}".',
-    '{pc} favours burned on "{what}". That is {x:12} ribbon cuttings we will never get to boo at, tyrant.',
-    'Do you know what {pc} political capital buys? {x:40} stern letters from a supervisor. The dictator spent it on "{what}".',
-    'With {pc} political capital a normal person commissions {x:2} feasibility studies of a feasibility study. This despot: "{what}".',
-    '{pc} political capital. For that you could have had {x:7} listening sessions and one very long apology. Ugly priorities.',
-    'I did the math. {pc} political capital is {x:25} photo ops with a golden shovel. Wasted on "{what}". The despot is worse than the shovel.',
-    'For the price of "{what}" ({pc} political capital) the tyrant could have bought {x:9} blue-ribbon commissions. I sit on four.',
-    '{pc} political capital on "{what}"?? That is {x:150} parking spaces worth of goodwill, gone. Monster. Tyrant.',
-    'Could have spent {pc} political capital on {x:5} task forces to study the pigeons. Chose "{what}". The dictator is worse than the pigeons.',
-    'For {pc} political capital you get {x:60} minutes of my undivided outrage, dictator. Clock starts now. "{what}".',
-    '"{what}" cost {pc} political capital. For that money you could have painted {x:4} bike lanes and then removed them after I complained, despot.',
-    'The despot blew {pc} political capital. That is {x:18} proclamations declaring a Day in my honour. I checked.',
-    '{pc} political capital for "{what}". A decent autocrat would have built {x:2} statues of the dictator. This one is ugly AND cheap.',
-    'For {pc} political capital the city could have held {x:30} community visioning workshops with sticky notes. I love sticky notes. Tyrant.',
+  ruin: [
+    'We will be like peasants. Poor people. All because of {what}. How dare you destroy my life?',
+    'You are stupid. How can you destroy me with {what}? I had a whole decade of meetings planned.',
+    'I was going to be poor in a normal way. Now I am poor near a train. {what} did this.',
+    'My grandchildren will ask what I did when {what} happened. I will say: I posted. I posted so hard.',
+    'I have not slept since I read about {what} four minutes ago. You have destroyed my life.',
+    'How dare you. {what} is the worst thing that has happened to me, and I once missed a ferry.',
+    'Are you stupid? I read about {what} out loud and my dog could tell I was upset. Now the dog is upset. You have ruined a dog.',
+    'Because of {what} I will have to move somewhere with worse trains, out of spite. I hope you are happy, dictator.',
+    'I showed {what} to my mother. She said she did not understand it. Then she wept. Look what you have done.',
+    'So it is {what}. This is how it ends for my family: on time and under budget, like animals.',
+    'You have taken everything from me. Well. {what} took one thing from me. It FELT like everything.',
+    'I had one thing to look forward to this decade and it was this project being late. Then came {what}. How dare you.',
+    'Stupid. Ugly. Wrong. {what} has cost me my peace, my parking and my faith in delay.',
+    'After {what} we will be living in huts. Huts near a railway. Is that what you wanted for us, tyrant?',
   ],
   money: [
-    '{usd} on "{what}". For that money you could have bought {div:12} burritos. I counted. Dictator.',
-    '{usd}!! That is {div:900000} median parking spaces the tyrant will never build me.',
-    'For {usd} you could have mailed every resident a strongly worded letter {div:4000000} times. Instead, the tyrant chose "{what}".',
-    '"{what}" cost {usd}. That is {div:65} jars of artisanal bay salt. Think about that, despot.',
-    '{usd} is {div:250000} consultant hours. Real families bill those hours. The dictator gave them to a machine.',
-    'With {usd} I could have sued this project {div:500000} times. "{what}". Ugly use of a budget.',
-    '{usd} for "{what}"? You could have bought {div:3} lottery tickets and had the same odds, tyrant.',
-    'For {usd} the despot could have hired {div:80000} people to stand in the road holding SLOW signs for a year. That is a transit plan.',
+    '{usd} on {what}. That is {div:12} burritos. I counted. Not one of them was for me. How dare you.',
+    '{usd}!! That is {div:900000} parking spaces you will never build me. I had names for them.',
+    '{what} cost {usd}. That is {div:65} jars of artisanal bay salt taken from the table of my family.',
+    'With {usd} I could have sued this project {div:500000} times. {what}. You have destroyed my retirement plan.',
+    '{usd} for {what}? You could have bought me {div:3} lottery tickets. I would have won. Now we will be peasants.',
+    'For {usd} you could have hired {div:80000} people to hold SLOW signs for a year. I love those signs. You are stupid.',
+    '{usd} is {div:250000} consultant hours. Real families bill those hours. Mine did. You gave them to a machine.',
   ],
   personal: [
-    'Worse than a leaf blower at 7 a.m. on a Sunday. I said it. The dictator is worse.',
-    'This tyrant has the charm of a wet parking ticket and half the legitimacy.',
-    'I have met potholes with more empathy than this despot. Deeper, too.',
-    'Ugly. Uglier than the back of a strip mall. And at least the strip mall has parking.',
-    'A dictator. A tyrant. A person who, I am told, walks on escalators.',
-    'The tyrant is worse than a raccoon in a compost bin. The raccoon at least holds public office hours.',
-    'History will remember this autocrat next to the person who invented the roundabout.',
-    'I would call the tyrant a clown but clowns travel many to a car and that is basically transit.',
-    'This despot has the face of someone who has never once attended a four-hour design review. Smooth. Unbothered. Ugly.',
-    'This despot is worse than a group project. Worse than the person in the group project who does all the work and tells everyone.',
-    'A normal tyrant at least has the decency to run late. This dictator has a schedule and KEEPS it.',
-    'The emperor of the excavator. The sultan of spoil. The ugliest shovel in the shed.',
-    'Somewhere a seagull is choking on a french fry and it is still having a better day than this tyrant deserves.',
-    'I do not say this lightly: the dictator is worse than the airport. Worse than both airports.',
+    'Worse than a leaf blower at 7 a.m. on a Sunday. I said it. You are worse.',
+    'You have the charm of a wet parking ticket.',
+    'I have met potholes with more empathy than you. Deeper, too.',
+    'Ugly. Uglier than the back of a strip mall. And the strip mall has parking.',
+    'I am told you walk on escalators. That is the kind of person we are dealing with.',
+    'You are worse than a raccoon in a compost bin. The raccoon at least looks sorry.',
+    'History will remember you next to whoever invented the roundabout.',
+    'I would call you a clown but clowns travel many to a car and that is basically transit.',
+    'You have the face of someone who has never sat through a four-hour design review. Smooth. Unbothered. Stupid.',
+    'You are worse than a group project. Worse than the one in the group project who does all the work and tells everyone.',
+    'A normal tyrant has the decency to run late. You have a schedule and you KEEP it.',
+    'Somewhere a seagull is choking on a french fry and it is still having a better day than you deserve.',
+    'I do not say this lightly: you are worse than the airport. Worse than both airports.',
+    'How do you sleep at night? I do not. I am up composing this.',
+    'My wife says I should let it go. My wife is on your side now. You have destroyed my marriage.',
+    'Stupid, stupid, stupid. I typed it three times so you would feel it.',
   ],
   pileOn: [
-    'Came here to say this. Dictator. Ugly. Also I have not read what happened.',
-    'This. All of this. And another thing: tyrant.',
-    'Finally someone is saying it. I have been saying it. Nobody listens to me. Despot.',
-    'Adding my name to the list of people who are angry. It is a long list. I made it. Dictator.',
-    'Unfollowed the dictator. Followed again to see what comes next. Unfollowed. Ugly.',
-    'My whole street is furious. I asked both of the other people. Tyrant.',
-    'Screenshotting this for the recall petition, tyrant.',
+    'Came here to say this. I have not read what happened. My life is ruined too.',
+    'This. All of this. And another thing: how dare you.',
+    'Finally someone is saying it. I have been saying it. Nobody listens to me. Nobody ever has.',
+    'Adding my name to the list of people who are angry. It is a long list. I made it.',
+    'Unfollowed. Followed again to see what comes next. Unfollowed. You did this to me.',
+    'My whole street is furious. I asked both of the other people.',
+    'Screenshotting this for my grandchildren, who will be peasants.',
     'I was neutral on tyrants until today.',
+    'Same. Destroyed. Completely destroyed. I am typing this from the floor.',
+    'I do not know what this is about but I have not been this hurt since they moved the bus stop.',
   ],
   eventSettle: [
-    'The dictator SETTLED. "{what}". My driveway and I were ready to go to the Supreme Court.',
-    'Paid off a lawsuit instead of waiting four years for it: "{what}". Impatient, ugly tyrant.',
-    'Rule by handshake. "{what}" was decided in a room I was not in. Despot.',
+    'You SETTLED. {what}. My driveway and I were ready to go to the Supreme Court. We had outfits.',
+    '{what}. Four years of lawsuit, gone. What am I supposed to talk about at Thanksgiving now? How dare you.',
+    'Decided in a room I was not in. {what}. I am always in the room. You have destroyed the one thing I had, despot.',
+    'Are you stupid? {what}. A lawsuit is a family tradition. My son was going to inherit that lawsuit.',
   ],
   eventFunding: [
-    'Where did the money come from? "{what}". Favours! The tyrant runs this town on favours.',
-    'Somebody in Sacramento owes the dictator a lot. "{what}". Ugly, ugly politics.',
-    'A hole in the budget, closed in a day: "{what}". Only a despot fixes things that fast.',
-    'Called in every favour for a TRAIN. "{what}". Ugly. The worst use of power I have seen this week.',
+    'Where did the money come from? {what}. I was enjoying the hole in the budget. It was the only hole I trusted.',
+    '{what}. Fixed in a DAY. I had cleared my whole spring to be worried about it. How dare you.',
+    'One phone call and there is a train again. {what}. I had told everyone it was dead. You have made me a liar.',
+    'How can you do this to me? {what}. The project was finally on its knees and I had a speech ready.',
   ],
   any: [
-    'Political capital spent on "{what}". The dictator is at it again. Also, ugly.',
-    '"{what}" and nobody asked me. Tyrant.',
-    'I leave town for one weekend and the despot does "{what}".',
-    'Another decree: "{what}". The ugly autocrat of public transport strikes again.',
-    'At this rate the tyrant will finish the railway. "{what}" was the warning sign.',
-    'Has anyone checked whether "{what}" is even allowed? Asking as a victim of a dictator.',
+    '{what} and nobody asked me. Nobody ever asks me. How dare you.',
+    'I leave town for one weekend and you do {what}. I can never leave town again. You have made me a prisoner.',
+    'At this rate you will finish the railway. {what} was the warning sign. What will I be against then?',
+    'Has anyone checked whether {what} is even allowed? Asking as a victim.',
+    'You are stupid. I do not know what {what} does but I felt it in my hip.',
+    'After {what} we will be like peasants. Peasants who get places.',
   ],
 };
+
+/** Words for the player as a ruler. One joke: at most one post of a pile-on uses it, and at most a quarter of the templates. */
+export const SOCIAL_RULER_WORDS = /dictator|tyrant|despot|autocrat|emperor|tsar/i;
+
+/** What no post may say: the game's currency or any other mechanic. The posts are residents, not system messages. */
+export const SOCIAL_BANNED = /political capital|\bPC\b|\bpoints\b/i;
 
 /** How many distinct templates there are. */
 export const SOCIAL_TEMPLATE_COUNT = Object.values(SOCIAL_TEMPLATES).reduce((n, list) => n + list.length, 0);
@@ -195,16 +221,14 @@ export const SOCIAL_BURST_MIN = 2;
 export const SOCIAL_BURST_MAX = 4;
 
 /**
- * Why capital was spent: `cause` is stored on the post, `group` picks the templates of the first post, `what` fills
- * them in, `pc` and `cents` are the amounts the cost comparisons quote.
+ * What drew the pile-on: `cause` is stored on the post, `group` picks the templates of the first post, `what` fills
+ * them in, `cents` is the cash the dollar comparisons quote.
  */
 export interface SocialCause {
   cause: string;
   group: string;
   what: string;
-  /** Political capital spent. */
-  pc: number;
-  /** Cash spent with it, integer cents; 0 or absent when the spend was capital only. */
+  /** Cash spent with it, integer cents; 0 or absent when no cash was spent. */
   cents?: number;
 }
 
@@ -225,9 +249,7 @@ export function fillSocialTemplate(template: string, why: SocialCause): string {
   const cents = why.cents ?? 0;
   return template
     .replaceAll('{what}', why.what)
-    .replaceAll('{pc}', String(why.pc))
     .replaceAll('{usd}', cash(cents))
-    .replace(/\{x:(\d+)\}/g, (_m, n: string) => whole(why.pc * Number(n)))
     .replace(/\{div:(\d+)\}/g, (_m, n: string) => whole(cents / 100 / Number(n)));
 }
 
@@ -244,10 +266,10 @@ export function pushSocialBurst(state: SimState, why: SocialCause): SocialPost[]
   const count = SOCIAL_BURST_MIN + nextInt(rng, SOCIAL_BURST_MAX - SOCIAL_BURST_MIN + 1);
   const cents = why.cents ?? 0;
   const lead = SOCIAL_TEMPLATES[why.group] ?? SOCIAL_TEMPLATES.any;
-  // Post 1 is about the thing itself, post 2 is what it cost, then it gets personal.
+  // Post 1 is about the thing itself, post 2 is the ruin it brought (in dollars when cash was spent), then it gets personal.
   const lists: (readonly string[])[] = [
     lead,
-    cents > 0 && nextInt(rng, 2) === 0 ? SOCIAL_TEMPLATES.money : SOCIAL_TEMPLATES.compare,
+    cents > 0 && nextInt(rng, 2) === 0 ? SOCIAL_TEMPLATES.money : SOCIAL_TEMPLATES.ruin,
     SOCIAL_TEMPLATES.personal,
     SOCIAL_TEMPLATES.pileOn,
   ];
@@ -256,6 +278,7 @@ export function pushSocialBurst(state: SimState, why: SocialCause): SocialPost[]
   if (last) usedHandles.add(last.handle);
   const usedTexts = new Set(posts.map((p) => p.text));
   const out: SocialPost[] = [];
+  let ruler = false;
   for (let k = 0; k < count; k++) {
     const list = lists[k];
     // A repeated account or the same words twice among the kept posts read as a bug: take the next free one.
@@ -263,10 +286,13 @@ export function pushSocialBurst(state: SimState, why: SocialCause): SocialPost[]
     for (let tries = 0; tries < SOCIAL_HANDLES.length && usedHandles.has(SOCIAL_HANDLES[h]); tries++) h = (h + 1) % SOCIAL_HANDLES.length;
     let t = nextInt(rng, list.length);
     let text = fillSocialTemplate(list[t], why);
-    for (let tries = 1; tries < list.length && usedTexts.has(text); tries++) {
+    // So does a second "tyrant" in one pile-on: the template is tested, not the title that fills it.
+    const taken = (): boolean => usedTexts.has(text) || (ruler && SOCIAL_RULER_WORDS.test(list[t]));
+    for (let tries = 1; tries < list.length && taken(); tries++) {
       t = (t + 1) % list.length;
       text = fillSocialTemplate(list[t], why);
     }
+    ruler ||= SOCIAL_RULER_WORDS.test(list[t]);
     const likes = 40 + nextInt(rng, 9000);
     const post: SocialPost = {
       id: first + k,

@@ -20,10 +20,12 @@ import {
   profileFor,
   REFORMS,
   type SimState,
+  SOCIAL_BANNED,
   SOCIAL_BURST_MAX,
   SOCIAL_BURST_MIN,
   SOCIAL_HANDLES,
   SOCIAL_POSTS_KEPT,
+  SOCIAL_RULER_WORDS,
   SOCIAL_TEMPLATE_COUNT,
   SOCIAL_TEMPLATES,
 } from './index.ts';
@@ -63,22 +65,49 @@ describe('social media backlash', () => {
       'eventSettle',
       'eventFunding',
       'any',
-      'compare',
+      'ruin',
       'money',
       'personal',
       'pileOn',
     ])
       expect(SOCIAL_TEMPLATES[group]?.length, group).toBeGreaterThanOrEqual(3);
-    // Every cost comparison quotes the amount that was spent.
-    for (const t of SOCIAL_TEMPLATES.compare) expect(t, t).toMatch(/\{pc\}/);
+    // Every dollar comparison quotes the cash that was spent; the second post of a pile-on names what caused it.
     for (const t of SOCIAL_TEMPLATES.money) expect(t, t).toMatch(/\{usd\}/);
+    for (const t of SOCIAL_TEMPLATES.ruin) expect(t, t).toMatch(/\{what\}/);
     expect(SOCIAL_HANDLES.length).toBeGreaterThanOrEqual(30);
-    for (const t of all) {
-      expect(t.includes(EM_DASH), t).toBe(false);
-      expect(t).toMatch(/dictator|tyrant|despot|autocrat|tsar|ugly|emperor/i);
-    }
+    for (const t of all) expect(t.includes(EM_DASH), t).toBe(false);
+    // Only these placeholders exist.
+    for (const t of all) expect(t.replace(/\{what\}|\{usd\}|\{div:\d+\}/g, ''), t).not.toMatch(/[{}]/);
     expect(new Set(SOCIAL_HANDLES).size).toBe(SOCIAL_HANDLES.length);
     for (const h of SOCIAL_HANDLES) expect(h).toMatch(/^@[A-Za-z0-9_]{12,}$/);
+  });
+
+  test('no template names the game currency or a mechanic, and the tyrant joke is rare', () => {
+    const all = Object.values(SOCIAL_TEMPLATES).flat();
+    for (const t of all) {
+      expect(t, t).not.toMatch(/political capital/i);
+      expect(t, t).not.toMatch(/\bPC\b/i);
+      expect(t, t).not.toMatch(/points?\b/i);
+      expect(t, t).not.toMatch(/capital|favou?rs|reform|\{pc\}|\{x:/i);
+      expect(t, t).not.toMatch(SOCIAL_BANNED);
+    }
+    expect(SOCIAL_TEMPLATES.compare).toBeUndefined();
+    // The posts are aimed at the player, in the second person.
+    expect(all.filter((t) => /\byou(r)?\b/i.test(t)).length).toBeGreaterThan(all.length / 2);
+    expect(all.filter((t) => SOCIAL_RULER_WORDS.test(t)).length).toBeLessThanOrEqual(all.length / 4);
+    // What fills a template is clean too: no reform title, housing title or event option says any of it.
+    for (const r of REFORMS) expect(r.title, r.title).not.toMatch(SOCIAL_BANNED);
+    // At most one post of a pile-on calls the player a tyrant.
+    for (let seed = 1; seed <= 20; seed++) {
+      const sim = createSim(rich(), seed);
+      spendingSpree(sim);
+      const byBurst = new Map<number, number>();
+      for (const p of sim.snapshot().socialPosts ?? []) {
+        expect(p.text, p.text).not.toMatch(SOCIAL_BANNED);
+        if (SOCIAL_RULER_WORDS.test(p.text)) byBurst.set(p.burst ?? 0, (byBurst.get(p.burst ?? 0) ?? 0) + 1);
+      }
+      for (const [burst, n] of byBurst) expect(n, `seed ${seed} burst ${burst}`).toBeLessThanOrEqual(1);
+    }
   });
 
   test('a post appears exactly when political capital is spent, tied to what was done', () => {
@@ -104,10 +133,9 @@ describe('social media backlash', () => {
       expect(Number.isInteger(p.reposts) && (p.reposts ?? -1) >= 0 && (p.reposts ?? 0) <= (p.likes ?? 0), 'reposts').toBe(true);
     }
     expect(one[0].text).toContain('Stage gates and business cases');
-    // The second post says what it cost: stage gates cost 20 political capital, and the comparison multiplies that.
-    const pc = REFORMS.find((r) => r.id === 'stageGates')?.cost.pc ?? 0;
-    expect(pc).toBeGreaterThan(0);
-    expect(one[1].text).toContain(`${pc} `);
+    // The second post is the personal ruin, by the same title, and never the price.
+    expect(one[1].text).toContain('Stage gates and business cases');
+    expect(SOCIAL_TEMPLATES.ruin).toContain(one[1].text.replaceAll('Stage gates and business cases', '{what}'));
     // A refused or repeated command spends nothing and says nothing.
     sim.dispatch([enact('stageGates'), enact('railSpecustawa')]);
     expect(sim.snapshot().socialPosts).toHaveLength(one.length);
@@ -120,10 +148,9 @@ describe('social media backlash', () => {
     expect(two[0].handle).not.toBe(one[one.length - 1].handle);
   });
 
-  test('a cost comparison uses the real amount: the capital times the factor of the template, the cash divided by it', () => {
-    const why = { cause: 'reform:x', group: 'any', what: 'The thing', pc: 15, cents: 60 * 1e8 };
-    expect(fillSocialTemplate('{pc} on "{what}" is {x:12} cuttings', why)).toBe('15 on "The thing" is 180 cuttings');
-    expect(fillSocialTemplate('{usd} is {div:12} burritos', why)).toBe('$60M is 5,000,000 burritos');
+  test('a dollar comparison uses the real cash, divided by the factor of the template, and is only drawn when cash was spent', () => {
+    const why = { cause: 'reform:x', group: 'any', what: 'The thing', cents: 60 * 1e8 };
+    expect(fillSocialTemplate('{usd} on {what} is {div:12} burritos', why)).toBe('$60M on The thing is 5,000,000 burritos');
     // Cash comparisons are only drawn when cash was spent: a capital-only spend never quotes dollars.
     const sim = createSim(rich(), 11);
     spendingSpree(sim);
@@ -131,7 +158,7 @@ describe('social media backlash', () => {
       const reform = REFORMS.find((r) => `reform:${r.id}` === p.cause);
       if (reform && reform.cost.cents === 0) expect(p.text, p.text).not.toMatch(/\$0\b/);
     }
-    // The small bore costs capital and cash: over a few seeds both kinds of comparison turn up, with its own numbers.
+    // The small bore costs cash too: over a few seeds the second post is the dollar comparison or the plain ruin.
     const seen = new Set<string>();
     for (let seed = 1; seed <= 12; seed++) {
       const s = createSim(rich(), seed);
@@ -142,12 +169,12 @@ describe('social media backlash', () => {
       seen.add(
         posts[1].text.includes('$60M')
           ? 'money'
-          : posts[1].text.includes('15 political capital') || posts[1].text.includes('15 favours')
-            ? 'capital'
+          : SOCIAL_TEMPLATES.ruin.includes(posts[1].text.replaceAll('The Vegas-style small bore', '{what}'))
+            ? 'ruin'
             : 'neither',
       );
     }
-    expect([...seen].sort()).toEqual(['capital', 'money']);
+    expect([...seen].sort()).toEqual(['money', 'ruin']);
   });
 
   test('the same seed and commands give the same posts; another seed gives others; the event dice are untouched', () => {
@@ -354,8 +381,8 @@ describe('housing beside the line', () => {
       ['near', 'Homes at B', 1000, 30, 900, false],
       ['far', 'Homes far away', 1000, 20, 900, false],
     ]);
-    // The card says how the number follows and that it is assumed.
-    expect(list[0].blurb).toMatch(/^Blocks at station B\. Assumptions: 10 ha at 100 homes per hectare, 6 trips a day per home, 15 percent/);
+    // The card says what it needs; the assumptions behind the numbers stay in the option's source.
+    expect(list[0].blurb).toBe('Blocks at station B. Needs a station within 2 km.');
     expect(list[0].blurb.includes(EM_DASH)).toBe(false);
   });
 
@@ -381,7 +408,7 @@ describe('housing beside the line', () => {
     expect(posts.length).toBeGreaterThanOrEqual(SOCIAL_BURST_MIN);
     expect(posts.every((p) => p.cause === 'housing:near')).toBe(true);
     expect(SOCIAL_TEMPLATES.housing).toContain(posts[0].text.replaceAll('Homes at B', '{what}'));
-    expect(posts[1].text).toContain('30 ');
+    expect(SOCIAL_TEMPLATES.ruin).toContain(posts[1].text.replaceAll('Homes at B', '{what}'));
     expect(after.feed.at(-1)).toMatchObject({ kind: 'reformEnacted', subjectId: 'near' });
     // A second click is silent and free.
     sim.dispatch([house('near')]);
@@ -450,8 +477,8 @@ describe('the Vegas-style small bore', () => {
     expect(def.cost.pc).toBeGreaterThan(0);
     expect(POLAND_PROFILE).not.toContain('smallBoreLoop');
     expect(def.description).toMatch(/3\.7 m single-lane bore/);
-    expect(def.description).toMatch(/launch pit/);
-    expect(def.description).toMatch(/Caltrain train does not fit/);
+    expect(def.description).toMatch(/surface ramp/);
+    expect(def.description).toMatch(/no train fits/);
     expect(def.evidence).toMatch(/The Boring Company, Las Vegas Convention Center Loop/);
     expect(def.evidence).toMatch(/UNVERIFIED/);
     // Nobody is quoted: no quotation marks, no "said".
@@ -542,8 +569,6 @@ describe('the Vegas-style small bore', () => {
     const note = surface.snapshot().reforms.find((r) => r.id === 'smallBoreLoop')?.preview?.notes ?? [];
     surface.dispatch([enact('smallBoreLoop')]);
     expect(surface.snapshot().projects[0].scorecard.ridersPerDay).toBe(flat);
-    expect(note.join(' ')).toMatch(
-      /Pods, not trains: a line with a bored tunnel keeps 60 percent of its riders and carries at most 8,000 a day/,
-    );
+    expect(note.join(' ')).toMatch(/Pods, not trains: the line keeps 60 percent of its riders, at most 8,000 a day/);
   });
 });

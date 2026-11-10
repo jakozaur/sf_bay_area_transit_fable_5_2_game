@@ -1004,7 +1004,6 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
           cause: `reform:${def.id}`,
           group: def.id === 'specustawa' ? 'specustawa' : def.id === 'smallBoreLoop' ? 'smallBore' : def.branch,
           what: def.title,
-          pc: def.cost.pc,
           cents: def.cost.cents,
         });
       // What a reform costs in cash is paid by the project it is bought for, so it is inside "all-in".
@@ -1027,8 +1026,7 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (state.politicalCapital < def.capitalCost)
         return reject(state, cmd, `"${def.title}" costs ${def.capitalCost} political capital, you have ${state.politicalCapital}`);
       state.politicalCapital -= def.capitalCost;
-      if (def.capitalCost > 0 && !ctx.forecast)
-        pushSocialBurst(state, { cause: `housing:${def.id}`, group: 'housing', what: def.title, pc: def.capitalCost });
+      if (def.capitalCost > 0 && !ctx.forecast) pushSocialBurst(state, { cause: `housing:${def.id}`, group: 'housing', what: def.title });
       enacted.push(def.id);
       state.housing = enacted;
       // A line already in service gains the riders at once; one that is not yet open is counted when it opens.
@@ -1209,7 +1207,6 @@ function resolveEvent(
       cause: `event:${def.id}:${option.id}`,
       group: def.id === 'lawsuit' ? 'eventSettle' : 'eventFunding',
       what: option.label.replace(/\.$/, ''),
-      pc: option.pc,
     });
   eventSpend(state, project, project.hardEstimateCents * option.hardShare);
   if (def.id === 'cashCall') {
@@ -1538,14 +1535,7 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
   d.pendingOffPlanCents += surcharge;
   if (d.offPlan && !wasOffPlan && state.tick - d.offPlanNoticeTick >= NOTICE_GAP_DAYS) {
     d.offPlanNoticeTick = state.tick;
-    feed(
-      state,
-      ctx,
-      'tbmOffPlan',
-      project.id,
-      front.id,
-      `${front.name} is off the planned alignment: every metre costs ${Math.round((OFF_PLAN_FACTOR - 1) * 100)} percent more, and more the further it strays`,
-    );
+    feed(state, ctx, 'tbmOffPlan', project.id, front.id, `${front.name} is off the plan: each metre costs more.`);
   }
 
   const dx = d.x - d.carveX;
