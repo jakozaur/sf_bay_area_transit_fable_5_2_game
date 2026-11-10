@@ -32,7 +32,7 @@ export function validateScenario(s: ScenarioDef): string[] {
   const bad = (why: string) => {
     out.push(`scenario "${s.id}": ${why}`);
   };
-  if (typeof s.id !== 'string' || !/^[a-z0-9-]+$/.test(s.id)) bad('id must be lower-case letters, digits and dashes');
+  if (typeof s.id !== 'string' || !/^[A-Za-z0-9-]+$/.test(s.id)) bad('id must be letters, digits and dashes');
   if (typeof s.title !== 'string' || s.title === '') bad('title is empty');
   if (typeof s.description !== 'string' || s.description === '') bad('description is empty');
   if (typeof s.siteId !== 'string' || !/^[a-z0-9-]+$/.test(s.siteId))

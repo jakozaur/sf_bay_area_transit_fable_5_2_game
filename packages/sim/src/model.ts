@@ -396,7 +396,8 @@ export function polishGeometry(g: ProjectGeometry): ProjectGeometry {
  */
 export function phaseDays(phase: Exclude<PhaseId, 'construction'>, p: Profile, lengthM = 0): number {
   const base = p[`time.${phase}`] * DAYS_PER_MONTH;
-  if (phase !== 'fitOut') return base;
+  // A phase a reform removes (the specustawa zone) still takes the day it is signed: the sim counts in days.
+  if (phase !== 'fitOut') return Math.max(1, base);
   const extraKm = Math.max(0, lengthM / 1000 - K.fitOutFreeKm.value);
   const extra = extraKm * K.fitOutMonthsPerKm.value * DAYS_PER_MONTH;
   return Math.min(base * K.fitOutMaxFactor.value, base + extra);

@@ -856,6 +856,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         cents: state.handDig.cents,
         centsPerM3: Math.round(handDigCentsPerM3(p) * state.escalation),
       },
+      socialPosts: (state.socialPosts ?? []).map((post) => ({ ...post })),
     };
   }
 

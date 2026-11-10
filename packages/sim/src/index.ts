@@ -98,7 +98,7 @@ export {
   stationPln,
   systemsPlnPerM,
 } from './model.ts';
-export { RECEIPT_GROUP_LABELS, RECEIPT_LINE_DEFS, reformReceiptLines } from './receipt.ts';
+export { POLAND_TARGET_LIMIT, polandTargetOf, RECEIPT_GROUP_LABELS, RECEIPT_LINE_DEFS, reformReceiptLines } from './receipt.ts';
 export {
   BRANCHES,
   type Branch,
@@ -119,6 +119,7 @@ export {
 } from './reforms.ts';
 export { evaluateObjectives, validateScenario } from './scenario.ts';
 export { createSim, EVENT_CARDS, type GameSim, hashState, loadSim, type SaveOptions, type SimOptions, type WorldSink } from './sim.ts';
+export { SOCIAL_HANDLES, SOCIAL_POSTS_KEPT, SOCIAL_TEMPLATE_COUNT, SOCIAL_TEMPLATES, type SocialCause } from './social.ts';
 export { playerSource } from './sources.ts';
 export { serviceCycleS, trainsAt } from './trains.ts';
 export * from './types.ts';

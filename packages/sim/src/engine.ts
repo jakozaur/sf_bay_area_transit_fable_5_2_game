@@ -31,6 +31,7 @@ import {
   systemsCostCents,
 } from './model.ts';
 import { POLISH_PRICE_LEVEL, type Profile, profileFor, profileReforms, reformById, unitFactor } from './reforms.ts';
+import { pushSocialPost } from './social.ts';
 import {
   type DesignFlags,
   FEED_LENGTH,
@@ -200,6 +201,8 @@ export function initState(scenario: ScenarioDef, seed: number, opts: { costProfi
     missionCompleteTick: -1,
     cashShort: false,
     cashRaisedCents: 0,
+    socialPosts: [],
+    nextSocialId: 1,
   };
 }
 
@@ -993,6 +996,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (def.cost.cents > 0 && state.cashCents < def.cost.cents)
         return reject(state, cmd, `"${def.title}" costs $${(def.cost.cents / 1e8).toFixed(0)}M, cash is short`);
       state.politicalCapital -= def.cost.pc;
+      if (def.cost.pc > 0 && !ctx.forecast)
+        pushSocialPost(state, { cause: `reform:${def.id}`, group: def.id === 'specustawa' ? 'specustawa' : def.branch, what: def.title });
       // What a reform costs in cash is paid by the project it is bought for, so it is inside "all-in".
       const planId = state.scenario.reference?.projectId ?? 'line';
       const payer = state.projects.find((x) => x.id === planId && x.status !== 'open') ?? state.projects.find((x) => x.status !== 'open');
@@ -1162,6 +1167,12 @@ function resolveEvent(
   const project = findProject(state, projectId);
   if (!project) throw new Error(`sim: event ${uid} points at missing project "${projectId}"`);
   state.politicalCapital -= option.pc;
+  if (option.pc > 0 && !ctx.forecast)
+    pushSocialPost(state, {
+      cause: `event:${def.id}:${option.id}`,
+      group: def.id === 'lawsuit' ? 'eventSettle' : 'eventFunding',
+      what: option.label.replace(/\.$/, ''),
+    });
   eventSpend(state, project, project.hardEstimateCents * option.hardShare);
   if (def.id === 'cashCall') {
     const raised = cashCallCents(state, project, p);

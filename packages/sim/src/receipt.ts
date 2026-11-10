@@ -27,6 +27,7 @@ import { POLAND_PROFILE, type ProfileKey, profileFor, REFORMS } from './reforms.
 import {
   type GhostView,
   type PaidLedger,
+  type PolandTarget,
   RECEIPT_COLUMNS,
   RECEIPT_GROUPS,
   RECEIPT_LINES,
@@ -598,7 +599,19 @@ export function buildScorecard(i: ScoreInput): Scorecard {
     starsReason,
     axes,
     verdict,
+    polandTarget: polandTargetOf(yours, poland),
   };
+}
+
+/** The limit of the win target: twice Poland on cost and on time. */
+export const POLAND_TARGET_LIMIT = 2;
+
+/** Your column against the Poland column. Without a Polish figure a ratio is 0 and the target is not met. */
+export function polandTargetOf(yours: ScoreColumn, poland: ScoreColumn): PolandTarget {
+  const costRatio = poland.costCents > 0 ? yours.costCents / poland.costCents : 0;
+  const timeRatio = poland.yearsToOpen > 0 ? yours.yearsToOpen / poland.yearsToOpen : 0;
+  const met = costRatio > 0 && timeRatio > 0 && costRatio <= POLAND_TARGET_LIMIT && timeRatio <= POLAND_TARGET_LIMIT;
+  return { costRatio, timeRatio, limit: POLAND_TARGET_LIMIT, met };
 }
 
 export function missionResult(card: Scorecard): MissionResult {

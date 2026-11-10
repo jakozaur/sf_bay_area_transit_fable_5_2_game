@@ -462,6 +462,22 @@ export interface SimState extends SimStateV {
   cashShort: boolean;
   /** Money raised by cash calls so far. Absent in older saves: 0. */
   cashRaisedCents?: number;
+  /** Backlash posts, newest last, at most SOCIAL_POSTS_KEPT (social.ts). Absent in older saves: none. */
+  socialPosts?: SocialPost[];
+  /** Next SocialPost.id, from 1. Absent in older saves: 1. */
+  nextSocialId?: number;
+}
+
+/** One backlash post: written whenever political capital is spent. Closing a post is UI state, not sim state. */
+export interface SocialPost {
+  /** Rising from 1 within a game; a restart starts again at 1. */
+  id: number;
+  tick: number;
+  /** An invented account. */
+  handle: string;
+  text: string;
+  /** What the capital was spent on: `reform:<id>` or `event:<card id>:<option id>`. */
+  cause: string;
 }
 
 // ---------------------------------------------------------------- snapshot
@@ -644,6 +660,17 @@ export interface Scorecard {
   axes: { id: StarAxis; stars: number; reason: string }[];
   /** One sentence for the top of the card, numbers from the columns. */
   verdict: string;
+  /** The win target stated in the briefing: at most `limit` times Poland's cost and at most `limit` times Poland's time. */
+  polandTarget?: PolandTarget;
+}
+
+/** Your project against Poland on the same route: cost over cost, years to opening over years to opening. */
+export interface PolandTarget {
+  costRatio: number;
+  timeRatio: number;
+  limit: 2;
+  /** Both ratios are at or under `limit`. A forecast until the scorecard is final. */
+  met: boolean;
 }
 
 /** The running HUD number: your cost per route-km against Poland's, for the mission project. */
@@ -1171,6 +1198,8 @@ export interface GameSnapshot extends SimSnapshot {
   feed: FeedItem[];
   /** Free digging charged so far through chargeDig. */
   handDig: { volumeM3: number; cents: number; centsPerM3: number };
+  /** Backlash posts, oldest first, the last SOCIAL_POSTS_KEPT. Always present in a snapshot of this build. */
+  socialPosts?: readonly SocialPost[];
 }
 
 /** How many feed items a snapshot carries. */
