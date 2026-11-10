@@ -111,6 +111,8 @@ export const FEEDERS: readonly Feeder[] = [
       { name: 'Redwood City', lat: 37.4854, lon: -122.2319 },
       { name: 'Menlo Park', lat: 37.4545, lon: -122.1823 },
       { name: 'Palo Alto', lat: 37.4434, lon: -122.1651 },
+      // Rail network station of the baked data (scenarios baked-anchors.ts, sanAntonio).
+      { name: 'San Antonio', lat: 37.40741, lon: -122.10724 },
       { name: 'Mountain View', lat: 37.3945, lon: -122.076 },
       { name: 'Sunnyvale', lat: 37.3784, lon: -122.0308 },
       { name: 'San Jose Diridon', lat: 37.3299, lon: -121.9024 },

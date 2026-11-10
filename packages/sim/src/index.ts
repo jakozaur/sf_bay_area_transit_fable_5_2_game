@@ -74,6 +74,7 @@ export {
 } from './forecast.ts';
 export { capsuleBetween, carveCapsules, chainages, nearestChainage, offsetPointAt, pointAt, subPath } from './geometry.ts';
 export { faceGeology, type GroundQuery, geologyOfMaterial } from './ground.ts';
+export { housingHomes, housingRiders, housingServed, housingViews, type ProjectRiders, projectRiders } from './housing.ts';
 export {
   advanceRate,
   carveShape,
@@ -83,6 +84,7 @@ export {
   GEOLOGY,
   hardCost,
   headingSpans,
+  isSmallBore,
   isTbm,
   isUnderground,
   maxHeadingM,
@@ -119,7 +121,16 @@ export {
 } from './reforms.ts';
 export { evaluateObjectives, validateScenario } from './scenario.ts';
 export { createSim, EVENT_CARDS, type GameSim, hashState, loadSim, type SaveOptions, type SimOptions, type WorldSink } from './sim.ts';
-export { SOCIAL_HANDLES, SOCIAL_POSTS_KEPT, SOCIAL_TEMPLATE_COUNT, SOCIAL_TEMPLATES, type SocialCause } from './social.ts';
+export {
+  fillSocialTemplate,
+  SOCIAL_BURST_MAX,
+  SOCIAL_BURST_MIN,
+  SOCIAL_HANDLES,
+  SOCIAL_POSTS_KEPT,
+  SOCIAL_TEMPLATE_COUNT,
+  SOCIAL_TEMPLATES,
+  type SocialCause,
+} from './social.ts';
 export { playerSource } from './sources.ts';
 export { serviceCycleS, trainsAt } from './trains.ts';
 export * from './types.ts';

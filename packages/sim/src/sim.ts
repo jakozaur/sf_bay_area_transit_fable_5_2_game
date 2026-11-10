@@ -54,6 +54,7 @@ import {
 } from './forecast.ts';
 import { pointAt } from './geometry.ts';
 import type { GroundQuery } from './ground.ts';
+import { housingViews, projectRiders } from './housing.ts';
 import { carveShape, contractProfile, effectiveMethod, isUnderground, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
 import {
   buildReceipt,
@@ -451,7 +452,8 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       new Set(state.reforms),
       start,
     );
-    const riders = final ? project.ridersPerDay : ridership(project, state.scenario.feeders).ridersPerDay;
+    const live = projectRiders(state, project);
+    const riders = final ? project.ridersPerDay : live.ridersPerDay;
     const scorecard = buildScorecard({
       receipt,
       ridersPerDay: riders,
@@ -460,6 +462,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       polandSource:
         'The model: this route as the Polish design at Polish prices, calibrated on the Warsaw metro extensions and the Lodz rail tunnel',
     });
+    if ((state.scenario.housing?.length ?? 0) > 0) scorecard.housing = live.housing;
     const fresh: ProjectCache = {
       version: state.version,
       tick: state.tick,
@@ -857,6 +860,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         centsPerM3: Math.round(handDigCentsPerM3(p) * state.escalation),
       },
       socialPosts: (state.socialPosts ?? []).map((post) => ({ ...post })),
+      housing: housingViews(state),
     };
   }
 

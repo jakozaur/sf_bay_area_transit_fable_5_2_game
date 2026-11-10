@@ -5,12 +5,12 @@
 import { type Command, createRng, isInGrid, Material, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
 import { checkAlignment, minRadiusFor } from './checks.ts';
 import { DAYS_PER_YEAR, ESCALATION_DAILY, CONSTANTS as K, SUBSTEPS_PER_DAY } from './constants.ts';
-import { ridership } from './demand.ts';
 import { defaultMethod, designOption, optionLocks, stationBoxOf, stationSize } from './design.ts';
 import { driveFromPlan, driveSubstep } from './drive.ts';
 import { EVENTS, type EventDef, type EventOption, eventById, eventTitle } from './events.ts';
 import { capsuleBetween, carveCapsules, chainages, nearestChainage, pointAt, segmentIndexAt } from './geometry.ts';
 import type { GroundQuery } from './ground.ts';
+import { housingRiders, projectRiders } from './housing.ts';
 import {
   advanceRate,
   carveShape,
@@ -31,7 +31,7 @@ import {
   systemsCostCents,
 } from './model.ts';
 import { POLISH_PRICE_LEVEL, type Profile, profileFor, profileReforms, reformById, unitFactor } from './reforms.ts';
-import { pushSocialPost } from './social.ts';
+import { pushSocialBurst } from './social.ts';
 import {
   type DesignFlags,
   FEED_LENGTH,
@@ -203,6 +203,7 @@ export function initState(scenario: ScenarioDef, seed: number, opts: { costProfi
     cashRaisedCents: 0,
     socialPosts: [],
     nextSocialId: 1,
+    housing: [],
   };
 }
 
@@ -330,6 +331,8 @@ export function parseCommand(c: Command): GameCommand {
       return { t: 'setSpeed', speed: oneOf(c, 'speed', SPEEDS) };
     case 'enactReform':
       return { t: 'enactReform', id: str(c, 'id') };
+    case 'enactHousing':
+      return { t: 'enactHousing', optionId: str(c, 'optionId') };
     case 'resolveEvent': {
       const eventId = num(c, 'eventId');
       return { t: 'resolveEvent', eventId, optionId: str(c, 'optionId') };
@@ -965,7 +968,7 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       project.phaseProgress = 1;
       state.politicalCapital += PC_OPENING;
       if (!ctx.forecast) {
-        project.ridersPerDay = ridership(project, state.scenario.feeders).ridersPerDay;
+        project.ridersPerDay = projectRiders(state, project).ridersPerDay;
         if (ctx.benchmark) {
           const b = ctx.benchmark(state, project);
           project.polandCostCents = b.costCents;
@@ -997,7 +1000,13 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
         return reject(state, cmd, `"${def.title}" costs $${(def.cost.cents / 1e8).toFixed(0)}M, cash is short`);
       state.politicalCapital -= def.cost.pc;
       if (def.cost.pc > 0 && !ctx.forecast)
-        pushSocialPost(state, { cause: `reform:${def.id}`, group: def.id === 'specustawa' ? 'specustawa' : def.branch, what: def.title });
+        pushSocialBurst(state, {
+          cause: `reform:${def.id}`,
+          group: def.id === 'specustawa' ? 'specustawa' : def.id === 'smallBoreLoop' ? 'smallBore' : def.branch,
+          what: def.title,
+          pc: def.cost.pc,
+          cents: def.cost.cents,
+        });
       // What a reform costs in cash is paid by the project it is bought for, so it is inside "all-in".
       const planId = state.scenario.reference?.projectId ?? 'line';
       const payer = state.projects.find((x) => x.id === planId && x.status !== 'open') ?? state.projects.find((x) => x.status !== 'open');
@@ -1007,6 +1016,34 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       for (const project of state.projects) if (project.status !== 'open') refreshEstimate(project, next);
       state.version++;
       feed(state, ctx, 'reformEnacted', null, def.id, `Reform enacted: ${def.title}`);
+      return;
+    }
+    case 'enactHousing': {
+      const def = (state.scenario.housing ?? []).find((o) => o.id === cmd.optionId);
+      if (!def) return reject(state, cmd, `this mission has no housing option "${cmd.optionId}"`);
+      const enacted = state.housing ?? [];
+      // A second click before the snapshot caught up: it is enacted, nothing to say.
+      if (enacted.includes(def.id)) return;
+      if (state.politicalCapital < def.capitalCost)
+        return reject(state, cmd, `"${def.title}" costs ${def.capitalCost} political capital, you have ${state.politicalCapital}`);
+      state.politicalCapital -= def.capitalCost;
+      if (def.capitalCost > 0 && !ctx.forecast)
+        pushSocialBurst(state, { cause: `housing:${def.id}`, group: 'housing', what: def.title, pc: def.capitalCost });
+      enacted.push(def.id);
+      state.housing = enacted;
+      // A line already in service gains the riders at once; one that is not yet open is counted when it opens.
+      if (!ctx.forecast)
+        for (const project of state.projects)
+          if (project.status === 'open') project.ridersPerDay = projectRiders(state, project).ridersPerDay;
+      state.version++;
+      feed(
+        state,
+        ctx,
+        'reformEnacted',
+        null,
+        def.id,
+        `Housing enacted: ${def.title}, ${housingRiders(def).toLocaleString('en-US')} more riders a day`,
+      );
       return;
     }
     case 'resolveEvent': {
@@ -1168,10 +1205,11 @@ function resolveEvent(
   if (!project) throw new Error(`sim: event ${uid} points at missing project "${projectId}"`);
   state.politicalCapital -= option.pc;
   if (option.pc > 0 && !ctx.forecast)
-    pushSocialPost(state, {
+    pushSocialBurst(state, {
       cause: `event:${def.id}:${option.id}`,
       group: def.id === 'lawsuit' ? 'eventSettle' : 'eventFunding',
       what: option.label.replace(/\.$/, ''),
+      pc: option.pc,
     });
   eventSpend(state, project, project.hardEstimateCents * option.hardShare);
   if (def.id === 'cashCall') {

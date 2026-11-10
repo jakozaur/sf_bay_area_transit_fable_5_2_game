@@ -383,6 +383,47 @@ export const CONSTANTS = {
   nonWorkMultiplier: c(1.3, 'x', 'doc 09 section 3.1 says fit it; 1.3 is a placeholder', false),
   minTripKm: c(2, 'km', 'doc 09 section 1.1 (rail-addressable market counts ends more than 2 km apart)'),
   feederConnectM: c(500, 'm', 'assumption: a station within 500 m of an existing station is an interchange', false),
+
+  // --- Housing next to the line (M2). Every figure is an ASSUMPTION for a back-of-envelope number. ---
+  housingTripsPerHome: c(
+    6,
+    'trips/home/day',
+    'assumption: person trips a day by the residents of one new home, both directions; UNVERIFIED',
+    false,
+  ),
+  housingTransitShare: c(
+    0.15,
+    'share',
+    'assumption: share of those trips made on the new line when the homes are built at a station; UNVERIFIED',
+    false,
+  ),
+  housingServedM: c(2000, 'm', 'assumption: new homes count as riders when a station of the line is within 2 km of the site', false),
+
+  // --- The Vegas-style small bore (M2). ---
+  smallBoreCivilFactor: c(
+    0.3,
+    'x',
+    'assumption: civil cost of one 3.7 m single-lane bore against two 6.6 m tubes; the excavated volume is 0.16 of the pair, cost falls less than volume; UNVERIFIED',
+    false,
+  ),
+  smallBoreRateFactor: c(
+    1.5,
+    'x',
+    'assumption: advance of a 3.7 m machine with continuous mining against the metro class; the vendor claims far more, nothing is independently measured (doc 06 section 6.5)',
+    false,
+  ),
+  smallBoreRiderShare: c(
+    0.6,
+    'share',
+    'assumption: share of the riders who still come when the bore carries pods and every Caltrain rider changes vehicle; UNVERIFIED',
+    false,
+  ),
+  smallBoreRidersPerDay: c(
+    8000,
+    'riders/day',
+    'assumption: what a single-lane pod loop moves in a day (about 500 an hour each way over 8 busy hours); UNVERIFIED',
+    false,
+  ),
 } as const satisfies Record<string, Constant>;
 
 export type ConstantId = keyof typeof CONSTANTS;

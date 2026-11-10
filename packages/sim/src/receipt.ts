@@ -144,6 +144,8 @@ export const RECEIPT_GROUP_LABELS: Record<ReceiptGroup, string> = {
 function linesOfKey(key: ProfileKey): ReceiptLineId[] {
   if (key === 'design.threeTrack') return ['designTunnel', 'designStations', 'designSystems'];
   if (key === 'design.deepBox' || key === 'design.twinBoreDefault' || key === 'tbm.geologyRelief') return ['designTunnel'];
+  // The small bore is a smaller tunnel and a faster machine.
+  if (key === 'tbm.smallBore') return ['designTunnel', 'escalation', 'overhead'];
   if (key.startsWith('design.')) return ['designStations'];
   if (key === 'unit.procurement') return ['procurement'];
   if (key === 'unit.labour') return ['staffing'];

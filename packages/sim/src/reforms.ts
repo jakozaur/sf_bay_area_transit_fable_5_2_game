@@ -60,6 +60,8 @@ export const STATUS_QUO_PROFILE = {
   'tbm.breakdown': 1,
   /** 0..1: share of the geology penalty (cost and advance) the machine choice removes. */
   'tbm.geologyRelief': 0,
+  /** 1 = the bored tunnels are a 3.7 m single-lane small bore for pods, not a railway (the smallBoreLoop reform). */
+  'tbm.smallBore': 0,
   // Event hazards, multipliers on the base annual rate.
   'event.lawsuit.rate': 1,
   'event.lawsuit.delayCapDays': 100000,
@@ -440,6 +442,17 @@ export const REFORMS: readonly ReformDef[] = [
     [mul('tbm.rate', 2)],
     'A vendor target with no independent measurement. The game gives you a modest 2x and labels it speculation.',
     'doc 06 section 6.5 (Prufrock: 1 mile/week claimed; LVCC bores about 15 m/day with a conventional machine)',
+    true,
+  ),
+  node(
+    'smallBoreLoop',
+    'tunnelling',
+    'The Vegas-style small bore',
+    { pc: 15, cents: 60 * 1e8 },
+    [],
+    [set('tbm.smallBore', 1)],
+    'One 3.7 m single-lane bore in place of two railway tubes. The machine mines without stopping and drives in off a ramp at the surface, so nobody digs a launch pit. Much cheaper and faster per km. The catch: a Caltrain train does not fit. It carries pods, every rider changes vehicle, and the tube runs out of seats long before a railway would.',
+    'Precedent: The Boring Company, Las Vegas Convention Center Loop (twin 3.7 m bores of about 1.3 km each, opened 2021, cars with drivers); doc 06 section 6.5. The cost, speed and capacity factors are game assumptions (constants.ts smallBore*), UNVERIFIED',
     true,
   ),
 ];

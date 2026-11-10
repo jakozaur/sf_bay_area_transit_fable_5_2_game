@@ -142,9 +142,14 @@ describe('driving: no dead ends, no daylight, no runaway drift', () => {
 
 describe('machines and headings', () => {
   test('no stack of tunnelling reforms takes a machine above 0.9 of its peak rate: 27 m/day in soft ground', () => {
-    const all = profileFor(REFORMS.map((r) => r.id));
+    // The railway machines. The small bore (M2) is another class of machine, with its own factor on top of the cap.
+    const all = profileFor(REFORMS.filter((r) => r.id !== 'smallBoreLoop').map((r) => r.id));
     const cap = CONSTANTS.tbmPeakMPerDay.value * CONSTANTS.tbmMaxUtilisation.value;
     expect(advanceRate('boredTwin', 'softGround', all, 10_000)).toBeCloseTo(cap, 9);
+    expect(advanceRate('boredTwin', 'softGround', profileFor(REFORMS.map((r) => r.id)), 10_000)).toBeCloseTo(
+      cap * CONSTANTS.smallBoreRateFactor.value,
+      9,
+    );
     expect(cap).toBeCloseTo(27, 9);
     // Tier by tier: the base, the segment plant, continuous advance; the claimed mile-a-week machine hits the cap.
     expect(advanceRate('boredTwin', 'softGround', profileFor([]), 10_000)).toBeCloseTo(10.5, 9);

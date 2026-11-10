@@ -245,6 +245,16 @@ export interface HardBreakdown {
   totalCents: number;
 }
 
+/** The small bore replaces a twin-tube drive (a method as built, after effectiveMethod). Anything else is untouched. */
+export function isSmallBore(m: Method, p: Profile): boolean {
+  return m === 'boredTwin' && p['tbm.smallBore'] === 1;
+}
+
+/** Civil cost factor of a segment under the small-bore reform: 1 for everything but a twin-tube drive. */
+function smallBoreCivil(m: Method, p: Profile): number {
+  return isSmallBore(m, p) ? K.smallBoreCivilFactor.value : 1;
+}
+
 /**
  * Unescalated hard cost of a whole project.
  * `polishPrices` = unit factors forced to 1 (same design, Polish prices).
@@ -259,7 +269,7 @@ export function hardCost(project: ProjectGeometry, p: Profile, flags: DesignFlag
   for (let i = 0; i < methods.length; i++) {
     const len = cum[i + 1] - cum[i];
     const m = effectiveMethod(methods[i], flags);
-    civil += len * civilPlnPerM(m, waypoints[i].geology ?? 'softGround', flags, relief, segmentY(waypoints, i));
+    civil += len * civilPlnPerM(m, waypoints[i].geology ?? 'softGround', flags, relief, segmentY(waypoints, i)) * smallBoreCivil(m, p);
     systems += len * systemsPlnPerM(m, flags);
   }
   let stations = 0;
@@ -277,7 +287,7 @@ export function stationCostCents(s: Pick<StationState, 'template' | 'depthM'>, p
 
 /** Unescalated civil cost in cents per metre at current prices, for a segment whose axis is at elevation `yM`. */
 export function civilCentsPerM(m: Method, geology: Geology, p: Profile, flags: DesignFlags, yM = 0): number {
-  return civilPlnPerM(m, geology, flags, p['tbm.geologyRelief'], yM) * CENTS_PER_PLN * unitFactor(p);
+  return civilPlnPerM(m, geology, flags, p['tbm.geologyRelief'], yM) * CENTS_PER_PLN * unitFactor(p) * smallBoreCivil(m, p);
 }
 
 /** Unescalated systems cost in cents for the whole project at current prices. */
@@ -309,7 +319,10 @@ export function advanceRate(m: Method, geology: Geology, p: Profile, doneM: numb
     // Good ground lets a machine bore more of the day, never more than the cap: 27 m/day for the metro class (PLAN 6.7).
     case 'boredTwin':
       return (
-        TBM_PEAK * Math.min(TBM_MAX_UTILISATION, tbmUtilisation(p) * g) * (doneM < K.twinBoreStartupM.value ? K.startupRateFactor.value : 1)
+        TBM_PEAK *
+        Math.min(TBM_MAX_UTILISATION, tbmUtilisation(p) * g) *
+        (doneM < K.twinBoreStartupM.value ? K.startupRateFactor.value : 1) *
+        (p['tbm.smallBore'] === 1 ? K.smallBoreRateFactor.value : 1)
       );
     case 'boredSingleLarge':
       return (

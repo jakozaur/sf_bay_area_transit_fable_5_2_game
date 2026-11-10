@@ -109,6 +109,8 @@ export type GameCommand =
   /** Advisory for the caller: ticks to run per frame. The sim itself always advances one day per step. */
   | { t: 'setSpeed'; speed: Speed }
   | { t: 'enactReform'; id: string }
+  /** M2: enacts one of the scenario's housing options (ScenarioDef.housing). Costs political capital, so it draws backlash. */
+  | { t: 'enactHousing'; optionId: string }
   | { t: 'resolveEvent'; eventId: number; optionId: string }
   /** Player gate after fit-out and testing. */
   | { t: 'openLine'; projectId: string }
@@ -210,8 +212,32 @@ export interface ScenarioDef extends Scenario {
   objectives: ObjectiveDef[];
   /** Ids of existing lines (demand.ts FEEDERS) new stations can interchange with. */
   feeders: string[];
+  /** M2: housing and upzoning the player may enact to give the line riders. Absent: the mission offers none. */
+  housing?: HousingOptionDef[];
   reference?: ScenarioReference;
   sandbox?: boolean;
+}
+
+/**
+ * Homes the player may allow beside the line. `homes` is hectares times homesPerHectare; the riders they add are
+ * homes times CONSTANTS.housingTripsPerHome times CONSTANTS.housingTransitShare, and they count once a station of
+ * the mission line is within CONSTANTS.housingServedM of `at`. Every one of those figures is an assumption.
+ */
+export interface HousingOptionDef {
+  id: string;
+  title: string;
+  /** Two or three sentences for the card: what is built and where. The sim appends the derivation. */
+  blurb: string;
+  /** Land built on, hectares. */
+  hectares: number;
+  /** ASSUMPTION: homes per hectare of that land (gross). */
+  homesPerHectare: number;
+  /** Political capital it costs. */
+  capitalCost: number;
+  /** Centre of the site, world metres. */
+  at: { x: number; z: number };
+  /** Where the area and the density come from, and what is unverified. */
+  source: string;
 }
 
 // ---------------------------------------------------------------- state
@@ -466,9 +492,14 @@ export interface SimState extends SimStateV {
   socialPosts?: SocialPost[];
   /** Next SocialPost.id, from 1. Absent in older saves: 1. */
   nextSocialId?: number;
+  /** Ids of the housing options enacted (ScenarioDef.housing), in order. Absent in older saves: none. */
+  housing?: string[];
 }
 
-/** One backlash post: written whenever political capital is spent. Closing a post is UI state, not sim state. */
+/**
+ * One backlash post. A spend of political capital draws a pile-on of 2 to 4 of them (social.ts), all with the
+ * same `burst`. Closing a post is UI state, not sim state.
+ */
 export interface SocialPost {
   /** Rising from 1 within a game; a restart starts again at 1. */
   id: number;
@@ -476,8 +507,13 @@ export interface SocialPost {
   /** An invented account. */
   handle: string;
   text: string;
-  /** What the capital was spent on: `reform:<id>` or `event:<card id>:<option id>`. */
+  /** What the capital was spent on: `reform:<id>`, `housing:<option id>` or `event:<card id>:<option id>`. */
   cause: string;
+  /** Invented engagement numbers, for show. Absent on posts of older saves. */
+  likes?: number;
+  reposts?: number;
+  /** Id of the first post of the pile-on this post belongs to: the same for every post of one spend. */
+  burst?: number;
 }
 
 // ---------------------------------------------------------------- snapshot
@@ -662,6 +698,11 @@ export interface Scorecard {
   verdict: string;
   /** The win target stated in the briefing: at most `limit` times Poland's cost and at most `limit` times Poland's time. */
   polandTarget?: PolandTarget;
+  /**
+   * M2: the enacted housing a station of this line serves, already inside `ridersPerDay`. Present (zeros when
+   * nothing is enacted or served) on every scorecard of a mission that offers housing options, absent otherwise.
+   */
+  housing?: { homes: number; ridersPerDayAdded: number };
 }
 
 /** Your project against Poland on the same route: cost over cost, years to opening over years to opening. */
@@ -1200,6 +1241,22 @@ export interface GameSnapshot extends SimSnapshot {
   handDig: { volumeM3: number; cents: number; centsPerM3: number };
   /** Backlash posts, oldest first, the last SOCIAL_POSTS_KEPT. Always present in a snapshot of this build. */
   socialPosts?: readonly SocialPost[];
+  /** M2: the housing options of the mission, in scenario order. Empty for a mission without any. */
+  housing?: readonly HousingView[];
+}
+
+/** One housing option as the player sees it (GameSnapshot.housing). */
+export interface HousingView {
+  id: string;
+  title: string;
+  /** What is built and where, then how the numbers follow and which of them are assumptions. */
+  blurb: string;
+  homes: number;
+  /** Political capital it costs. */
+  capitalCost: number;
+  /** Riders a day the homes add once a station of the line is within CONSTANTS.housingServedM of the site. */
+  ridersPerDayAdded: number;
+  enacted: boolean;
 }
 
 /** How many feed items a snapshot carries. */

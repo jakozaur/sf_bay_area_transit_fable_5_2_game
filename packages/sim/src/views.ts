@@ -687,7 +687,14 @@ export function reformNotes(state: SimState, project: ProjectState, r: ReformDef
         notes.push(`${PHASE_LABELS[phase]} is behind ${name}: the time this saves is already spent.`);
     }
   }
-  if (keys.some((k) => k === 'tbm.rate' || k === 'tbm.breakdown' || k === 'tbm.geologyRelief')) {
+  if (keys.includes('tbm.smallBore')) {
+    const cap = K.smallBoreRidersPerDay.value.toLocaleString('en-US');
+    const share = Math.round(K.smallBoreRiderShare.value * 100);
+    notes.push(
+      `Pods, not trains: a line with a bored tunnel keeps ${share} percent of its riders and carries at most ${cap} a day. Only twin-tube drives change; stations, track and other methods cost what they did.`,
+    );
+  }
+  if (keys.some((k) => k === 'tbm.rate' || k === 'tbm.breakdown' || k === 'tbm.geologyRelief' || k === 'tbm.smallBore')) {
     const bores =
       project.fronts.length > 0
         ? project.fronts.some((f) => isTbm(f.method))
