@@ -85,6 +85,8 @@ export class CameraRig {
   /** Camera position and focus after the last update: x, y, z, x, y, z. */
   private readonly lastPose = [0, 0, 0, 0, 0, 0];
   private readonly followMinDistance: number;
+  /** Extra lower bound on the map zoom set by the app (setZoomFloor), metres; 0 when none. */
+  private zoomFloor = 0;
   private readonly groundClearance: number;
   private ground: GroundFn | null = null;
   private followState: {
@@ -191,9 +193,29 @@ export class CameraRig {
   stopFollow(): void {
     if (this.followState === null) return;
     this.followState = null;
+    this.applyMapZoomLimit();
+  }
+
+  /**
+   * Keeps the map camera at least `metres` from its focus (null: only the rig's own minimum). The app raises the
+   * floor where the map has no close-up detail, so the wheel cannot take the view down to an empty patch of sea.
+   * A follow ignores it: a machine is watched from close wherever it is.
+   */
+  setZoomFloor(metres: number | null): void {
+    const floor = metres ?? 0;
+    if (!(floor >= 0) || floor >= this.maxDistance) {
+      throw new RangeError(`CameraRig.setZoomFloor: floor must be in [0, ${this.maxDistance}) m or null, got ${String(metres)}`);
+    }
+    if (floor === this.zoomFloor) return;
+    this.zoomFloor = floor;
+    if (this.followState === null) this.applyMapZoomLimit();
+  }
+
+  private applyMapZoomLimit(): void {
     const c = this.controls;
-    c.minDistance = this.minDistance;
-    if (c.distance < this.minDistance) void c.dollyTo(this.minDistance, true);
+    const min = Math.max(this.minDistance, this.zoomFloor);
+    c.minDistance = min;
+    if (c.distance < min) void c.dollyTo(min, true);
   }
 
   /** Mode of the follow in progress, or null. */

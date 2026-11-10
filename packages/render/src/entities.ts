@@ -1024,8 +1024,10 @@ class Layer implements EntityLayer {
         const first = g.path[0];
         const last = g.path[g.path.length - 1];
         const tbm = scene.tbms.find((t) => t.id === g.tbmId);
+        const tick = g.ticks?.[0];
         return (
           `g|${g.tbmId}|${g.path.length}|${first?.x},${first?.y},${first?.z}|${last?.x},${last?.y},${last?.z}|` +
+          `${g.ticks?.length ?? 0}|${tick?.x},${tick?.z}|` +
           `${g.nearest.x},${g.nearest.y},${g.nearest.z}|${g.deviationM > g.limitM}|${tbm?.position.x},${tbm?.position.y},${tbm?.position.z}`
         );
       }
@@ -1037,6 +1039,14 @@ class Layer implements EntityLayer {
     if (over) this.previewErrors++;
     if (g.path.length >= 2) {
       this.overlay.setPolyline(add(`${ID}pv.g`), g.path, { color: ENTITY_COLORS.guidance, widthPx: 3, xray: true, dashM: 4 });
+    }
+    // Chainage marks across the plan: fixed in the ground, so they slide past the machine as it advances.
+    const ticks = g.ticks;
+    if (ticks !== undefined && ticks.length >= 2) {
+      if (ticks.length % 2 !== 0) throw new RangeError(`EntityLayer.sync: guidance ticks come in pairs of points, got ${ticks.length}`);
+      const seg: number[] = [];
+      for (const p of ticks) seg.push(p.x, p.y, p.z);
+      this.overlay.setLineSegments(add(`${ID}pv.gt`), seg, { color: ENTITY_COLORS.guidance, widthPx: 2, xray: true, opacity: 0.7 });
     }
     // The tie from the machine to the plan: green inside the corridor, red outside.
     const tbm = scene.tbms.find((t) => t.id === g.tbmId);
@@ -1069,10 +1079,13 @@ class Layer implements EntityLayer {
     this.overlay.setCutaway({
       position: tbm.position,
       yaw: tbm.yaw,
-      aheadM: o.aheadM ?? 0.8,
-      behindM: o.behindM ?? TBM_LENGTH_M + 30,
-      halfWidthM: reach + tbm.radiusM + (o.sideM ?? 7),
-      floorY: Math.floor(tbm.position.y - (o.floorBelowAxisM ?? tbm.radiusM + 0.5)),
+      // The ground is cut at the level of the machine axis, not under the invert: the bores show as two grooves
+      // in a floor of solid ground, with the shields in them, the lined tunnel behind and uncut ground ahead of
+      // the faces. Cut to the invert (as it was) the machines stood in an open pit and nothing said "tunnel".
+      aheadM: o.aheadM ?? 28,
+      behindM: o.behindM ?? TBM_LENGTH_M + 34,
+      halfWidthM: reach + tbm.radiusM + (o.sideM ?? 9),
+      floorY: Math.floor(tbm.position.y - (o.floorBelowAxisM ?? 0)),
     });
     this.ownsCutaway = true;
   }

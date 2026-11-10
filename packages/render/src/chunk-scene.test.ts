@@ -2,7 +2,7 @@ import { Material, type MeshOutput, PADDED_VOLUME, packChunkKey, QUAD_BYTES } fr
 import { createNaiveScratch, MemoryWorldStore, naiveMeshChunk } from '@bayvox/testkit';
 import { type InstancedBufferGeometry, type Mesh, MeshBasicMaterial } from 'three';
 import { expect, test } from 'vitest';
-import { ChunkScene, LAYER_TERRAIN, LAYER_WATER } from './chunk-scene.ts';
+import { BATCH_CHUNKS_XZ, BATCH_CHUNKS_Y, ChunkScene, LAYER_TERRAIN, LAYER_WATER } from './chunk-scene.ts';
 
 function meshOf(world: MemoryWorldStore, cx: number, cy: number, cz: number): MeshOutput {
   const key = packChunkKey(cx, cy, cz);
@@ -36,6 +36,10 @@ test('upload splits opaque and water into two instanced meshes on their layers',
   expect(s.meshedCount).toBe(1);
   expect(s.quadCount).toBe(108);
   expect(s.quadBytes).toBe(108 * QUAD_BYTES);
+  // Nothing is in the scene graph until the frame's flush builds the batch.
+  expect(s.terrain.children).toHaveLength(0);
+  expect(s.flush()).toBe(1);
+  expect(s.flush()).toBe(0);
   const opaque = s.terrain.children[0] as Mesh;
   const water = s.water.children[0] as Mesh;
   expect((opaque.geometry as InstancedBufferGeometry).instanceCount).toBe(96);
@@ -49,17 +53,92 @@ test('upload splits opaque and water into two instanced meshes on their layers',
   expect(attr.array[0]).toBe(mesh.quads[0]);
 });
 
+test('chunks are drawn in batches of 4 x 16 x 4: a near field of hundreds of chunks is a handful of draws', () => {
+  const s = scene();
+  const w = new MemoryWorldStore();
+  // A slab of rock one voxel thick through an 8 x 8 block of chunk columns at two levels: 128 chunks with quads.
+  const x0 = 648 * 32;
+  const z0 = -2024 * 32;
+  for (const y of [4, 36])
+    w.applyEdit({ t: 'fillBox', min: { x: x0, y, z: z0 }, max: { x: x0 + 8 * 32, y: y + 1, z: z0 + 8 * 32 }, material: Material.ROCK });
+  let quads = 0;
+  for (let cx = 648; cx < 656; cx++) {
+    for (let cz = -2024; cz < -2016; cz++) {
+      for (const cy of [0, 1]) {
+        const m = meshOf(w, cx, cy, cz);
+        quads += m.quads.length / 2;
+        s.upload(m);
+      }
+    }
+  }
+  expect(s.meshedCount).toBe(128);
+  s.flush();
+  // 8 x 8 columns aligned on the batch grid: four batches, each one mesh. Per chunk it was 128.
+  expect(BATCH_CHUNKS_XZ).toBe(4);
+  expect(BATCH_CHUNKS_Y).toBe(16);
+  expect(s.batchCount).toBe(4);
+  expect(s.terrain.children).toHaveLength(4);
+  expect(s.water.children).toHaveLength(0);
+  let drawn = 0;
+  for (const c of s.terrain.children) drawn += ((c as Mesh).geometry as InstancedBufferGeometry).instanceCount;
+  expect(drawn).toBe(quads);
+  expect(s.quadCount).toBe(quads);
+  // Each quad carries its chunk's place in the batch in the flag bits of word 1: x at 18, z at 23, y at 28.
+  const places = new Set<string>();
+  for (const c of s.terrain.children) {
+    const words = (c as Mesh).geometry.getAttribute('aQuad').array as Uint32Array;
+    for (let i = 1; i < words.length; i += 2) {
+      const b = words[i] as number;
+      places.add(`${(b >>> 18) & 31},${(b >>> 28) & 15},${(b >>> 23) & 31}`);
+      // The material and the ambient occlusion below the flags are untouched.
+      expect(b & 1023).toBe(Material.ROCK);
+    }
+  }
+  expect(places.size).toBe(4 * 2 * 4);
+  expect([...places].every((p) => /^[0-3],[01],[0-3]$/.test(p))).toBe(true);
+  // A chunk below sea level (cy -1) is in the batch layer below: slab 15 of it.
+  s.upload(meshOf(world(650, -2022), 650, 0, -2022));
+  const below = new MemoryWorldStore();
+  below.applyEdit({
+    t: 'fillBox',
+    min: { x: 650 * 32, y: -20, z: -2022 * 32 },
+    max: { x: 650 * 32 + 4, y: -16, z: -2022 * 32 + 4 },
+    material: Material.ROCK,
+  });
+  s.upload(meshOf(below, 650, -1, -2022));
+  expect(s.flush()).toBe(2);
+  expect(s.batchCount).toBe(5);
+  const deep = s.terrain.children[s.terrain.children.length - 1] as Mesh;
+  expect(deep.position.toArray()).toEqual([648 * 32, -16 * 32, -2024 * 32]);
+  const b = (deep.geometry.getAttribute('aQuad').array as Uint32Array)[1] as number;
+  expect([(b >>> 18) & 31, (b >>> 28) & 15, (b >>> 23) & 31]).toEqual([2, 15, 2]);
+  // Removing every chunk of a batch removes its mesh.
+  for (let cx = 648; cx < 652; cx++) for (let cz = -2024; cz < -2020; cz++) for (const cy of [0, 1]) s.remove(packChunkKey(cx, cy, cz));
+  s.flush();
+  expect(s.batchCount).toBe(4);
+  expect(s.terrain.children).toHaveLength(4);
+});
+
 test('chunk meshes are positioned relative to the floating origin, exactly', () => {
   const s = scene();
   s.upload(meshOf(world(650, -2022), 650, 0, -2022));
+  s.flush();
   const m = s.terrain.children[0] as Mesh;
-  expect(m.position.toArray()).toEqual([650 * 32, 0, -2022 * 32]);
+  // The mesh stands at the corner of its batch, chunk (648, 0, -2024); the chunk is at place (2, 0, 2) inside it.
+  expect(m.position.toArray()).toEqual([648 * 32, 0, -2024 * 32]);
+  const b = (m.geometry.getAttribute('aQuad').array as Uint32Array)[1] as number;
+  expect([(b >>> 18) & 31, (b >>> 28) & 15, (b >>> 23) & 31]).toEqual([2, 0, 2]);
   s.setOrigin(648, -1, -2020);
-  expect(m.position.toArray()).toEqual([64, 32, -64]);
-  expect(m.matrix.elements.slice(12, 15)).toEqual([64, 32, -64]);
-  // A chunk uploaded after the rebase lands relative to the same origin.
-  s.upload(meshOf(world(649, -2021), 649, 0, -2021));
-  expect((s.terrain.children[1] as Mesh).position.toArray()).toEqual([32, 32, -32]);
+  expect(m.position.toArray()).toEqual([0, 32, -128]);
+  expect(m.matrix.elements.slice(12, 15)).toEqual([0, 32, -128]);
+  // A chunk uploaded after the rebase lands relative to the same origin: chunk (645, 0, -2021) is at place
+  // (1, 0, 3) of the batch whose corner is chunk (644, 0, -2024).
+  s.upload(meshOf(world(645, -2021), 645, 0, -2021));
+  s.flush();
+  const second = s.terrain.children[1] as Mesh;
+  expect(second.position.toArray()).toEqual([-128, 32, -128]);
+  const b2 = (second.geometry.getAttribute('aQuad').array as Uint32Array)[1] as number;
+  expect([(b2 >>> 18) & 31, (b2 >>> 28) & 15, (b2 >>> 23) & 31]).toEqual([1, 0, 3]);
   expect(() => s.setOrigin(0.5, 0, 0)).toThrow(/integer chunk coordinate/);
 });
 
@@ -68,8 +147,11 @@ test('re-upload replaces, an empty mesh keeps the chunk known but draws nothing,
   const w = world(0, 0);
   const key = packChunkKey(0, 0, 0);
   s.upload(meshOf(w, 0, 0, 0));
+  s.flush();
+  expect(s.terrain.children).toHaveLength(1);
   w.applyEdit({ t: 'fillBox', min: { x: 4, y: 4, z: 4 }, max: { x: 8, y: 9, z: 8 }, material: Material.AIR });
   s.upload(meshOf(w, 0, 0, 0));
+  s.flush();
   expect(s.chunkCount).toBe(1);
   expect(s.meshedCount).toBe(0);
   expect(s.quadCount).toBe(0);

@@ -161,10 +161,14 @@ test('a possessed machine opens the cutaway around itself, hides the crowns and 
   if (cut === null) throw new Error('no cutaway');
   expect(cut.position).toEqual(tbm.position);
   expect(cut.yaw).toBe(YAW);
-  // Both tubes plus working room; the whole machine and some lined tunnel behind; floor under the invert.
-  expect(cut.halfWidthM).toBeCloseTo(5.5 + 3.3 + 7, 9);
-  expect(cut.behindM).toBeGreaterThan(TBM_LENGTH_M);
-  expect(cut.floorY).toBe(-24);
+  // Both tubes plus working room; the whole machine and some lined tunnel behind. The ground is cut at the
+  // level of the axis and stays open well ahead of the faces: the bores are grooves in solid ground, the
+  // machines sit in them and uncut ground lies ahead. Cut to the invert, they stood in an open pit.
+  expect(cut.halfWidthM).toBeCloseTo(5.5 + 3.3 + 9, 9);
+  expect(cut.behindM).toBeGreaterThan(TBM_LENGTH_M + 30);
+  expect(cut.aheadM).toBeGreaterThan(20);
+  expect(cut.floorY).toBe(Math.floor(tbm.position.y));
+  expect(cut.floorY).toBeGreaterThan(tbm.position.y - tbm.radiusM);
   expect(crowns().filter((v) => !v).length).toBe(1);
   // Two shields with a cutterhead each, pitched nose up.
   const item = o.group.children.find((c) => c.rotation.y === YAW && c.children.length === 1) as Group;

@@ -446,6 +446,8 @@ export class VoxelRenderer implements ChunkRenderer {
   }
 
   draw(camera: CameraState, _alpha: number): void {
+    // Chunk meshes are drawn in batches; the batches whose chunks changed since the last frame are rebuilt now.
+    this.chunks.flush();
     const ox = this.origin.x * CHUNK_SIZE;
     const oy = this.origin.y * CHUNK_SIZE;
     const oz = this.origin.z * CHUNK_SIZE;

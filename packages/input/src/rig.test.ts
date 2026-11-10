@@ -259,3 +259,31 @@ test('linkClaims hands the pointer to a tool for the length of a claimed gesture
   off();
   expect(calls).toEqual([false, true, true]);
 });
+
+test('a zoom floor keeps the map camera out of places with nothing to see up close; a follow ignores it', () => {
+  const rig = new CameraRig();
+  rig.setBookmark({ position: { x: 0, y: 300, z: 400 }, target: { x: 0, y: 0, z: 0 } }, false);
+  for (let i = 0; i < 300; i++) rig.update(1 / 60, { ...NONE, zoom: 1 });
+  settle(rig);
+  expect(rig.distance).toBeCloseTo(50, 3);
+  // The app raises the floor (the focus left the voxel site): the camera backs out and the wheel stops there.
+  rig.setZoomFloor(1500);
+  settle(rig);
+  expect(rig.distance).toBeCloseTo(1500, 1);
+  for (let i = 0; i < 300; i++) rig.update(1 / 60, { ...NONE, zoom: 1 });
+  settle(rig);
+  expect(rig.distance).toBeCloseTo(1500, 1);
+  // A machine is watched from close wherever it is; the floor is back when the watch ends.
+  rig.follow('chase', { position: { x: 0, y: -20, z: 0 }, yaw: 0, pitch: 0 });
+  settle(rig);
+  expect(rig.distance).toBeLessThan(100);
+  rig.stopFollow();
+  settle(rig);
+  expect(rig.distance).toBeCloseTo(1500, 1);
+  rig.setZoomFloor(null);
+  for (let i = 0; i < 300; i++) rig.update(1 / 60, { ...NONE, zoom: 1 });
+  settle(rig);
+  expect(rig.distance).toBeCloseTo(50, 3);
+  expect(() => rig.setZoomFloor(-1)).toThrow(/floor must be in/);
+  expect(() => rig.setZoomFloor(1e9)).toThrow(/floor must be in/);
+});
