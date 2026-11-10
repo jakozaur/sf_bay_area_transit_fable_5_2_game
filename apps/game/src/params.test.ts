@@ -9,6 +9,9 @@ test('defaults', () => {
     radius: 8,
     workers: undefined,
     hud: true,
+    debug: false,
+    mission: null,
+    site: null,
     aa: true,
     world: 'site',
     detail: 4,
@@ -18,13 +21,20 @@ test('defaults', () => {
 });
 
 test('explicit values', () => {
-  expect(parseParams('?freeze=1&seed=7&size=4&radius=2&workers=0&hud=0&aa=false&world=synthetic&detail=8&far=256&cam=3')).toEqual({
+  expect(
+    parseParams(
+      '?freeze=1&seed=7&size=4&radius=2&workers=0&hud=0&aa=false&world=synthetic&detail=8&far=256&cam=3&debug=1&mission=the-portal&site=oracle',
+    ),
+  ).toEqual({
     freeze: true,
     seed: 7,
     size: 4,
     radius: 2,
     workers: 0,
     hud: false,
+    debug: true,
+    mission: 'the-portal',
+    site: 'oracle',
     aa: false,
     world: 'synthetic',
     detail: 8,
@@ -42,4 +52,5 @@ test('malformed values fail naming the parameter', () => {
   expect(() => parseParams('?world=mars')).toThrow(/world=mars/);
   expect(() => parseParams('?detail=5')).toThrow(/detail=5/);
   expect(() => parseParams('?far=100')).toThrow(/far=100/);
+  expect(() => parseParams('?mission=The Portal')).toThrow(/mission=The Portal/);
 });

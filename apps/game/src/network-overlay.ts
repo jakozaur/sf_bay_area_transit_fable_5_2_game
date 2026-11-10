@@ -89,6 +89,8 @@ export interface NetworkOverlay {
   railSegments: number;
   highwaySegments: number;
   places: number;
+  /** Overlay ids of every item added, for hiding the layer as a whole. */
+  ids: readonly string[];
   /** Shows or hides the regional symbols for the current zoom. */
   onZoom(overlay: OverlayLayer, cameraDistanceM: number): void;
 }
@@ -161,7 +163,10 @@ export function addNetworkOverlay(
   }
 
   let regionalShown = true;
+  const ids = [...placeIds, ...RAIL_GROUPS.map((g) => `net.rail.${g.id}`).filter((id) => overlay.has(id))];
+  if (highways.length > 0) ids.push(HIGHWAY_ID);
   return {
+    ids,
     railSegments,
     highwaySegments: highways.length / 6,
     places: placeIds.length,

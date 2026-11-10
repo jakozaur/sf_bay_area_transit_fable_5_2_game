@@ -3,19 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Bay Area Tunnels</title>
+    <title>Bay Area Boring</title>
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #10141a; }
       #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
-      #help { position: fixed; left: 8px; bottom: 6px; font: 12px/1.4 system-ui, sans-serif; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
+      #ui { position: fixed; inset: 0; pointer-events: none; }
       #credit { position: fixed; right: 8px; bottom: 6px; font: 11px/1.4 system-ui, sans-serif; color: #fff; text-shadow: 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
       #fatal { position: fixed; inset: 0; margin: 0; padding: 24px; background: #7a1010; color: #fff; font: 14px/1.5 ui-monospace, monospace; white-space: pre-wrap; }
-      @media (max-width: 900px) { #help, #credit { display: none; } }
+      body.has-ui #credit { display: none; }
+      @media (max-width: 900px) { #credit { display: none; } }
     </style>
   </head>
   <body>
     <canvas id="game"></canvas>
-    <div id="help">drag or WASD: pan, right-drag or Q/E: rotate, wheel: zoom, click: dig, C: cut plane, [ ]: cut height, X: x-ray, 1-4: views (4: whole Bay)</div>
+    <div id="ui"></div>
     <div id="credit">Map data (c) OpenStreetMap contributors, Overture Maps Foundation. Terrain: USGS 3DEP, NOAA</div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -1,30 +1,56 @@
 /**
- * App shell: wires world, mesher pool, streamer, renderer, LOD tiers, camera rig, input, the sim and the debug
- * HUD, runs the frame loop and exposes the test hook.
+ * App shell: the composition root. Wires world, mesher pool, streamer, renderer, LOD tiers, camera rig, input,
+ * the sim driver, the session (missions, save, load), the tool host, the entity layer, audio and the UI, runs
+ * the frame loop of docs/CONTRACTS.md and exposes the test hook.
  */
+import { createAudio } from '@bayvox/audio';
 import {
   type CameraBookmark,
   type CameraState,
   CHUNK_SIZE,
   type Command,
+  type EntityRef,
   type FrameBenchResult,
+  type GameServices,
+  type GameSpeed,
   type GameStats,
   type GameTestHook,
   type GameViewState,
+  type GroundPick,
+  type NamedBookmark,
+  type WorldPort,
+  type WorldPos,
 } from '@bayvox/core';
-import { attachDom, CameraRig, type GameAction, InputMapper, type PickHit, pickVoxel, screenRay } from '@bayvox/input';
-import { CAP_MAX_RADIUS, VoxelRenderer } from '@bayvox/render';
-import { THE_PORTAL } from '@bayvox/scenarios';
-import { autopilotCommands, type GameSnapshot } from '@bayvox/sim';
-import { createHud, type HudSim, type HudStats } from './hud.ts';
+import {
+  attachDom,
+  CameraRig,
+  contextForTool,
+  type GameAction,
+  InputMapper,
+  linkClaims,
+  type PickHit,
+  pickGround,
+  pickVoxel,
+  screenRay,
+} from '@bayvox/input';
+import { CAP_MAX_RADIUS, createEntityLayer, VoxelRenderer } from '@bayvox/render';
+import { SCENARIOS, scenarioById, THE_PORTAL } from '@bayvox/scenarios';
+import { type BayServices, createSim, type GameSnapshot, isDrivable, type ScenarioDef } from '@bayvox/sim';
+import { connectAnchors, createToolHost, type PlanAnchor } from '@bayvox/tools';
+import { mountUi } from '@bayvox/ui';
+import { Feedback } from './feedback.ts';
 import type { GameParams } from './params.ts';
+import { SceneBuilder } from './scene.ts';
 import { createSyncMesherPool, createWorkerMesherPool, createWorld, type MesherPool } from './seam.ts';
+import { createCamera, createGameServices, createOverlay, createTime, createView } from './services.ts';
+import { createSession } from './session.ts';
 import { SimDriver } from './sim-driver.ts';
+import { createIdbStore, GameStorage } from './storage.ts';
 import { ChunkStreamer } from './streamer.ts';
 
 /** The floating origin follows the camera focus once it is this many chunks away (512 m). */
 const REBASE_CHUNKS = 16;
-/** Longest pick ray, metres. Beyond it the cursor is treated as pointing at nothing. */
+/** Longest pick ray of the voxel hook pick, metres. */
 const PICK_RANGE_M = 6000;
 /** Frame time fed to the camera is clamped so a long stall does not fling it. */
 const MAX_DT = 0.1;
@@ -36,7 +62,7 @@ const MAX_DT = 0.1;
 const SLOW_FRAME_MS = 50;
 const SLOW_DRAW_SPACING = 4;
 /** Wall time fed to the sim per frame is clamped separately: a slow frame still buys its game days, a stalled tab does not. */
-const MAX_SIM_DT = 1;
+const MAX_SIM_DT = 0.25;
 
 function createPool(params: GameParams): { pool: MesherPool; continuous: boolean } {
   if (params.workers === 0) return { pool: createSyncMesherPool(), continuous: false };
@@ -47,7 +73,15 @@ function createPool(params: GameParams): { pool: MesherPool; continuous: boolean
   return { pool: createWorkerMesherPool(params.workers), continuous: true };
 }
 
-export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTestHook {
+/** The official alignment of a scenario as points, for the ghost line under the player's own. */
+function referenceLine(scenario: ScenarioDef): WorldPos[] | null {
+  for (const c of scenario.reference?.commands ?? []) {
+    if (c.t === 'setAlignment') return c.waypoints.map((w) => ({ x: w.x, y: w.y, z: w.z }));
+  }
+  return null;
+}
+
+export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot: HTMLElement | null = null): GameTestHook {
   /** Frames drawn. */
   let frame = 0;
   /** Frame loop iterations, drawn or skipped. */
@@ -64,10 +98,13 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
     pick(x: number, y: number): PickHit | null;
     getVoxel(x: number, y: number, z: number): number;
     dig(pos: { x: number; y: number; z: number }, radius: number): number;
-    view: GameViewState;
+    view(): GameViewState;
     setView(v: Partial<GameViewState>): void;
     benchFrames(n: number): FrameBenchResult;
-    sim: SimDriver;
+    driver: SimDriver;
+    entities(): NonNullable<ReturnType<NonNullable<GameTestHook['entities']>>>;
+    command(c: Command): void;
+    services: BayServices;
   }
 
   function running(method: string): Running {
@@ -88,6 +125,7 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
   }
 
   async function boot(): Promise<void> {
+    const startScenario = params.mission === null ? null : scenarioById(params.mission);
     const world = await createWorld(params);
     if (world.bookmarks.length === 0) throw new Error('boot: the world provides no camera bookmark');
     console.info(`world: ${world.summary}`);
@@ -95,8 +133,11 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
     world.decorate(renderer.overlay);
     const lod = world.buildLod?.(renderer);
     const rendererName = renderer.rendererString();
-    // The first scenario. The sim carves straight into the world store; the overlay mirrors its projects.
-    const sim = new SimDriver(THE_PORTAL, params.seed, world.store, world.groundAt);
+
+    // Until a mission starts the driver holds an idle sim, so there is always a valid snapshot (decision 11).
+    const driver = new SimDriver(createSim(THE_PORTAL, params.seed));
+    const builder = new SceneBuilder();
+    const layer = createEntityLayer(renderer.overlay, { groundAt: world.groundAt });
 
     const rig = new CameraRig();
     rig.connect(canvas);
@@ -104,10 +145,47 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
       world.focusMin ?? { x: world.min.x, y: world.min.y, z: world.min.z },
       world.focusMax ?? { x: world.max.x, y: world.max.y, z: world.max.z },
     );
-    const startBookmark = world.bookmarks[Math.min(params.cam, world.bookmarks.length - 1)] as CameraBookmark;
-    rig.setBookmark(startBookmark, false);
+    const worldGround = world.ground;
+    // Terrain following on the real map: the focus rides the surface and the camera stays out of the hills.
+    if (worldGround !== undefined) rig.setGround((x, z) => (worldGround.contains(x, z) ? worldGround.topM(x, z) : null));
+    /**
+     * The same view moved sideways so that what it centres on lands in the middle of the part of the screen a
+     * left-hand sheet (title, briefing) leaves free. `share` is the sheet's share of the screen width.
+     */
+    const besideSheet = (b: CameraBookmark, share: number): CameraBookmark => {
+      if (uiRoot === null || !params.hud) return b;
+      const dx = b.target.x - b.position.x;
+      const dy = b.target.y - b.position.y;
+      const dz = b.target.z - b.position.z;
+      const flat = Math.hypot(dx, dz);
+      if (!(flat > 0)) return b;
+      const aspect = Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight);
+      const widthM = 2 * Math.hypot(dx, dy, dz) * Math.tan((((b.fovYDeg ?? 45) * Math.PI) / 180) * 0.5) * aspect;
+      // Camera right in plan is (-dz, dx) / flat; the view moves left by half the sheet's width.
+      const shift = (-share / 2) * widthM;
+      const ox = (-dz / flat) * shift;
+      const oz = (dx / flat) * shift;
+      return {
+        ...b,
+        position: { x: b.position.x + ox, y: b.position.y, z: b.position.z + oz },
+        target: { x: b.target.x + ox, y: b.target.y, z: b.target.z + oz },
+      };
+    };
+    const SHEET_SHARE = 0.33;
+    const bayPlain = world.bookmarks[world.bookmarks.length - 1] as CameraBookmark;
+    const bayView = besideSheet(bayPlain, SHEET_SHARE);
+    rig.setBookmark(
+      startScenario === null ? bayView : (world.bookmarks[Math.min(params.cam, world.bookmarks.length - 1)] as CameraBookmark),
+      false,
+    );
 
     const { pool, continuous } = createPool(params);
+    const siteChunkBounds = () => ({
+      minCx: world.min.x >> 5,
+      maxCx: (world.max.x - 1) >> 5,
+      minCz: world.min.z >> 5,
+      maxCz: (world.max.z - 1) >> 5,
+    });
     const streamer = new ChunkStreamer({
       world: world.store,
       mesher: pool,
@@ -115,70 +193,36 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
       radius: params.radius,
       minCy: world.min.y >> 5,
       maxCy: (world.max.y - 1) >> 5,
-      bounds: {
-        minCx: world.min.x >> 5,
-        maxCx: (world.max.x - 1) >> 5,
-        minCz: world.min.z >> 5,
-        maxCz: (world.max.z - 1) >> 5,
-      },
+      bounds: siteChunkBounds(),
       // The in-thread pool meshes inside the frame: 16 chunks is a few milliseconds.
       maxInFlight: continuous ? undefined : 16,
       continuous,
       onError: fatal,
     });
 
-    const view: GameViewState = {
+    const defaultView = (): GameViewState => ({
       cut: false,
       cutY: Math.min(world.max.y, Math.max(world.min.y + 1, world.seaLevel - 8)),
       cutRadius: Math.min(160, CAP_MAX_RADIUS),
       xray: false,
-    };
-    const tool = { digRadius: 3 };
-    const hudStats: HudStats = { fps: 0, frameMs: 0, chunks: 0, queued: 0, quads: 0, drawCalls: 0, triangles: 0, gpuMB: 0 };
-    const hudSim: HudSim = {
-      date: '',
-      speed: sim.sim.state.speed,
-      cashMillions: 0,
-      spentMillions: 0,
-      project: '',
-      setSpeed: (speed) => sim.command({ t: 'setSpeed', speed }),
-      drawReference() {
-        for (const c of THE_PORTAL.reference?.commands ?? []) sim.command(c);
-      },
-      passGate() {
-        for (const c of autopilotCommands(sim.sim.state)) sim.command(c);
-      },
-    };
-    const refreshHudSim = (): void => {
-      const s: GameSnapshot = sim.snapshot();
-      hudSim.date = s.date;
-      hudSim.speed = s.speed;
-      hudSim.cashMillions = s.moneyCents / 1e8;
-      hudSim.spentMillions = s.ledger.totalSpentCents / 1e8;
-      const p = s.projects[0];
-      hudSim.project =
-        p === undefined
-          ? 'no project: draw the plan'
-          : p.status === 'active'
-            ? `${p.phase} ${Math.round(p.phaseProgress * 100)}%${p.awaiting === null ? '' : `, gate: ${p.awaiting}`}`
-            : p.status;
-    };
-
-    const goToBookmark = (index: number): void => {
-      const b = world.bookmarks[index];
-      if (b !== undefined) rig.setBookmark(b, !params.freeze);
-    };
-    const hud = params.hud
-      ? createHud({
-          stats: hudStats,
-          sim: hudSim,
-          view,
-          tool,
-          cutRange: { min: world.min.y + 1, max: world.max.y, maxRadius: CAP_MAX_RADIUS },
-          bookmarks: world.bookmarks.length,
-          goToBookmark,
-        })
-      : null;
+    });
+    const view = createView(defaultView(), { minY: world.min.y + 1, maxY: world.max.y, maxRadius: CAP_MAX_RADIUS }, () => {
+      // Switching the cut on puts it just above the tunnel nearest to what the camera looks at, if there is one.
+      const snap = driver.snapshot();
+      const t = rig.target();
+      let best: number | null = null;
+      let bestD = 1500;
+      for (const p of live() ? snap.projects : []) {
+        for (const w of p.waypoints) {
+          const d = Math.hypot(w.x - t.x, w.z - t.z);
+          if (d < bestD) {
+            bestD = d;
+            best = w.y;
+          }
+        }
+      }
+      return best === null ? null : Math.round(best) + 5;
+    });
 
     let width = 0;
     let height = 0;
@@ -194,16 +238,26 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
 
     function cameraState(): CameraState {
       const s = rig.state(width / height);
-      if (view.cut) s.cutY = view.cutY;
+      const v = view.state.get();
+      if (v.cut) s.cutY = v.cutY;
       return s;
     }
 
+    const cutOf = (cam: CameraState) => {
+      const v = view.state.get();
+      return v.cut ? { y: v.cutY, x: cam.target.x, z: cam.target.z, radius: v.cutRadius } : undefined;
+    };
+
+    /** Voxel pick of the test hook and the hover box: voxels only, short range. */
     function pick(x: number, y: number): PickHit | null {
       const cam = cameraState();
       const ray = screenRay(cam, (x / width) * 2 - 1, 1 - (y / height) * 2);
+      // The voxel slab bounds the walk: a ray from a camera far above the map starts where it enters the data.
       return pickVoxel(world.store, ray, {
         maxDistance: Math.min(cam.far, PICK_RANGE_M),
-        cut: view.cut ? { y: view.cutY, x: cam.target.x, z: cam.target.z, radius: view.cutRadius } : undefined,
+        cut: cutOf(cam),
+        minY: world.min.y,
+        maxY: world.max.y,
       });
     }
 
@@ -214,71 +268,355 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
       return world.store.applyEdit({ t: 'carveCapsule', a: v, b: v, radius }).length;
     }
 
-    function setView(v: Partial<GameViewState>): void {
-      const next = { ...view, ...v };
-      if (!Number.isInteger(next.cutY)) throw new RangeError(`setView: cutY must be a whole metre, got ${next.cutY}`);
-      if (!(next.cutRadius > 0) || next.cutRadius > CAP_MAX_RADIUS) {
-        throw new RangeError(`setView: cutRadius must be in (0, ${CAP_MAX_RADIUS}] m, got ${next.cutRadius}`);
-      }
-      Object.assign(view, next);
-    }
+    const inSite = (x: number, z: number): boolean => x >= world.min.x && x < world.max.x && z >= world.min.z && z < world.max.z;
+
+    const worldPort: WorldPort = {
+      pick(screenX, screenY) {
+        const cam = cameraState();
+        const hit = pickGround(world.store, cam, screenX, screenY, width, height, {
+          minY: world.min.y,
+          maxY: world.max.y,
+          cut: cutOf(cam),
+          groundAt: world.groundAt,
+        });
+        if (worldGround === undefined) return hit;
+        // Outside the voxel site the ground is the far raster. Whichever the ray meets first is the pick.
+        const ray = screenRay(cam, (screenX / width) * 2 - 1, 1 - (screenY / height) * 2);
+        const far = worldGround.raycast(ray.origin, ray.dir, 400_000);
+        if (far === null || inSite(far.point.x, far.point.z)) return hit;
+        if (hit !== null) {
+          const d = Math.hypot(hit.point.x - ray.origin.x, hit.point.y - ray.origin.y, hit.point.z - ray.origin.z);
+          if (d <= far.distanceM) return hit;
+        }
+        const p = far.point;
+        const voxel = { x: Math.floor(p.x), y: Math.floor(far.column.surfaceM) - 1, z: Math.floor(p.z) };
+        const pickFar: GroundPick = {
+          voxel,
+          face: 0,
+          material: worldGround.materialAtDepth(p.x, p.z, 0),
+          point: p,
+          groundY: world.groundAt(p.x, p.z),
+        };
+        return pickFar;
+      },
+      groundAt(x, z) {
+        if (!Number.isFinite(x) || !Number.isFinite(z)) throw new RangeError(`world.groundAt: position is not finite: (${x}, ${z})`);
+        if (worldGround !== undefined && !worldGround.contains(x, z))
+          throw new RangeError(`world.groundAt: (${x}, ${z}) is outside the map`);
+        return world.groundAt(x, z);
+      },
+      voxelAt(x, y, z) {
+        if (worldGround !== undefined && !inSite(x, z)) return worldGround.contains(x, z) ? worldGround.materialAt(x, y, z) : 0;
+        return world.store.getVoxel({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) });
+      },
+      siteBounds() {
+        // Free build plays on the whole map: the voxel site is only where the ground is detailed.
+        if (session.scenario().sandbox === true && worldGround !== undefined) return { ...worldGround.bounds };
+        return { minX: world.min.x, minZ: world.min.z, maxX: world.max.x, maxZ: world.max.z };
+      },
+      dig(center, radiusM) {
+        if (world.edits !== undefined) return world.edits.dig(center, radiusM);
+        return { removedM3: 0, dirtyChunks: dig(center, radiusM) };
+      },
+    };
+
+    const audio = createAudio();
+    audio.init();
+    const feedback = new Feedback(audio);
+
+    const time = createTime((speed) => driver.command({ t: 'setSpeed', speed }));
+    const overlayPort = createOverlay(renderer.overlay, () => world.decorationIds?.() ?? []);
+    const camera = createCamera({
+      rig,
+      state: cameraState,
+      size: () => ({ width, height }),
+      poseOf: (ref) => builder.poseOf(ref),
+      animate: () => !params.freeze,
+    });
+
+    const siteBookmarks = (scenario: ScenarioDef | null): NamedBookmark[] => {
+      const list: NamedBookmark[] = [];
+      const b = world.bookmarks;
+      const overview = b[0];
+      if (scenario !== null && scenario.sandbox !== true)
+        list.push({ id: 'mission', label: 'Mission overview', bookmark: scenario.camera });
+      else if (overview !== undefined) list.push({ id: 'site', label: 'Site overview', bookmark: overview });
+      const spot = (id: string, label: string, p: { x: number; z: number } | undefined): void => {
+        if (p === undefined) return;
+        const y = world.groundAt(p.x, p.z);
+        list.push({ id, label, bookmark: { position: { x: p.x + 60, y: y + 320, z: p.z + 380 }, target: { x: p.x, y, z: p.z } } });
+      };
+      const ref = scenario?.reference;
+      spot('launch', `Launch pit: ${ref?.launchPit?.name ?? ''}`, ref?.launchPit);
+      spot('destination', `Destination: ${ref?.destination?.name ?? ''}`, ref?.destination);
+      if (b.length > 1) list.push({ id: 'bay', label: 'Whole Bay', bookmark: b[b.length - 1] as CameraBookmark });
+      return list;
+    };
+    camera.setBookmarks(siteBookmarks(startScenario));
+
+    let anchors: PlanAnchor[] = [];
+    const session = createSession({
+      scenarios: SCENARIOS,
+      seed: params.seed,
+      storage: new GameStorage(createIdbStore()),
+      driver,
+      world,
+      hooks: {
+        siteLoaded() {
+          streamer.reset(siteChunkBounds());
+        },
+        simDetaching() {
+          // The tool in hand belongs to the old sim: put it away before its commands could reach the new one.
+          host.port.activate(null);
+          camera.follow(null);
+        },
+        simAttached(scenario, reason) {
+          builder.reset();
+          overlayPort.clear();
+          feedback.reset(driver.snapshot());
+          anchors = connectAnchors(scenario);
+          layer.setGhost(referenceLine(scenario));
+          camera.setBookmarks(siteBookmarks(scenario));
+          time.setSpeed(1);
+          view.set(defaultView());
+          stampsFor = null;
+          openedProject = null;
+          // A deep link (?mission=) keeps the camera the URL asked for; otherwise each start looks at the mission.
+          if (reason !== 'restart' && !(params.mission !== null && frame === 0)) rig.setBookmark(scenario.camera, !params.freeze);
+        },
+        fly: (pose) => rig.setBookmark(besideSheet(pose, SHEET_SHARE), !params.freeze),
+        flyToBay: () => rig.setBookmark(bayView, !params.freeze),
+      },
+    });
+
+    const services: BayServices = createGameServices({
+      driver,
+      time,
+      session: session.port,
+      camera,
+      view,
+      world: worldPort,
+      overlay: overlayPort,
+      tools: () => host.port,
+      audio,
+    });
+    const host = createToolHost({ world: world.store, services: () => services, anchors: () => anchors });
+
+    const playing = (): boolean => session.port.state.get().screen === 'playing';
+    /** The snapshot describes what is on the map (decision 11). */
+    const live = (): boolean => {
+      const s = session.port.state.get().screen;
+      return s === 'playing' || s === 'scorecard';
+    };
 
     // Input: actions for tools and view toggles, held keys for the camera.
     const mapper = new InputMapper();
     const detachDom = attachDom(canvas, mapper);
+    const unlinkClaims = linkClaims(mapper, rig);
     let hover: { x: number; y: number } | null = null;
-    mapper.onAction((a: GameAction) => {
+    host.port.status.subscribe((s) => mapper.setContext(contextForTool(s.id)));
+    const failed = (what: string, err: unknown): void => {
+      console.error(`${what}: ${err instanceof Error ? err.message : String(err)}`);
+      audio.cue('ui.error');
+    };
+    mapper.onAction((a: GameAction): boolean => {
       switch (a.type) {
-        case 'pointer.hover':
-          hover = { x: a.x, y: a.y };
-          break;
-        case 'pointer.leave':
-          hover = null;
-          break;
-        case 'tool.primary': {
-          const hit = pick(a.x, a.y);
-          if (hit !== null) dig({ x: hit.voxel.x, y: hit.voxel.y, z: hit.voxel.z }, tool.digRadius);
-          break;
-        }
-        case 'tool.cancel':
-          break;
         case 'view.toggleCut':
-          view.cut = !view.cut;
-          break;
+          view.set({ cut: !view.state.get().cut });
+          return true;
         case 'view.toggleXray':
-          view.xray = !view.xray;
-          break;
+          view.set({ xray: !view.state.get().xray });
+          return true;
         case 'view.cutUp':
-          view.cutY = Math.min(world.max.y, view.cutY + 1);
-          break;
+          view.set({ cutY: view.state.get().cutY + 1 });
+          return true;
         case 'view.cutDown':
-          view.cutY = Math.max(world.min.y + 1, view.cutY - 1);
-          break;
-        case 'camera.bookmark':
-          goToBookmark(a.index);
-          break;
+          view.set({ cutY: view.state.get().cutY - 1 });
+          return true;
+        case 'camera.bookmark': {
+          // With the interface up the digits pick tools (it takes them first); this is the bare canvas.
+          const b = world.bookmarks[a.index];
+          if (b !== undefined) camera.flyTo(b);
+          return true;
+        }
+        case 'time.togglePause':
+          if (playing()) time.togglePause();
+          return true;
+        case 'time.setSpeed':
+          if (playing()) time.setSpeed(a.speed);
+          return true;
+        case 'tool.select':
+          if (!playing()) return false;
+          try {
+            host.port.activate(host.active()?.id === a.tool ? null : a.tool);
+          } catch (err) {
+            failed('tool', err);
+          }
+          return true;
+        case 'edit.undo':
+          return host.undo();
+        case 'edit.redo':
+          return host.redo();
+        default:
+          if (a.type === 'pointer.hover') hover = { x: a.x, y: a.y };
+          else if (a.type === 'pointer.leave') hover = null;
+          if (!playing()) return false;
+          // Escape with no tool in hand ends a watch: the camera is the player's again.
+          if (a.type === 'tool.cancel' && host.active() === null && camera.following() !== null) {
+            camera.follow(null);
+            return true;
+          }
+          return host.handle(a);
       }
     });
 
+    const ui = params.hud && uiRoot !== null ? mountUi(uiRoot, services) : null;
+    const debug = params.debug ? await import('./hud.ts') : null;
+    const hudStats = { fps: 0, frameMs: 0, chunks: 0, queued: 0, quads: 0, drawCalls: 0, triangles: 0, gpuMB: 0 };
+    const debugView = { ...view.state.get() };
+    const hud =
+      debug === null
+        ? null
+        : debug.createHud({
+            stats: hudStats,
+            view: debugView,
+            cutRange: { min: world.min.y + 1, max: world.max.y, maxRadius: CAP_MAX_RADIUS },
+            bookmarks: world.bookmarks.length,
+            goToBookmark: (i) => {
+              const b = world.bookmarks[i];
+              if (b !== undefined) camera.flyTo(b);
+            },
+            onViewChange: () => view.set({ ...debugView }),
+          });
+    view.state.subscribe((v) => Object.assign(debugView, v));
+
     let elapsed = 0;
+    let trainClock = 0;
     let voxelsShown = true;
     let drawnKey = '';
     /** Start time of the last frame that drew, and the measured time from such a frame to the next one. */
     let drawnAt = Number.NEGATIVE_INFINITY;
     let drawCostMs = 0;
     let measureNext = false;
+    /** Snapshot the voxel stamps (station boxes, launch pits) were last brought in line with. */
+    let stampsFor: GameSnapshot | null = null;
+    /** Project whose line has just opened and whose first train the camera has not gone to yet. */
+    let openedProject: string | null = null;
+
+    /** The machine the camera rides with: the one the drive tool possesses, or one being watched from the cutaway. */
+    function possessed(): string | null {
+      const tool = host.port.status.get();
+      if (tool.id === 'drive') {
+        const id = tool.values['drive.headingId'];
+        if (typeof id === 'string' && id !== '') return id;
+      }
+      const f = camera.following();
+      return f !== null && f.entity.type === 'tbm' && f.mode !== 'orbit' ? f.entity.id : null;
+    }
+
+    function syncStamps(snap: GameSnapshot): void {
+      if (world.edits === undefined || snap === stampsFor) return;
+      stampsFor = snap;
+      for (const p of snap.projects) {
+        const bore = p.tbms.find((t) => t.radiusM > 0);
+        world.edits.syncStamps({
+          stations: p.stations,
+          pits: p.pits,
+          ...(bore === undefined ? {} : { tracks: { radiusM: bore.radiusM, laterals: bore.laterals } }),
+        });
+      }
+    }
+
     /**
-     * One frame: camera, streaming, hover, draw. `dt` in seconds. The draw is skipped when nothing that affects
-     * the picture changed since the last one (a frozen or idle scene costs no GPU time) unless `force` is set.
+     * One frame: sim, tools, scene, camera, streaming, draw. `dt` in seconds. The draw is skipped when nothing
+     * that affects the picture changed since the last one (a frozen or idle scene costs no GPU time) unless
+     * `force` is set.
      */
     function step(dt: number, force = false, simDt = 0): void {
       resize();
+      const isPlaying = playing();
+      const isLive = live();
+      const speed: GameSpeed = time.speed.get();
       // Sim first: its carves reach the streamer in this frame. A frozen clock stops the game calendar too;
-      // tests then step it through the hook.
-      sim.advance(params.freeze ? 0 : simDt);
-      sim.syncOverlay(renderer.overlay);
-      rig.update(dt, mapper.axes());
+      // tests then step it through the hook. Commands are flushed whether or not time moves.
+      driver.advance(params.freeze || !isPlaying ? 0 : simDt, speed);
+      session.update(params.freeze ? 0 : simDt);
+      const snap = driver.snapshot();
+      if (isPlaying) host.update(dt);
+      const animate = !params.freeze;
+      if (animate && speed > 0) trainClock += dt;
+
+      const possessedId = isLive ? possessed() : null;
+      const scene = builder.build({
+        snapshot: isLive ? snap : withoutProjects(snap),
+        alpha: driver.dayAlpha(),
+        trainClock,
+        preview: isPlaying ? overlayPort.preview() : null,
+        possessedTbmId: possessedId,
+        highlight: overlayPort.highlighted(),
+        live: isLive,
+      });
+      if (!overlayPort.layerVisible('trains')) scene.trains = [];
+      if (!overlayPort.layerVisible('stations')) scene.stations = [];
+      if (!overlayPort.layerVisible('alignments')) scene.alignments = [];
+      if (!overlayPort.layerVisible('tunnels')) scene.tunnels = [];
+      if (isLive) {
+        syncStamps(snap);
+        for (const item of feedback.feed(snap)) {
+          if (item.kind === 'lineOpened' && isPlaying) openedProject = item.projectId;
+          if (item.subjectId === null) continue;
+          const ref: EntityRef = { type: 'tbm', id: item.subjectId };
+          if (item.kind === 'breakthrough') {
+            const at = builder.poseOf(ref);
+            if (at !== null) layer.flash(at.position);
+            // The moment is not fast-forwarded through: back to 1x, and the finished tunnel shows through the ground.
+            if (isPlaying) {
+              if (time.speed.get() > 1) time.setSpeed(1);
+              view.set({ xray: true });
+            }
+          } else if (item.kind === 'tbmLaunched' && isPlaying && camera.following() === null && host.active() === null) {
+            // The launch happens underground: take the player to the machine. Any map view or pan leaves it again.
+            const tbm = snap.projects.flatMap((p) => p.tbms).find((t) => t.id === item.subjectId);
+            if (tbm !== undefined && isDrivable(tbm.method) && builder.poseOf(ref) !== null)
+              camera.follow({ entity: ref, mode: 'cutaway' });
+          }
+        }
+      }
+      // Looking through the ground or under a cut, the tunnels are drawn open at the top: track and trains show.
+      const seeThrough = view.state.get();
+      layer.setCrowns(!(seeThrough.xray || seeThrough.cut));
+      layer.sync(scene);
+      layer.update(animate ? dt : 0);
+      if (openedProject !== null && scene.trains.length > 0) {
+        // The line is open and its trains run underground: look through the ground and ride along with the first one.
+        const train = snap.services.find((sv) => sv.projectId === openedProject) === undefined ? undefined : scene.trains[0];
+        openedProject = null;
+        if (train !== undefined && host.active() === null) {
+          view.set({ xray: true });
+          camera.flyTo({
+            position: { x: train.position.x + 40, y: train.position.y + 300, z: train.position.z + 260 },
+            target: train.position,
+          });
+          camera.follow({ entity: { type: 'train', id: train.id }, mode: 'orbit' });
+        }
+      }
+      // Panning by hand ends a watch (not a drive: there W A S D steer the machine).
+      const axes = mapper.axes();
+      if (camera.following() !== null && host.active()?.id !== 'drive' && (axes.panX !== 0 || axes.panZ !== 0)) camera.follow(null);
+      camera.track();
+
+      rig.update(dt, axes);
       const cam = cameraState();
+      if (isLive) {
+        feedback.loops({
+          snapshot: snap,
+          running: isPlaying && speed > 0 && snap.clock.hold === null && animate,
+          camera: cam.position,
+          possessedTbmId: possessedId,
+          trains: scene.trains,
+          rings: layer.stats().rings,
+        });
+      } else feedback.silence();
 
       const origin = renderer.renderOrigin();
       const tcx = Math.floor(cam.target.x / CHUNK_SIZE);
@@ -292,13 +630,19 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
       const distance = rig.distance;
       voxelsShown = lod === undefined || lod.setCameraDistance(distance);
       if (voxelsShown) streamer.setFocus(cam.target.x, cam.target.z);
+      // The ground around a working machine stays resident, so its carving never lands on evicted chunks.
+      const machine = isLive ? (scene.tbms.find((t) => t.id === possessedId) ?? scene.tbms.find((t) => t.status === 'running')) : undefined;
+      streamer.setSecondaryFocus(machine === undefined || !inSite(machine.position.x, machine.position.z) ? null : machine.position);
       streamer.pump();
       lod?.setNearField(streamer.nearBox, streamer.idle);
       world.onZoom?.(renderer.overlay, distance);
 
-      renderer.setHighlight(hover === null ? null : (pick(hover.x, hover.y)?.voxel ?? null));
-      if (!params.freeze) elapsed += dt;
-      renderer.setView({ cutRadius: view.cutRadius, xray: view.xray, time: elapsed });
+      // The hover box marks the voxel a dig would start from: with the brush in hand, or on the bare canvas.
+      const hoverBox = hover !== null && (ui === null || host.active()?.id === 'dig');
+      renderer.setHighlight(hoverBox && hover !== null ? (pick(hover.x, hover.y)?.voxel ?? null) : null);
+      if (animate) elapsed += dt;
+      const v = view.state.get();
+      renderer.setView({ cutRadius: v.cutRadius, xray: v.xray, time: elapsed });
       const p = cam.position;
       const t = cam.target;
       const key = `${renderer.revision}|${p.x},${p.y},${p.z}|${t.x},${t.y},${t.z}|${cam.fovYDeg},${cam.aspect},${cam.near},${cam.far},${cam.cutY}`;
@@ -325,8 +669,8 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
         ...renderer.stats(),
         chunksLoaded: streamer.chunksLoaded,
         renderer: rendererName,
-        tick: sim.tick,
-        pendingCommands: sim.pending,
+        tick: driver.tick,
+        pendingCommands: driver.pending,
         quads: renderer.quadCount(),
         columnQuads: renderer.columnQuadCount(),
         voxelsShown,
@@ -356,7 +700,6 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
           hudStats.drawCalls = s.drawCalls;
           hudStats.triangles = s.triangles;
           hudStats.gpuMB = s.gpuBytes / 1e6;
-          refreshHudSim();
           hud.refresh();
         }
         // Settled: everything the current view needs is meshed, uploaded and has been drawn.
@@ -378,21 +721,47 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
 
     addEventListener('pagehide', () => {
       detachDom();
+      unlinkClaims();
+      ui?.dispose();
+      host.dispose();
+      layer.dispose();
       streamer.dispose();
       pool.dispose();
       hud?.dispose();
+      audio.dispose();
     });
 
     game = {
       stats,
-      setCamera: (b) => rig.setBookmark(b, false),
+      setCamera(b) {
+        camera.follow(null);
+        rig.setBookmark(b, false);
+      },
       camera: cameraState,
       pick,
       getVoxel: (x, y, z) => world.store.getVoxel({ x, y, z }),
       dig,
-      view,
-      setView,
-      sim,
+      view: () => view.state.get(),
+      setView: (v) => view.set(v),
+      driver,
+      entities() {
+        const sc = builder.current();
+        const st = layer.stats();
+        return {
+          tbms: sc.tbms.map((t) => ({ id: t.id, x: t.position.x, y: t.position.y, z: t.position.z, status: t.status })),
+          trains: sc.trains.map((t) => ({ id: t.id, x: t.position.x, y: t.position.y, z: t.position.z })),
+          stations: st.stations,
+          rings: st.rings,
+          trackM: st.trackM,
+          possessedTbmId: sc.possessedTbmId,
+        };
+      },
+      command(c) {
+        // The speed lives in the time port; a setSpeed command from a test or a script goes through it.
+        if (c.t === 'setSpeed' && typeof c.speed === 'number') time.setSpeed(c.speed as GameSpeed);
+        else driver.command(c);
+      },
+      services,
       benchFrames(n) {
         if (!Number.isInteger(n) || n < 1 || n > 10_000)
           throw new RangeError(`benchFrames: frames must be an integer in [1, 10000], got ${n}`);
@@ -409,7 +778,9 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
       },
     };
 
-    // First frame before `ready` resolves.
+    await session.restore();
+    // A deep link starts its mission before the first frame, so `ready` means "in play".
+    if (startScenario !== null) await session.startUnlocked(startScenario.id);
     step(0);
     requestAnimationFrame(loop);
   }
@@ -420,11 +791,14 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
   return {
     ready,
     stats: () => running('stats').stats(),
-    simHash: () => running('simHash').sim.sim.hash(),
+    simHash: () => running('simHash').driver.sim.hash(),
     // Validated now (a malformed command throws here), applied at the start of the next frame or stepSim.
-    command: (c: Command) => running('command').sim.command(c),
-    stepSim: (ticks) => running('stepSim').sim.step(ticks),
-    snapshot: () => running('snapshot').sim.snapshot(),
+    command: (c: Command) => running('command').command(c),
+    stepSim: (ticks) => running('stepSim').driver.step(ticks),
+    stepSubsteps: (substeps) => running('stepSubsteps').driver.stepSubsteps(substeps),
+    snapshot: () => running('snapshot').driver.snapshot(),
+    services: () => running('services').services as unknown as GameServices,
+    entities: () => running('entities').entities(),
     settled() {
       if (fatalError !== null) return Promise.reject(fatalError);
       return new Promise<void>((resolve, reject) => {
@@ -440,8 +814,20 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams): GameTe
     },
     getVoxel: (x, y, z) => running('getVoxel').getVoxel(x, y, z),
     dig: (pos, radius) => running('dig').dig(pos, radius),
-    view: () => ({ ...running('view').view }),
+    view: () => ({ ...running('view').view() }),
     setView: (v) => running('setView').setView(v),
     benchFrames: (n) => running('benchFrames').benchFrames(n),
   };
+}
+
+let strippedFrom: GameSnapshot | null = null;
+let stripped: GameSnapshot | null = null;
+/** Off the playing screens the snapshot does not describe what is on the map: the scene is drawn without its projects. */
+function withoutProjects(s: GameSnapshot): GameSnapshot {
+  if (s.projects.length === 0 && s.services.length === 0) return s;
+  if (strippedFrom !== s || stripped === null) {
+    strippedFrom = s;
+    stripped = { ...s, projects: [], services: [] };
+  }
+  return stripped;
 }

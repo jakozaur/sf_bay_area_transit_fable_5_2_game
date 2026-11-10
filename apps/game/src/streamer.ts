@@ -1,8 +1,14 @@
 /**
  * Chunk streaming: keeps the near field around the camera focus meshed and uploaded, and remeshes chunks the
  * world reports dirty. Meshing goes through a MesherPool (workers, or the in-thread pool as fallback).
+ *
+ * Memory: whenever a window moves, the world is asked to trim itself (ChunkWorldStore.trim) with the near
+ * field and the secondary window protected. The secondary window follows the machine being driven: its
+ * chunks stay resident so the carving never lands on evicted ground, but they are meshed only where the
+ * near field covers them (the city tier is drawn everywhere else, and it has one hole).
  */
 import {
+  type Aabb,
   CHUNK_SIZE,
   type ChunkKey,
   type ChunkRenderer,
@@ -12,6 +18,22 @@ import {
   packChunkKey,
   type WorldStore,
 } from '@bayvox/core';
+
+/** Horizontal chunk limits, inclusive. */
+export interface ChunkBounds {
+  minCx: number;
+  maxCx: number;
+  minCz: number;
+  maxCz: number;
+}
+
+/** A world that can drop chunks it does not need (packages/world ChunkWorldStore). Worlds without trim are never trimmed. */
+export type StreamWorld = WorldStore & {
+  trim?(options: { keep: readonly Aabb[] }): { evicted: number };
+};
+
+/** Half-width of the secondary window in chunks: 64 m each way around the machine. */
+export const SECONDARY_RADIUS = 2;
 
 /** The part of a mesher pool the streamer uses (packages/mesher MesherPool satisfies it). */
 export interface StreamMesher {
@@ -23,7 +45,7 @@ export interface StreamMesher {
 }
 
 export interface StreamerOptions {
-  world: WorldStore;
+  world: StreamWorld;
   mesher: StreamMesher;
   renderer: Pick<ChunkRenderer, 'upload' | 'remove'>;
   /** Near field half-width in chunks: columns [focus - radius, focus + radius) on x and z. */
@@ -32,7 +54,7 @@ export interface StreamerOptions {
   minCy: number;
   maxCy: number;
   /** Optional horizontal chunk limits, inclusive: nothing outside is requested (a bounded world). */
-  bounds?: { minCx: number; maxCx: number; minCz: number; maxCz: number };
+  bounds?: ChunkBounds;
   /** Jobs handed to the mesher at once. Default 2 per worker. */
   maxInFlight?: number;
   /**
@@ -59,6 +81,10 @@ interface Slot {
 
 export class ChunkStreamer {
   private readonly o: StreamerOptions;
+  private bounds: ChunkBounds | undefined;
+  /** Chunk column of the secondary focus, or null. */
+  private secondary: { cx: number; cz: number } | null = null;
+  private evicted = 0;
   private readonly maxInFlight: number;
   /** Every chunk of the current near field, queued or done. */
   private readonly slots = new Map<ChunkKey, Slot>();
@@ -87,6 +113,7 @@ export class ChunkStreamer {
       throw new RangeError(`ChunkStreamer: bad vertical chunk range [${options.minCy}, ${options.maxCy}]`);
     }
     this.o = options;
+    this.bounds = options.bounds;
     this.maxInFlight = options.maxInFlight ?? options.mesher.size * 2;
     this.unsubscribe = options.world.onDirty((keys) => this.markDirty(keys));
   }
@@ -121,6 +148,65 @@ export class ChunkStreamer {
     return this.jobsDone;
   }
 
+  /** Chunks the world evicted on this streamer's request so far. */
+  get chunksEvicted(): number {
+    return this.evicted;
+  }
+
+  /**
+   * Starts over: every slot and uploaded mesh is dropped and the next setFocus streams from nothing. Call
+   * after the world's content was replaced (another site loaded), with the new horizontal limits.
+   */
+  reset(bounds?: ChunkBounds): void {
+    for (const [key, slot] of [...this.slots]) this.forget(key, slot);
+    this.generation++;
+    this.pending = [];
+    this.urgent.length = 0;
+    this.urgentSet.clear();
+    this.box = null;
+    this.focusCx = Number.NaN;
+    this.focusCz = Number.NaN;
+    this.secondary = null;
+    this.bounds = bounds;
+  }
+
+  /**
+   * Keeps the chunks around a second point resident (the machine being driven), or stops with null.
+   * Cheap when the chunk column is unchanged.
+   */
+  setSecondaryFocus(p: { x: number; z: number } | null): void {
+    if (p === null) {
+      this.secondary = null;
+      return;
+    }
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.z))
+      throw new RangeError(`ChunkStreamer.setSecondaryFocus: focus is not finite: (${p.x}, ${p.z})`);
+    const cx = Math.floor(p.x / CHUNK_SIZE);
+    const cz = Math.floor(p.z / CHUNK_SIZE);
+    if (this.secondary !== null && this.secondary.cx === cx && this.secondary.cz === cz) return;
+    this.secondary = { cx, cz };
+    this.trim();
+  }
+
+  /** Asks the world to drop what neither window needs. The near field is protected with a one-chunk rim: meshing reads the neighbours. */
+  private trim(): void {
+    const world = this.o.world;
+    if (world.trim === undefined) return;
+    const { minCy, maxCy } = this.o;
+    const keep: Aabb[] = [];
+    const add = (x0: number, x1: number, z0: number, z1: number): void => {
+      keep.push({
+        min: { x: x0 * CHUNK_SIZE, y: (minCy - 1) * CHUNK_SIZE, z: z0 * CHUNK_SIZE },
+        max: { x: (x1 + 1) * CHUNK_SIZE, y: (maxCy + 2) * CHUNK_SIZE, z: (z1 + 1) * CHUNK_SIZE },
+      });
+    };
+    const b = this.box;
+    if (b !== null) add(b.x0 - 1, b.x1 + 1, b.z0 - 1, b.z1 + 1);
+    const s = this.secondary;
+    if (s !== null) add(s.cx - SECONDARY_RADIUS, s.cx + SECONDARY_RADIUS, s.cz - SECONDARY_RADIUS, s.cz + SECONDARY_RADIUS);
+    this.evicted += world.trim({ keep }).evicted;
+  }
+
   /** Moves the near field to the chunk column containing a world position (metres). Cheap when the column is unchanged. */
   setFocus(x: number, z: number): void {
     if (!Number.isFinite(x) || !Number.isFinite(z)) throw new RangeError(`ChunkStreamer.setFocus: focus is not finite: (${x}, ${z})`);
@@ -129,7 +215,8 @@ export class ChunkStreamer {
     if (cx === this.focusCx && cz === this.focusCz) return;
     this.focusCx = cx;
     this.focusCz = cz;
-    const { radius, minCy, maxCy, bounds } = this.o;
+    const { radius, minCy, maxCy } = this.o;
+    const bounds = this.bounds;
     let x0 = cx - radius;
     let x1 = cx + radius - 1;
     let z0 = cz - radius;
@@ -150,6 +237,7 @@ export class ChunkStreamer {
     const gen = ++this.generation;
     this.pending = [];
     this.box = x1 < x0 || z1 < z0 ? null : { x0, x1, z0, z1 };
+    this.trim();
     if (this.box === null) return;
 
     const fresh: ChunkKey[] = [];

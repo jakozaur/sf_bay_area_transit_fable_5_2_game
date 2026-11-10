@@ -10,7 +10,14 @@ export interface GameParams {
   radius: number;
   /** Mesher workers. 0 runs the mesher on the main thread; undefined picks from hardwareConcurrency. */
   workers: number | undefined;
+  /** The game interface (packages/ui) over the canvas. Off leaves the bare canvas, for render tests and screenshots. */
   hud: boolean;
+  /** The lil-gui debug panel: counters, view toggles. */
+  debug: boolean;
+  /** Scenario id to start at once, skipping the title screen and the briefing. Null boots on the title screen. */
+  mission: string | null;
+  /** Voxel site to boot on when no mission is given (the title screen's backdrop). Null: the first mission's site. */
+  site: string | null;
   /** MSAA on the canvas. Off is much cheaper on software GL. */
   aa: boolean;
   /** Which world factory to use (see seam.ts): the real map data, or seeded synthetic terrain. */
@@ -41,6 +48,14 @@ function flag(q: URLSearchParams, name: string, fallback: boolean): boolean {
   throw new RangeError(`URL parameter ${name}=${raw} must be 0 or 1`);
 }
 
+function word(q: URLSearchParams, name: string): string | null {
+  const raw = q.get(name);
+  if (raw === null) return null;
+  if (!/^[a-z0-9-]+$/.test(raw))
+    throw new RangeError(`URL parameter ${name}=${raw} must be an id of lower-case letters, digits and dashes`);
+  return raw;
+}
+
 export function parseParams(search: string): GameParams {
   const q = new URLSearchParams(search);
   const world = q.get('world') ?? 'site';
@@ -58,6 +73,9 @@ export function parseParams(search: string): GameParams {
     radius: int(q, 'radius', 8, 1, 24),
     workers: q.has('workers') ? int(q, 'workers', 0, 0, 6) : undefined,
     hud: flag(q, 'hud', true),
+    debug: flag(q, 'debug', false),
+    mission: word(q, 'mission'),
+    site: word(q, 'site'),
     aa: flag(q, 'aa', true),
     world,
     detail,
