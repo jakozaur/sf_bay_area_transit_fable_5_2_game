@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bay Area Boring: UI dev page</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #10141a; }
+      /* Stand-in for the canvas: land, bay, street grid and a line, so contrast over a map can be judged. */
+      #map {
+        position: fixed; inset: 0;
+        background:
+          linear-gradient(118deg, transparent 0 57%, #3f6f8f 57.2% 100%),
+          repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.10) 0 2px, transparent 2px 46px),
+          repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.10) 0 2px, transparent 2px 70px),
+          linear-gradient(160deg, #8a9a78, #a9a58c 55%, #7f8f73);
+      }
+      #map::after { content: ''; position: absolute; left: 30%; top: 62%; width: 34%; height: 5px; background: #ff7043; transform: rotate(-38deg); transform-origin: left; }
+      #index { position: fixed; inset: 0; overflow: auto; padding: 24px; font: 15px/1.6 system-ui, sans-serif; color: #fff; background: #10141a; }
+      #index a { color: #ffb38f; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="ui"></div>
+    <script type="module" src="/dev/main.ts"></script>
+  </body>
+</html>

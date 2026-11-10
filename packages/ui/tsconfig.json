@@ -1,5 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "lib": ["es2023", "dom", "dom.iterable"], "types": [] },
-  "include": ["src", "test"]
+  "compilerOptions": {
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  },
+  "include": ["src", "test", "dev", "pw", "vite.config.ts", "playwright.config.ts"]
 }

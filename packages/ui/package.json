@@ -5,7 +5,12 @@
   "type": "module",
   "description": "Preact panels and HUD.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5187 --strictPort",
+    "pw": "playwright test"
   },
   "dependencies": {
     "@bayvox/core": "workspace:*",
@@ -13,5 +18,10 @@
     "preact": "11.1.1",
     "@preact/signals": "2.11.4",
     "lil-gui": "0.21.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/node": "26.6.6",
+    "vite": "8.3.5"
   }
 }
