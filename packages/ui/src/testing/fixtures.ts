@@ -381,6 +381,8 @@ function scorecard(r: Receipt, final: boolean): Scorecard {
     ridersPerDay: 41200,
     costPerRiderCents: Math.round(y.costCents / 41200),
     stars: 2,
+    starsReason:
+      'The rating is the weakest of the three: cost and riders. Three stars on an axis means within a quarter of the way from Poland to Official plan (TJPA, 2025).',
     axes: [
       { id: 'cost', stars: 2, reason: 'Under the official figure, far above the Polish par.' },
       { id: 'date', stars: 3, reason: 'Opened 33 months before the official date.' },
@@ -455,6 +457,8 @@ function designOptions(tunnel: string, box: string, yoursCents: number): DesignO
         practice === 'polish'
           ? 'Warsaw metro line 2 and the Lodz cross-city tunnel (fixture copy).'
           : 'Sponsor design documents (fixture copy).',
+      // The stations set the date for every tunnel but the mined cavern.
+      ...(group === 'tunnel' ? { headingDays: id === 'minedCavern' ? 1240 : 240, stationDays: 1004 } : { applies: true }),
     };
   };
   return [
@@ -592,7 +596,17 @@ function project(spec: ProjectSpec): ProjectView {
     status: spec.status,
     phase: spec.phase ?? 'fitOut',
     phaseProgress: spec.progress ?? 0,
-    awaiting: null,
+    // A project that is ready stands at the gate of its phase.
+    awaiting:
+      spec.ready === true
+        ? spec.phase === 'permitting'
+          ? 'advancePhase'
+          : spec.phase === 'utilities'
+            ? 'launchTBM'
+            : spec.phase === 'fitOut' || spec.phase === undefined
+              ? 'openLine'
+              : null
+        : null,
     delayDays: 0,
     lengthM: LENGTH_KM * 1000,
     designFrozen: spec.frozen === true,
@@ -700,6 +714,8 @@ function reforms(pc: number, projectCents: number): ReformView[] {
             daysDelta: quiet ? 0 : -((i * 53) % 400),
             costPerKmAfterCents: Math.round((projectCents - usd(saveM * 1e6)) / LENGTH_KM),
             ratioToPolandAfter: (projectCents - usd(saveM * 1e6)) / usd(383e6),
+            notes: quiet ? ['Boring takes 8 months, 5 months with this. The station boxes take 33 months and set the opening date.'] : [],
+            exact: true,
           },
       receiptLines: LINES.filter((l) => l.reforms.includes(r.id)).map((l) => l.id),
       unlocks: r.id === 'twinBoreStandard' ? ['twinBore'] : r.id === 'noMezzanines' ? ['compactBox'] : [],
@@ -898,9 +914,25 @@ export const STATION_TOOL: ToolStatus = {
       label: 'Template',
       kind: 'choice',
       choices: [
-        { value: 'undergroundStandard', label: 'Underground box' },
-        { value: 'undergroundDeepMined', label: 'Deep mined', disabledReason: 'Too shallow here for a mined station' },
-        { value: 'surface', label: 'Surface' },
+        {
+          value: 'undergroundStandard',
+          label: 'Underground box',
+          detail: '+$1.13B, 36 months',
+          note: 'A new cut-and-cover box under the street.',
+        },
+        {
+          value: 'undergroundDeepMined',
+          label: 'Deep mined',
+          detail: '+$2.04B, 59 months',
+          disabledReason: 'Too shallow here for a mined station',
+        },
+        {
+          value: 'terminalFitOut',
+          label: 'Terminal fit-out',
+          detail: '+$955M, 18 months',
+          note: 'Platforms in a box that already stands.',
+        },
+        { value: 'surface', label: 'Surface', detail: '+$73.0M, 9 months' },
       ],
     },
     { key: TOOL_KEYS.stationDepthM, label: 'Platform depth', kind: 'range', min: 8, max: 40, step: 1, unit: 'm' },
@@ -1158,6 +1190,18 @@ export const SCENES = {
     }),
     panel: 'project',
   }),
+  'gate-card': scene('The tender gate as a decision card', {
+    snapshot: snapshot({
+      stage: 'approvals',
+      tick: 262,
+      date: '2027-07-29',
+      moneyM: 4410,
+      mode: 'lapse',
+      hold: 'gate',
+      project: { ...permitting, ready: true, next: gateNext },
+      next: gateNext,
+    }),
+  }),
   reforms: scene('Reform tree', {
     snapshot: snapshot({
       stage: 'approvals',
@@ -1209,7 +1253,16 @@ export const SCENES = {
             gradePct: 3.4,
             geology: 'faultZone',
             geologyLabel: GEOLOGY.faultZone.label,
-            deviation: { lateralM: -4.6, verticalM: 2.2, totalM: 5.1, planChainageM: 930, limitM: 6, offPlan: true },
+            deviation: {
+              lateralM: -4.6,
+              verticalM: 2.2,
+              totalM: 5.1,
+              planChainageM: 930,
+              limitM: 6,
+              offPlan: true,
+              freeM: 3,
+              surchargePct: 36,
+            },
           }),
         ],
         next: driveNext,

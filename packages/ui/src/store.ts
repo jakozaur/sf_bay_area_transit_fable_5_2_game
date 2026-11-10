@@ -28,6 +28,8 @@ export interface UiStoreInternal extends UiStore {
   readonly reformFocus: Signal<string | null>;
   /** Opens the reforms panel on one reform: the links of locked design options and of receipt lines. */
   openReform(reformId: string): void;
+  /** The gate the player has looked at and put aside ("project id:gate"), or null: its card stays down until the next gate. */
+  readonly gateDismissed: Signal<string | null>;
   dispose(): void;
 }
 
@@ -46,8 +48,11 @@ const GOOD_KINDS: ReadonlySet<FeedItem['kind']> = new Set([
 ]);
 const BAD_KINDS: ReadonlySet<FeedItem['kind']> = new Set(['tbmStopped', 'tbmOffPlan', 'objectiveFailed', 'cashShort']);
 const BANNER_KINDS: ReadonlySet<FeedItem['kind']> = new Set(['breakthrough', 'lineOpened']);
-/** Feed kinds with no toast: the event card that opens is the notice, a second line with the same title is noise. */
-const SILENT_KINDS: ReadonlySet<FeedItem['kind']> = new Set(['eventRaised']);
+/**
+ * Feed kinds with no toast: the event card that opens is the notice, a second line with the same title is noise.
+ * A gate that is ready has the gate card and the orange button; its toast only made the stack taller.
+ */
+const SILENT_KINDS: ReadonlySet<FeedItem['kind']> = new Set(['eventRaised', 'gateReady']);
 /**
  * Panels where the player reads and decides: time waits while one is open, and resumes at the speed it had
  * when the panel closes. A time-lapse passes a game year in a few seconds; nobody reads a reform in that.
@@ -57,7 +62,8 @@ const PAUSING_PANELS: ReadonlySet<PanelId> = new Set(['reforms', 'design']);
 /** How long a toast and a banner stay, milliseconds. */
 export const TOAST_MS = 6000;
 export const BANNER_MS = 4500;
-const MAX_TOASTS = 4;
+/** Three notices at most: the second playtest had four over a map label and over the breakthrough banner. */
+const MAX_TOASTS = 3;
 
 function noticeKey(n: Notice): string {
   return `notice:${n.tick}:${n.command}:${n.reason}`;
@@ -77,6 +83,7 @@ export function createStore(services: BayServices): UiStoreInternal {
   const toasts = signal<Toast[]>([]);
   const banner = signal<Toast | null>(null);
   const reformFocus = signal<string | null>(null);
+  const gateDismissed = signal<string | null>(null);
   const first = snapshot.value;
   // Items already in the feed when the UI mounts (a loaded save) are history, not news.
   const feedSeen = signal(first.feed.length > 0 ? first.feed[first.feed.length - 1].seq : 0);
@@ -127,6 +134,14 @@ export function createStore(services: BayServices): UiStoreInternal {
       noticesSeen.add(key);
       push({ key, text: n.reason, tone: 'bad', banner: false, kind: null });
     }
+    // A gate card put aside stays aside for that gate only: once the project is through it (or the mission is
+    // restarted) the next gate shows its card again.
+    if (gateDismissed.value !== null) {
+      const id = s.mission.projectId ?? s.mission.planProjectId;
+      const project = s.projects.find((p) => p.id === id);
+      if (project === undefined || project.awaiting === null || gateDismissed.value !== `${project.id}:${project.awaiting}`)
+        gateDismissed.value = null;
+    }
   };
   disposers.push(services.sim.snapshot.subscribe(onSnapshot));
 
@@ -176,6 +191,7 @@ export function createStore(services: BayServices): UiStoreInternal {
       setPanel(next);
     },
     reformFocus,
+    gateDismissed,
     openReform(reformId) {
       reformFocus.value = reformId;
       if (panel.value !== 'reforms') services.audio.cue('ui.open');

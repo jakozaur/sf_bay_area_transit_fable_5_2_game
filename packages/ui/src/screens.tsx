@@ -206,7 +206,9 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
   const cols = [sc.yours, sc.ghost, sc.poland];
   const max = Math.max(...cols.map((c) => c.costPerKmCents), 1);
   const yoursToPoland = safeRatio(sc.yours.costPerKmCents, sc.poland.costPerKmCents);
-  const ghostToPoland = safeRatio(sc.ghost.costPerKmCents, sc.poland.costPerKmCents);
+  // The sponsor's figure is measured against Poland on the sponsor's route (the receipt computes it); a model
+  // ghost has no route of its own and is measured on this one.
+  const ghostToPoland = project.receipt.ratios.ghostToPoland ?? safeRatio(sc.ghost.costPerKmCents, sc.poland.costPerKmCents);
   const session = store.services.session;
   const missions = store.session.value.missions;
   const at = missions.findIndex((m) => m.id === store.session.value.missionId);
@@ -227,6 +229,11 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
               <Stars n={sc.stars} />
             </span>
           </div>
+          {sc.starsReason !== undefined && (
+            <p class="bv-note" data-testid="score-stars-reason">
+              {sc.starsReason}
+            </p>
+          )}
           <div class="bv-score-grid">
             <div class="bv-score-side">
               <div class="bv-cols">

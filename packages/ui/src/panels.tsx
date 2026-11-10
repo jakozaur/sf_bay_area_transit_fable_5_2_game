@@ -79,6 +79,36 @@ function OptionRow({ store, spec }: StoreProps & { spec: ToolOptionSpec }): JSX.
       </div>
     );
   }
+  // Choices that carry a price or a note are a list with one row each (the station types); bare ones stay a button row.
+  const priced = spec.choices.some((c) => c.detail !== undefined || c.note !== undefined);
+  if (priced) {
+    return (
+      <div class="bv-opt">
+        <span class="lab">{spec.label}</span>
+        <span />
+        <div class="bv-picks" data-testid={`opt-${spec.key}`}>
+          {spec.choices.map((c) => (
+            <button
+              key={c.value}
+              type="button"
+              class="bv-pick"
+              aria-pressed={value === c.value}
+              disabled={c.disabledReason !== undefined}
+              title={c.disabledReason ?? c.note}
+              data-testid={`opt-${spec.key}-${c.value}`}
+              onClick={() => set(c.value)}
+            >
+              <span class="name">{c.label}</span>
+              <span class="tag" data-testid={`opt-detail-${spec.key}-${c.value}`}>
+                {c.detail ?? ''}
+              </span>
+              {value === c.value && c.note !== undefined && <span class="note">{c.note}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div class="bv-opt">
       <span class="lab">{spec.label}</span>
@@ -268,6 +298,22 @@ function DesignOption({ store, project, o }: StoreProps & { project: ProjectView
           </div>
         )}
       </span>
+      {o.headingDays !== undefined && o.stationDays !== undefined && (
+        <span class="time" data-testid={`design-time-${o.id}`}>
+          {/* The longer of the two is the construction phase: this says which, so four options with one date make sense. */}
+          Tunnel: {duration(o.headingDays)}.{' '}
+          {o.stationDays > 0
+            ? o.stationDays >= o.headingDays
+              ? `Stations: ${duration(o.stationDays)}, they set the date.`
+              : `Stations: ${duration(o.stationDays)}; the tunnel sets the date.`
+            : 'No stations yet.'}
+        </span>
+      )}
+      {o.applies === false && (
+        <span class="time" data-testid={`design-applies-${o.id}`}>
+          No underground box station on the line yet: this choice has no price until you place one.
+        </span>
+      )}
       <span class="meta">
         <span class={cx('bv-tag', o.practice === 'polish' ? 'is-ink' : 'is-hi')}>
           {o.practice === 'polish' ? 'Polish baseline' : 'California option'}
@@ -576,18 +622,24 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
   const p = r.preview;
   // A preview of nothing is said as nothing on this project, with what the reform does change.
   const quiet = p !== null && moneyDelta(p.costDeltaCents) === 'no change' && durationDelta(p.daysDelta) === 'no change';
+  const what = r.effects.length > 0 ? effectText(r.effects[0]) : 'No effect';
+  // A reform that only costs money on the estimate must say what the money buys: the second playtest read
+  // "+$20.0M" on five rows and had no reason to buy any of them.
+  const onlyCosts = p !== null && p.costDeltaCents > 0 && p.daysDelta >= 0;
   const worth =
     p === null
       ? ''
       : quiet
-        ? `${r.effects.length > 0 ? effectText(r.effects[0]) : 'No effect'}: nothing on this project`
-        : [
+        ? `${what}: nothing on this project`
+        : `${[
             moneyDelta(p.costDeltaCents) === 'no change' ? null : moneyDelta(p.costDeltaCents),
             durationDelta(p.daysDelta) === 'no change' ? null : `opens ${durationDelta(p.daysDelta)}`,
           ]
             .filter((x) => x !== null)
-            .join(', ');
-  const tooLate = r.status !== 'enacted' && r.branch === 'design' && project?.design.frozen === true;
+            .join(', ')}${onlyCosts ? `. Buys: ${what.charAt(0).toLowerCase()}${what.slice(1)}` : ''}`;
+  const notes = p?.notes ?? [];
+  // The sim says why (the design note among them); the old design-branch rule stays for snapshots without notes.
+  const tooLate = notes.length === 0 && r.status !== 'enacted' && r.branch === 'design' && project?.design.frozen === true;
   return (
     <li class={cx('bv-reform', `is-${r.status}`)} data-testid={`reform-${r.id}`}>
       <span class="stop" />
@@ -613,6 +665,13 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
             <p class="bv-small bv-bad" data-testid={`reform-late-${r.id}`}>
               <b>Too late for {project?.name}:</b> its design went to tender and is built as tendered.
             </p>
+          )}
+          {notes.length > 0 && r.status !== 'enacted' && (
+            <ul class="bv-notes" data-testid={`reform-notes-${r.id}`}>
+              {notes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
           )}
           {quiet && <p class="bv-note">On this project that changes neither the estimate nor the opening date.</p>}
           {p !== null && !quiet && (
@@ -724,6 +783,10 @@ const STATUS_TAG: Readonly<Record<ReceiptLine['status'], { text: string; cls: st
 export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt }): JSX.Element {
   const lines = visibleLines(receipt.lines);
   const c = receipt.columns;
+  // The waterfall applies the price level first (the Polish design at Bay Area prices), then design, levers and
+  // delay on top of it. The table is read top to bottom, so it lists them in that order: shown last, the 1.61
+  // looked like 3 percent of the gap and the rows did not multiply out (second playtest).
+  const groups = [...receipt.groups].sort((a, b) => Number(b.id === 'priceLevel') - Number(a.id === 'priceLevel'));
   return (
     <table class="bv-receipt" data-testid="receipt-table">
       <thead>
@@ -747,7 +810,7 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
             </td>
           ))}
         </tr>
-        {receipt.groups.map((g) => {
+        {groups.map((g) => {
           const mine = lines.filter((l) => l.group === g.id);
           if (mine.length === 0) return null;
           return (
@@ -765,6 +828,7 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
                   <td>
                     <span class="lab">{l.label}</span>{' '}
                     {l.factor.statusQuo !== 1 && <span class="bv-soft bv-small">{ratio(l.factor.statusQuo)} under the status quo</span>}
+                    {l.group === 'priceLevel' && <span class="bv-soft bv-small"> on the Polish design, before anything else is added</span>}
                     <div class="by">
                       {(l.cents.statusQuo !== 0 || l.cents.yours !== 0) && (
                         <span class={cx('bv-tag', STATUS_TAG[l.status].cls)}>{STATUS_TAG[l.status].text}</span>
@@ -808,6 +872,14 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
           {RECEIPT_COLUMNS.map((id) => (
             <td key={id} class={cx(id === 'yours' && 'is-you')} data-testid={`receipt-total-${id}`}>
               {money(c[id].costCents)}
+            </td>
+          ))}
+        </tr>
+        <tr class="perkm" data-testid="receipt-length">
+          <td>route length</td>
+          {RECEIPT_COLUMNS.map((id) => (
+            <td key={id} class={cx(id === 'yours' && 'is-you')}>
+              {length(c[id].lengthKm * 1000)}
             </td>
           ))}
         </tr>
@@ -876,9 +948,11 @@ export function ReceiptPanel({ store }: StoreProps): JSX.Element {
           <div class="v">{ratio(r.ratios.statusQuoToPoland)}</div>
           <div class="k">status quo against Poland</div>
         </div>
-        <div>
-          <div class="v">{r.ratios.ghostToPoland === null ? 'none' : ratio(r.ratios.ghostToPoland)}</div>
-          <div class="k">official figure against Poland</div>
+        <div title="The sponsor's figure per route-km against what Poland would pay per route-km for the sponsor's own route: the same number whatever you draw.">
+          <div class="v" data-testid="ratio-ghost">
+            {r.ratios.ghostToPoland === null ? 'none' : ratio(r.ratios.ghostToPoland)}
+          </div>
+          <div class="k">official figure against Poland, on the official route</div>
         </div>
       </div>
       <PerKmDims receipt={r} />

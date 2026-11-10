@@ -8,7 +8,7 @@ import { type KeyInput, resolveKey } from './keys.ts';
 import { CreditsPanel, HelpPanel, MenuPanel } from './menu.tsx';
 import { act, selectTool } from './model.ts';
 import { DesignPanel, ProjectPanel, ReceiptPanel, ReformsPanel, ToolPanel } from './panels.tsx';
-import { DriveHud, EventCard } from './play.tsx';
+import { DriveHud, EventCard, GateCard } from './play.tsx';
 import { BriefingScreen, LoadingScreen, ScorecardScreen, TitleScreen } from './screens.tsx';
 import { createStore, type UiStoreInternal } from './store.ts';
 import { CSS, STYLE_ID } from './styles.ts';
@@ -91,6 +91,7 @@ function Screens({ store }: { store: UiStoreInternal }): JSX.Element {
       <ToolPanel store={store} />
       <SidePanel store={store} />
       <DriveHud store={store} />
+      {!eventOpen && <GateCard store={store} />}
       <CameraHelp store={store} />
       <Toolbar store={store} />
       <Banner store={store} />

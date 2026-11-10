@@ -35,6 +35,17 @@ const EXPECT: Record<SceneId, string[]> = {
   'project-draft': ['panel-project', 'phases', 'project-action', 'objectives'],
   approvals: ['panel-project', 'phase-permitting', 'speed-10'],
   gate: ['panel-project', 'project-action', 'hud-hold', 'next-action'],
+  'gate-card': [
+    'gate-card',
+    'gate-what',
+    'gate-estimate',
+    'gate-offers',
+    'gate-later',
+    'gate-reforms',
+    'gate-design',
+    'gate-go',
+    'next-action',
+  ],
   reforms: ['panel-reforms', 'branch-permitting', 'branch-procurement', 'branch-design', 'branch-tunnelling', 'reform-nepaPageLimits'],
   event: ['event-card', 'event-title', 'event-option-litigate', 'event-option-settle', 'event-deadline'],
   build: ['panel-project', 'tbm-portal/front-1', 'station-fourth-townsend', 'project-spent'],
@@ -93,6 +104,8 @@ async function regions(page: Page): Promise<Box[]> {
       ['toolbar', '.bv-toolbar'],
       ['title', '.bv-title'],
       ['briefing', '.bv-brief .bv-sheet'],
+      ['gate card', '.bv-gatecard .bv-sheet'],
+      ['notices', '.bv-toasts'],
     ];
     const out: { name: string; x: number; y: number; w: number; h: number }[] = [];
     for (const [name, sel] of pick) {
@@ -110,7 +123,7 @@ const overlap = (a: Box, b: Box): boolean =>
 /** The middle of the map: a third of the width and height around the screen centre. */
 const CENTRE: Box = { name: 'map centre', x: 1280 / 3, y: 720 / 3, w: 1280 / 3, h: 720 / 3 };
 /** Scenes that take the centre on purpose: a card that holds time, a screen. */
-const MODAL: ReadonlySet<SceneId> = new Set<SceneId>(['event', 'scorecard', 'loading']);
+const MODAL: ReadonlySet<SceneId> = new Set<SceneId>(['event', 'scorecard', 'loading', 'gate-card']);
 
 for (const id of SCENE_IDS) {
   test(`scene ${id} renders, fits and overlaps nothing`, async ({ page }) => {

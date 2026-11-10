@@ -3,8 +3,9 @@ import { TOOL_COMMANDS } from '@bayvox/core';
 import { type EventView, playerSource, type TbmView } from '@bayvox/sim';
 import type { JSX } from 'preact';
 import { Btn, cx, type StoreProps } from './bits.tsx';
-import { capital, duration, length, money } from './format.ts';
-import { act, command, GEOLOGY_COLORS, possessedTbm } from './model.ts';
+import { capital, dateMonth, duration, durationDelta, length, money, moneyDelta, moneyPerKm, ratio } from './format.ts';
+import { act, actionButton, command, GEOLOGY_COLORS, missionProject, possessedTbm } from './model.ts';
+import { builtNow } from './panels.tsx';
 
 function optionCosts(o: EventView['options'][number]): string[] {
   const parts: string[] = [];
@@ -69,6 +70,155 @@ export function EventCard({ store }: StoreProps): JSX.Element | null {
   );
 }
 
+const GATE_COPY = {
+  advancePhase: {
+    title: 'Go to tender?',
+    what: 'Tender fixes two things for the rest of this project: the design (route, tunnel method, stations) and the contract prices (procurement, staffing, utilities). A reform bought after today does not reach them.',
+  },
+  launchTBM: {
+    title: 'Ready to start?',
+    what: 'The contracts are let and the site is ready. Reforms still reach what is not under contract: consultants, contingency, the schedule and the machines. You can drive a boring machine yourself or leave it on autopilot.',
+  },
+  openLine: {
+    title: 'Open the line?',
+    what: 'Testing is done. Opening closes the books: the receipt then shows what you paid, against the official figure and against Poland.',
+  },
+} as const;
+
+/** How many reforms the gate card lists: the ones that save this project the most, of those the player can pay for now. */
+const GATE_OFFERS = 3;
+/** A reform is worth a line on the card when it saves at least this much, or a month. */
+const OFFER_MIN_CENTS = 100_000_000;
+const OFFER_MIN_DAYS = 30;
+
+/**
+ * The gate as a decision, not a button in the corner: what going through it fixes for good, where the project
+ * stands, and what the political capital in hand would still buy first. The second playtest clicked through
+ * every gate in 29 seconds without being shown one decision, and found by accident that banking capital was best.
+ */
+export function GateCard({ store }: StoreProps): JSX.Element | null {
+  const s = store.snapshot.value;
+  const project = missionProject(s);
+  if (project === null || project.awaiting === null || s.clock.hold !== 'gate') return null;
+  if (store.panel.value !== null || store.tool.value.id !== null || store.banner.value !== null) return null;
+  const key = `${project.id}:${project.awaiting}`;
+  if (store.gateDismissed.value === key) return null;
+  const go = actionButton(store, project.nextAction);
+  if (go === null || project.nextAction.command === null) return null;
+  const copy = GATE_COPY[project.awaiting];
+  const r = project.receipt;
+  const offers = s.reforms
+    .filter(
+      (x) => x.affordable && x.preview !== null && (x.preview.costDeltaCents <= -OFFER_MIN_CENTS || x.preview.daysDelta <= -OFFER_MIN_DAYS),
+    )
+    .sort((a, b) => (a.preview?.costDeltaCents ?? 0) - (b.preview?.costDeltaCents ?? 0))
+    .slice(0, GATE_OFFERS);
+  const affordable = s.reforms.filter((x) => x.affordable && x.cost.pc > 0).length;
+  const tender = project.awaiting === 'advancePhase';
+  return (
+    <div class="bv-gatecard bv-live" data-testid="gate-card">
+      <section class="bv-sheet" role="dialog" aria-label={copy.title}>
+        <header class="bv-sheet-head">
+          <h2>{copy.title}</h2>
+          <span class="sub">{project.name}: time waits for you</span>
+        </header>
+        <div class="bv-sheet-body">
+          <p class="what" data-testid="gate-what">
+            {copy.what}
+          </p>
+          <ul class="bv-rows">
+            <li>
+              <span>{r.final ? 'Paid' : 'Estimate at completion'}</span>
+              <span class="v" data-testid="gate-estimate">
+                {money(r.columns.yours.costCents)}, {moneyPerKm(r.columns.yours.costPerKmCents)}
+              </span>
+            </li>
+            <li>
+              <span>Against Poland on this route</span>
+              <span class="v">{ratio(r.ratios.yoursToPoland)}</span>
+            </li>
+            {r.columns.yours.openDate !== '' && (
+              <li>
+                <span>Opens</span>
+                <span class="v">{dateMonth(r.columns.yours.openDate)}</span>
+              </li>
+            )}
+            {tender && (
+              <li>
+                <span>Design</span>
+                <span class="v" data-testid="gate-design-now">
+                  {[
+                    ...(project.design.tunnel === 'mixed' ? [builtNow(project)] : []),
+                    ...project.design.options.filter((o) => o.selected).map((o) => o.label),
+                  ].join(', ') || 'as drawn'}
+                </span>
+              </li>
+            )}
+          </ul>
+          {project.awaiting !== 'openLine' && (
+            <div class="bv-sec" data-testid="gate-offers">
+              <h3>{capital(s.politicalCapital)} in hand</h3>
+              {offers.length === 0 ? (
+                <p class="bv-note">
+                  {affordable > 0
+                    ? 'Nothing you can afford right now saves this project a month or a million.'
+                    : 'Not enough for a reform right now. A finished phase pays 15, each month 1.'}
+                </p>
+              ) : (
+                offers.map((x) => (
+                  <button
+                    key={x.id}
+                    type="button"
+                    class="bv-offer"
+                    data-testid={`gate-reform-${x.id}`}
+                    onClick={() => store.openReform(x.id)}
+                  >
+                    <span class="name">{x.title}</span>
+                    <span class="cost">{x.cost.pc > 0 ? capital(x.cost.pc) : money(x.cost.cents)}</span>
+                    <span class="fx">
+                      {[
+                        moneyDelta(x.preview?.costDeltaCents ?? 0) === 'no change' ? null : moneyDelta(x.preview?.costDeltaCents ?? 0),
+                        durationDelta(x.preview?.daysDelta ?? 0) === 'no change'
+                          ? null
+                          : `opens ${durationDelta(x.preview?.daysDelta ?? 0)}`,
+                      ]
+                        .filter((t) => t !== null)
+                        .join(', ')}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+        <footer class="bv-foot">
+          <Btn
+            testId="gate-later"
+            title="Put the card away and look at the map. The gate stays open."
+            onClick={() => (store.gateDismissed.value = key)}
+          >
+            Look around first
+          </Btn>
+          {tender && (
+            <Btn testId="gate-design" onClick={() => store.openPanel('design')}>
+              Design
+            </Btn>
+          )}
+          {project.awaiting !== 'openLine' && (
+            <Btn testId="gate-reforms" onClick={() => store.openPanel('reforms')}>
+              Reforms
+            </Btn>
+          )}
+          <span class="grow" />
+          <Btn kind="primary" big testId="gate-go" disabledReason={go.disabledReason} onClick={go.run}>
+            {go.label}
+          </Btn>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 const STOP_TEXT: Readonly<Record<NonNullable<TbmView['stopReason']>, string>> = {
   breakdown: 'Breakdown',
   event: 'Stopped by an event',
@@ -110,6 +260,14 @@ export function DriveHud({ store }: StoreProps): JSX.Element | null {
   const dotY = 50 - scale(d.verticalM) * 42;
   const boredM = t.chainageM - t.fromM;
   const where = `${Math.abs(d.lateralM).toFixed(1)} ${d.lateralM >= 0 ? 'right' : 'left'}, ${Math.abs(d.verticalM).toFixed(1)} ${d.verticalM >= 0 ? 'high' : 'low'}`;
+  // What being here costs, or how far the free tolerance reaches (it widens through a bend).
+  const price = d.offPlan
+    ? d.surchargePct !== undefined && d.surchargePct > 0
+      ? `: +${d.surchargePct}% per metre`
+      : ': costs extra'
+    : d.freeM !== undefined
+      ? `, free to ${d.freeM.toFixed(1)} m`
+      : '';
   return (
     <section class="bv-drive bv-live" data-testid="drive-hud" aria-label={`Driving ${t.name}`}>
       <div class="cell">
@@ -171,7 +329,9 @@ export function DriveHud({ store }: StoreProps): JSX.Element | null {
           </div>
           <span class={cx('s', d.offPlan && 'bv-bad')} data-testid="drive-where">
             {where}
-            {d.offPlan && ': costs extra'}
+          </span>
+          <span class={cx('s', d.offPlan && 'bv-bad')} data-testid="drive-price">
+            {price.replace(/^[:,] /, '')}
           </span>
         </div>
       </div>

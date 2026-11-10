@@ -125,6 +125,10 @@ export const CSS = `
 .bv-objective .what { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
 /* The hint is the instruction: it wraps to a second line instead of ending in an ellipsis. */
 .bv-objective .hint { color: var(--soft); font-size: 13px; line-height: 1.25; flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+/* How far the phase of a time-lapse is: the one thing that moves while the map does not. */
+.bv-lapse { flex: none; display: flex; align-items: center; gap: 8px; width: 200px; font-size: 12px; color: var(--soft); white-space: nowrap; }
+.bv-lapse .bv-bar { flex: 1; }
+.bv-lapse .left { font-weight: 700; color: var(--ink); }
 .bv .bv-strip .bv-btn { min-height: 28px; flex: none; }
 
 /* ---------------------------------------------------------------- sheets (panels) */
@@ -182,6 +186,14 @@ export const CSS = `
 .bv-opt .val { font-weight: 700; }
 .bv-opt input[type='range'] { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--hi); pointer-events: auto; }
 .bv-choices { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
+/* Choices with a price tag: one row each, the tag on the right, the note of the chosen one under it. */
+.bv-picks { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 3px; }
+.bv .bv-pick { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; align-items: baseline; width: 100%; padding: 4px 8px 3px; border: 1.5px solid var(--rule); border-radius: 3px; background: #f6f8f9; font-size: 13px; }
+.bv .bv-pick:hover:not(:disabled) { border-color: var(--ink); background: #fff; }
+.bv .bv-pick[aria-pressed='true'] { border-color: var(--ink); background: #fff; box-shadow: inset 4px 0 0 var(--hi); }
+.bv-pick .name { font-weight: 700; }
+.bv-pick .tag { font: 700 16px/1.1 var(--f-sign); white-space: nowrap; }
+.bv-pick .note { grid-column: 1 / -1; font-size: 12px; line-height: 1.3; color: var(--soft); }
 .bv .bv-choices .bv-btn { min-height: 28px; padding: 3px 8px 2px; font-size: 13px; }
 .bv .bv-btn[aria-pressed='true'] { background: var(--ink); color: #fff; }
 .bv .bv-btn[aria-pressed='true']:not(.on-ink):hover:not(:disabled) { background: var(--ink-2); color: #fff; }
@@ -198,6 +210,7 @@ export const CSS = `
 .bv-option .desc { grid-column: 1; font-size: 12px; line-height: 1.35; color: var(--soft); }
 .bv-option .side { grid-column: 2; grid-row: 2 / span 2; text-align: right; font-size: 12px; line-height: 1.35; white-space: nowrap; }
 .bv-option .meta { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding-top: 2px; }
+.bv-option .time { grid-column: 1 / -1; font-size: 12px; line-height: 1.35; color: var(--soft); padding-top: 2px; }
 .bv-lock { grid-column: 1 / -1; font-size: 12px; font-weight: 700; color: var(--bad); padding-top: 2px; }
 .bv-option-wrap { display: flex; flex-direction: column; gap: 3px; }
 
@@ -292,6 +305,8 @@ export const CSS = `
 .bv-maplabel .plate.is-served { border-bottom-color: var(--good-on-ink); }
 .bv-maplabel .plate.is-served::after { background: var(--good-on-ink); }
 .bv-maplabel .plate.is-stretch { opacity: 0.8; }
+/* A plate held at the edge of the free map no longer stands over its point: no pin. */
+.bv-maplabel.is-edge .plate::after { display: none; }
 .bv-camhelp { position: absolute; left: 12px; bottom: 14px; padding: 5px 9px 4px; background: rgba(14, 28, 43, 0.82); color: var(--fog); border-radius: 3px; font-size: 12px; white-space: nowrap; }
 .bv-camhelp b { color: #fff; margin-left: 8px; }
 .bv-camhelp b:first-child { margin-left: 0; }
@@ -338,16 +353,28 @@ export const CSS = `
 .bv-needle.is-off { border-color: var(--bad-on-ink); }
 .bv-needle.is-off .dot { background: var(--bad-on-ink); }
 .bv-dev { flex-direction: row !important; align-items: center; gap: 10px !important; }
+.bv-dev .s { display: block; }
 .bv-geo { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5); }
 .bv-keys { display: grid; grid-template-columns: auto auto; gap: 2px 8px; font-size: 12px; line-height: 1.25; color: var(--fog); white-space: nowrap; }
 .bv-keys kbd, .bv-kbd { font: 700 11px/1.3 var(--f-text); padding: 1px 4px 0; border: 1px solid currentColor; border-radius: 2px; }
 .bv-keys kbd { color: #fff; border-color: var(--fog); }
 .bv-drive .acts { display: flex; flex-direction: column; gap: 4px; }
+/* The instrument cells have fixed widths: the strip does not change size or slide sideways when a number gains a digit. */
+.bv-drive[aria-label] > .cell:nth-child(1) { width: 172px; }
+.bv-drive[aria-label] > .cell:nth-child(1) .s { white-space: normal; }
+.bv-drive[aria-label] > .cell:nth-child(2) { width: 68px; }
+.bv-drive[aria-label] > .cell:nth-child(3) { width: 150px; }
+.bv-drive[aria-label] > .cell:nth-child(4) { width: 150px; }
+.bv-drive[aria-label] > .cell:nth-child(5) { width: 204px; }
+.bv-drive[aria-label] > .cell:nth-child(6) { width: 250px; }
 .bv .bv-drive .bv-btn { min-height: 28px; padding: 3px 10px 2px; font-size: 13px; white-space: nowrap; }
 
 /* ---------------------------------------------------------------- toasts and the breakthrough banner */
-.bv-toasts { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); width: 420px; display: flex; flex-direction: column; gap: 5px; align-items: center; }
-.bv .bv-toast { max-width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 5px; background: var(--ink); color: #fff; border-radius: 3px; border-left: 5px solid var(--fog); font-size: 13px; line-height: 1.3; box-shadow: 0 8px 20px rgba(6, 14, 24, 0.45); animation: bv-drop 180ms ease-out; }
+/* Notices stand in the top right corner, one width, left edges in line. Beside an open side sheet, and below a banner. */
+.bv-toasts { position: absolute; top: 104px; right: 12px; width: 340px; max-width: calc(100% - 24px); display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.bv-toasts.is-beside-sheet { right: 438px; }
+.bv-toasts.is-under-banner { top: 392px; }
+.bv .bv-toast { width: 100%; display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 5px; background: var(--ink); color: #fff; border-radius: 3px; border-left: 5px solid var(--fog); font-size: 13px; line-height: 1.3; box-shadow: 0 8px 20px rgba(6, 14, 24, 0.45); animation: bv-drop 180ms ease-out; }
 .bv-toast.is-good { border-left-color: var(--good-on-ink); }
 .bv-toast.is-bad { border-left-color: var(--bad-on-ink); }
 @keyframes bv-drop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -358,6 +385,17 @@ export const CSS = `
 @keyframes bv-through { from { clip-path: inset(0 50% 0 50%); opacity: 0.4; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
 .bv-flash { position: absolute; inset: 0; background: #fff; pointer-events: none; animation: bv-flash 700ms ease-out forwards; }
 @keyframes bv-flash { from { opacity: 0.85; } to { opacity: 0; } }
+
+/* ---------------------------------------------------------------- the gate card */
+.bv-gatecard { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); width: 540px; max-width: calc(100% - 24px); max-height: calc(100% - 196px); display: flex; pointer-events: none; }
+.bv-gatecard .bv-sheet { width: 100%; max-height: 100%; pointer-events: auto; border-top: 5px solid var(--hi); }
+.bv-gatecard .what { font-size: 15px; line-height: 1.4; }
+.bv .bv-offer { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; align-items: baseline; width: 100%; padding: 5px 9px 4px; margin-top: 4px; border: 1.5px solid var(--rule); border-radius: 3px; background: #fff; }
+.bv .bv-offer:hover { border-color: var(--ink); }
+.bv-offer .name { font-weight: 700; }
+.bv-offer .cost { font: 700 17px/1 var(--f-sign); white-space: nowrap; }
+.bv-offer .fx { grid-column: 1 / -1; font-size: 12px; color: var(--good); font-weight: 700; }
+.bv-notes li { font-size: 12.5px; line-height: 1.35; padding: 2px 0 2px 9px; border-left: 3px solid var(--hi); margin: 4px 0; }
 
 /* ---------------------------------------------------------------- modal: event card */
 .bv-scrim { position: absolute; inset: 0; background: rgba(8, 16, 26, 0.45); display: grid; place-items: center; }
@@ -447,6 +485,43 @@ export const CSS = `
 .bv-credits .who { font-weight: 700; }
 
 .bv-fatal { position: absolute; top: 0; left: 0; right: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bad); color: #fff; }
+
+/* ---------------------------------------------------------------- short and narrow windows */
+/* The title sheet at 720 px with a saved game: the sign gives up height so the mission list is not cut off. */
+@media (max-height: 800px) {
+  .bv-sign { padding: 14px 26px 10px; }
+  .bv-sign h1 { font-size: 58px; padding-top: 6px; }
+  .bv-sign .pitch { font-size: 14px; margin-top: 6px; }
+  .bv-section-mark { margin-bottom: 6px; }
+  .bv-title-acts { padding: 8px 26px; }
+  .bv .bv-mission { padding: 4px 12px 3px; }
+  .bv-title-foot { padding: 7px 26px 9px; }
+}
+/* Narrow windows keep the buttons: labels and the two per-km figures go first, the ratio and the panels stay. */
+@media (max-width: 1100px) {
+  .bv-hold, .bv-stops, .bv-lapse { display: none; }
+  .bv-top-cell { padding: 0 9px; }
+  .bv-headline { gap: 8px; padding: 0 8px; }
+}
+@media (max-width: 900px) {
+  .bv-headline .pair, .bv-headline .vs, .bv-headline .none { display: none; }
+  .bv-headline { flex: 1 1 0; justify-content: center; }
+  .bv-nav { gap: 3px; padding: 0 6px; }
+  .bv .bv-nav .bv-btn { padding: 4px 6px 3px; font-size: 12px; }
+  .bv-speed { gap: 2px; padding: 0 6px; }
+  .bv .bv-speed .bv-btn { min-width: 30px; padding: 4px 4px 2px; }
+  .bv-top-cell .k { display: none; }
+  .bv-top-cell .v { font-size: 18px; padding-top: 0; }
+  .bv-headline .gap { font-size: 20px; padding: 4px 6px 1px; }
+  .bv-objective .what { display: none; }
+}
+@media (max-width: 700px) {
+  .bv-top-cell:first-child { display: none; }
+  .bv-toolbar { flex-wrap: wrap; justify-content: center; max-width: calc(100% - 12px); }
+  .bv-toolbar .grp { padding: 4px 5px; }
+  .bv-camhelp { display: none; }
+  .bv-left, .bv-right, .bv-right.is-wide { width: calc(100% - 24px); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .bv *, .bv *::before, .bv *::after { animation: none !important; transition: none !important; }

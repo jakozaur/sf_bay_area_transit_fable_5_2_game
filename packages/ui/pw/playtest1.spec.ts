@@ -91,7 +91,9 @@ test('the mission targets are named on the map and the hint is not cut off', asy
 
 test('the drive readout always says which side the machine is off, and the dial moves for the first metres', async ({ page }) => {
   await open(page, 'drive-offplan');
-  await expect(tid(page, 'drive-where')).toHaveText('4.6 left, 2.2 high: costs extra');
+  await expect(tid(page, 'drive-where')).toHaveText('4.6 left, 2.2 high');
+  // And what a metre bored there costs on top of the planned one.
+  await expect(tid(page, 'drive-price')).toHaveText('+36% per metre');
   const offset = await tid(page, 'drive-needle')
     .locator('.dot')
     .evaluate((el) => {
