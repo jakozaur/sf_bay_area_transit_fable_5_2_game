@@ -27,9 +27,9 @@ async function officialPlan(page: Page): Promise<void> {
   await expect(page.getByTestId('readout-length')).toContainText('km');
 }
 
-/** Everything in the top bar that must hold still: the buttons, the ratio box with its caption, the number cells. */
+/** Everything in the top bar that must hold still in both states of the clock: the time cell, the ratio box with its caption, the buttons, the number cells. */
 const FIXED = [
-  ...[0, 1, 10, 100].map((sp) => `[data-testid="speed-${sp}"]`),
+  '[data-testid="time"]',
   '[data-testid="headline-ratio"]',
   '[data-testid="hud-target"]',
   ...['project', 'reforms', 'receipt', 'menu'].map((n) => `[data-testid="nav-${n}"]`),
@@ -37,8 +37,11 @@ const FIXED = [
   '.bv-top-cell.is-funds',
   '.bv-top-cell.is-pc',
 ];
+/** What the time cell holds before a machine bores, and while one does. */
+const DECISION = ['[data-testid="time-next"]'];
+const BORE = [0, 1, 10, 100].map((sp) => `[data-testid="speed-${sp}"]`);
 
-test('the top bar holds still for 300 days of the calendar: no button moves as the date, the funds and the capital change', async ({
+test('the top bar holds still for 300 days of the calendar and through a launch: no button moves as the date, the funds, the capital and the time controls change', async ({
   page,
 }, testInfo) => {
   expect(page.viewportSize()).toEqual({ width: 1280, height: 720 });
@@ -50,7 +53,10 @@ test('the top bar holds still for 300 days of the calendar: no button moves as t
   await command(page, { t: 'approveProject', projectId });
 
   /** One day, one frame, then where everything stands: "x width" per element, and what the cells read. */
-  const day = (reform: string | null): Promise<{ boxes: string[]; date: string; funds: string; capital: string; overflow: string[] }> =>
+  const day = (
+    reform: string | null,
+    fixed: readonly string[] = [...FIXED, ...DECISION],
+  ): Promise<{ boxes: string[]; date: string; funds: string; capital: string; overflow: string[] }> =>
     page.evaluate(
       async ({ fixed, reform }) => {
         const step = window.__game.stepSim;
@@ -80,7 +86,7 @@ test('the top bar holds still for 300 days of the calendar: no button moves as t
           }),
         };
       },
-      { fixed: FIXED, reform },
+      { fixed, reform },
     );
 
   const shootBar = async (name: string): Promise<void> => {
@@ -115,6 +121,41 @@ test('the top bar holds still for 300 days of the calendar: no button moves as t
   expect(dates.size).toBe(300);
   expect(funds.size).toBeGreaterThan(1);
   expect(capital.size).toBeGreaterThan(2);
+
+  // ---- the other state of the clock: a machine bores, the one button gives way to pause and three speeds
+  await expect(page.getByTestId('time')).toHaveAttribute('data-mode', 'decision');
+  await expect(page.locator(BORE.join(', '))).toHaveCount(0);
+  for (let i = 0; i < 400 && (await game.snapshot()).projects[0]?.tbms.length === 0; i++) {
+    const s = await game.snapshot();
+    const card = s.events[0];
+    if (card !== undefined) await command(page, { t: 'resolveEvent', eventId: card.uid, optionId: card.defaultOption });
+    else if (s.nextAction.command !== null) await command(page, s.nextAction.command as never);
+    await page.evaluate((n) => window.__game.stepSim?.(n), card === undefined ? 10 : 1);
+  }
+  await expect(page.getByTestId('time')).toHaveAttribute('data-mode', 'bore');
+  await expect(page.getByTestId('time-next')).toHaveCount(0);
+  const boreFixed = [...FIXED, ...BORE];
+  const launched = await day(null, boreFixed);
+  // Nothing outside the time cell moved when its buttons changed: same x, same width as on day one.
+  FIXED.forEach((sel, k) => {
+    expect(launched.boxes[k], `${sel} after the launch`).toBe(first.boxes[k]);
+  });
+  // The four buttons fit inside the cell.
+  const cell = await page.getByTestId('time').boundingBox();
+  const skip = await page.getByTestId('speed-100').boundingBox();
+  if (cell === null || skip === null) throw new Error('the time cell has no box');
+  expect(skip.x + skip.width).toBeLessThanOrEqual(cell.x + cell.width);
+  await shootBar('boring');
+  const movedBoring: string[] = [];
+  for (let i = 0; i < 40; i++) {
+    const now = await day(null, boreFixed);
+    expect(now.overflow, `${now.date}: text wider than its cell`).toEqual([]);
+    now.boxes.forEach((b, k) => {
+      if (b !== launched.boxes[k]) movedBoring.push(`${now.date}: ${boreFixed[k]} at ${b}, was ${launched.boxes[k]}`);
+    });
+  }
+  expect(movedBoring.slice(0, 5)).toEqual([]);
+  expect((await game.snapshot()).projects[0]?.tbms.some((t) => t.status !== 'done')).toBe(true);
   expectNoErrors(game);
 });
 

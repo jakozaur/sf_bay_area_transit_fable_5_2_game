@@ -7,7 +7,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { GameSnapshot, TbmView } from '@bayvox/sim';
 import { expect, type Page, type TestInfo, test } from '@playwright/test';
-import { expectNoErrors, openGame, openTitle, type Session } from './helpers.ts';
+import { answerCard, type BoreSpeed, expectNoErrors, openGame, openTitle, playOn, type Session } from './helpers.ts';
 
 const SHOTS = process.env.BAYVOX_SHOTS;
 
@@ -36,42 +36,18 @@ async function machine(game: Session): Promise<TbmView> {
   return t;
 }
 
-/** Answers event cards as they come up (first option that can be afforded) until `done` holds. Returns the card ids answered. */
-async function playUntil(page: Page, game: Session, done: (s: GameSnapshot) => boolean, timeoutMs: number): Promise<string[]> {
-  const answered: string[] = [];
-  const t0 = Date.now();
-  for (;;) {
-    const s = await game.snapshot();
-    if (s.events.length > 0) {
-      const card = page.getByTestId('event-card');
-      await expect(card).toBeVisible();
-      const event = s.events[0];
-      if (event === undefined) continue;
-      answered.push(event.id);
-      await card.locator('button.bv-choice:not([disabled])').first().click();
-      // The card is gone (another may follow at once at 100x: it has another uid).
-      await expect.poll(async () => (await game.snapshot()).events.some((e) => e.uid === event.uid)).toBe(false);
-      continue;
-    }
-    if (done(s)) return answered;
-    if (Date.now() - t0 > timeoutMs)
-      throw new Error(`playUntil: not done after ${timeoutMs} ms at ${s.date}: ${s.nextAction.kind}, ${s.nextAction.hint}`);
-    await page.waitForTimeout(100);
-  }
-}
-
-/** Presses a speed button. An event card may be up (it stops the clock and covers the bar): it is answered first. */
-async function setSpeed(page: Page, game: Session, speed: 1 | 10 | 100, answered: string[]): Promise<void> {
-  answered.push(...(await playUntil(page, game, () => true, 10_000)));
+/** Presses a bore speed button. An event card may be up (it stops the clock and covers the bar): it is answered first. */
+async function setSpeed(page: Page, game: Session, speed: BoreSpeed, answered: string[]): Promise<void> {
+  for (let id = await answerCard(page, game); id !== null; id = await answerCard(page, game)) answered.push(id);
   await page.getByTestId(`speed-${speed}`).click();
 }
 
 test('the title screen boots over the whole Bay with the mission list', async ({ page }, testInfo) => {
   const game = await openTitle(page, testInfo);
   await expect(page.getByTestId('screen-title')).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/Polish the\s*Public Transport/);
-  await expect(page.getByTestId('tagline')).toHaveText('Can you build a train to the HQ of the authors of Fable 5.2?');
-  await expect(page).toHaveTitle('Polish the Public Transport');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Boring Game');
+  await expect(page.getByTestId('tagline')).toHaveText('Polish SF Bay transit rail to reach the HQ of the authors of Fable 5.2');
+  await expect(page).toHaveTitle('Boring Game');
   await expect(page.getByTestId('title-play')).toBeEnabled();
   // Every mission can be picked on a fresh profile: no ordering, no lock.
   for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch', 'sandbox'])
@@ -190,10 +166,15 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   await expect(next).toHaveText('Approve the project');
   await next.click();
   await expect.poll(async () => (await game.snapshot()).mission.stage).toBe('approvals');
+  // Before a machine bores there is one time button and no speeds; time stands until it is pressed.
+  await expect(page.getByTestId('time')).toHaveAttribute('data-mode', 'decision');
+  await expect(page.locator('[data-testid^="speed-"]')).toHaveCount(0);
+  const approvedTick = (await game.snapshot()).tick;
   await page.waitForTimeout(700);
-  await shot('approvals-lapse');
+  expect((await game.snapshot()).tick).toBe(approvedTick);
+  await shot('approvals-waiting');
   const events: string[] = [];
-  events.push(...(await playUntil(page, game, (s) => s.clock.hold === 'gate', 30_000)));
+  events.push(...(await playOn(page, game, (s) => s.clock.hold === 'gate', 30_000)));
   await expect(page.getByTestId('hud-hold')).toBeVisible();
   await expect(next).toHaveText('Go to tender');
   // The gate is a decision with a card: what tender fixes, where the project stands, what the capital in hand buys.
@@ -205,10 +186,9 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   await page.getByTestId('gate-later').click();
   await expect(page.getByTestId('gate-card')).toHaveCount(0);
   await next.click();
-  await setSpeed(page, game, 10, events);
-  events.push(...(await playUntil(page, game, (s) => s.nextAction.kind === 'launchTBM', 60_000)));
-  // A gate is not arrived at in fast forward: the game is back at 1x by itself.
-  await expect(page.getByTestId('speed-1')).toHaveAttribute('aria-pressed', 'true');
+  events.push(...(await playOn(page, game, (s) => s.nextAction.kind === 'launchTBM', 60_000)));
+  // The run to the next decision ended at the gate: the button is up again.
+  await expect(page.getByTestId('time-next')).toHaveAttribute('aria-pressed', 'false');
   await expect(next).toHaveText('Launch the TBM');
   await expect(page.getByTestId('gate-card')).toBeVisible();
   // The contracts were let at tender: the procurement reform no longer touches their prices, and the screen says
@@ -235,6 +215,11 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   const launched = await machine(game);
   expect(launched.method).toBe('boredTwin');
   expect(launched.laterals).toHaveLength(2);
+  expect(launched.machine).toBe('twinBore');
+  // A launch starts the bore at Regular, with pause and the three speeds where the one button was.
+  await expect(page.getByTestId('time')).toHaveAttribute('data-mode', 'bore');
+  await expect(page.getByTestId('speed-1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('time-next')).toHaveCount(0);
 
   // ---- drive by hand: W for thrust, hold D to steer right, the machine leaves the plan
   await expect(next).toHaveText('Drive the machine');
@@ -280,20 +265,16 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   await expect(page.getByTestId('drive-autopilot')).toHaveText('Autopilot');
   await setSpeed(page, game, 10, events);
   await page.waitForTimeout(5000);
-  await shot('autopilot-10x');
+  await shot('autopilot-faster');
   expect(Math.abs((await machine(game)).deviation.lateralM)).toBeLessThan(Math.abs(steered.deviation.lateralM));
-  await setSpeed(page, game, 100, events);
-  events.push(...(await playUntil(page, game, (s) => (s.projects[0]?.tbms[0]?.progress ?? 0) > 0.5, 120_000)));
-  await setSpeed(page, game, 10, events);
-  await page.waitForTimeout(1500);
-  await shot('half-way');
-  await setSpeed(page, game, 100, events);
 
-  // ---- breakthrough
-  events.push(...(await playUntil(page, game, (s) => s.projects[0]?.tbms.every((t) => t.status === 'done') === true, 120_000)));
-  // The game drops back to 1x by itself for the moment, with the banner up and the ground seen through.
+  // ---- Skip to end: straight to the breakthrough, cards answered on the way
+  events.push(...(await playOn(page, game, (s) => s.projects[0]?.tbms.every((t) => t.status === 'done') === true, 120_000)));
+  // Time stops by itself for the moment, with the banner up and the ground seen through; the speeds are gone.
   await expect(page.getByTestId('banner')).toContainText('Breakthrough');
-  await expect(page.getByTestId('speed-1')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('time')).toHaveAttribute('data-mode', 'decision');
+  await expect(page.getByTestId('time-next')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('[data-testid^="speed-"]')).toHaveCount(0);
   expect((await page.evaluate(() => window.__game.view?.()))?.xray).toBe(true);
   // Three terrain passes under x-ray, and still inside the draw-call budget (2,398 were measured here before).
   await game.settled();
@@ -302,13 +283,12 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   expect(through.feed.some((f) => f.kind === 'breakthrough')).toBe(true);
   expect(through.projects[0]?.tbms[0]?.breakthroughTick).toBeGreaterThan(0);
   // A card raised on the same day would cover the banner: answer it, then look.
-  events.push(...(await playUntil(page, game, () => true, 10_000)));
+  events.push(...(await playOn(page, game, () => true, 10_000)));
   await page.waitForTimeout(500);
   await shot('breakthrough');
 
   // ---- fit-out as a time-lapse, then open the line
-  await setSpeed(page, game, 100, events);
-  events.push(...(await playUntil(page, game, (s) => s.nextAction.kind === 'openLine', 120_000)));
+  events.push(...(await playOn(page, game, (s) => s.nextAction.kind === 'openLine', 120_000)));
   await expect(next).toHaveText('Open the line');
   // The x-ray of the breakthrough goes off again by itself, a few real seconds after the banner.
   await expect.poll(async () => (await page.evaluate(() => window.__game.view?.()))?.xray, { timeout: 15_000 }).toBe(false);
@@ -509,7 +489,7 @@ test('save, reload the page, continue: the same game comes back', async ({ page 
     page.evaluate(([x, y, z]) => window.__game.getVoxel?.(x as number, y as number, z as number), [hx, hy, hz]);
   expect(await voxelAt()).toBe(0);
   await page.keyboard.press('Escape');
-  await playUntil(page, game, (s) => s.clock.hold === 'gate', 30_000);
+  await playOn(page, game, (s) => s.clock.hold === 'gate', 30_000);
   // At the gate time stands still: what is saved is what is on screen.
   await page.getByTestId('nav-menu').click();
   await page.getByTestId('menu-save').click();

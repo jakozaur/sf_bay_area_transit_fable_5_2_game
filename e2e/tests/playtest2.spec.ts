@@ -221,21 +221,8 @@ test('names on the map stay readable: clear of the toolbar, and of the notices w
   expectNoErrors(game);
 });
 
-test('the Views menu closes like a menu, and the wheel does not take the map camera into empty sea', async ({ page }, testInfo) => {
+test('the wheel does not take the map camera into empty sea', async ({ page }, testInfo) => {
   const game = await openGame(page, testInfo, 'freeze=0');
-  await page.getByTestId('views').click();
-  await expect(page.getByTestId('views-menu')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('views-menu')).toHaveCount(0);
-  // Picking up a tool closes it too, and so does a click on the map.
-  await page.getByTestId('views').click();
-  await page.keyboard.press('Digit3');
-  await expect(page.getByTestId('views-menu')).toHaveCount(0);
-  await expect(page.getByTestId('toolpanel-dig')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await page.getByTestId('views').click();
-  await page.mouse.click(300, 400);
-  await expect(page.getByTestId('views-menu')).toHaveCount(0);
   // Over the Pacific, in the south-west corner of the map: no voxel site, nothing to see from 50 m.
   await page.evaluate(() =>
     window.__game.setCamera?.({ position: { x: 3000, y: 6000, z: -90_000 }, target: { x: 3000, y: 0, z: -94_000 } }),
@@ -248,8 +235,8 @@ test('the Views menu closes like a menu, and the wheel does not take the map cam
   await page.waitForTimeout(1500);
   expect(await distance(page)).toBeGreaterThanOrEqual(1499);
   // Back over the site the street-level zoom is there again.
-  await page.getByTestId('views').click();
-  await page.getByTestId('view-mission').click();
+  // (The Views menu is gone from the toolbar: the saved view is flown to through the camera service.)
+  await page.evaluate(() => window.__game.services?.().camera.goTo('mission'));
   await page.waitForTimeout(1500);
   await page.mouse.move(640, 400);
   for (let i = 0; i < 16; i++) {

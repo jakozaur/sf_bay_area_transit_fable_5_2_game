@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { GameSnapshot, PhaseView } from '@bayvox/sim';
 import { expect, type Page, test } from '@playwright/test';
-import { expectNoErrors, openGame, openTitle, type Session } from './helpers.ts';
+import { expectNoErrors, openGame, openTitle, playOn, type Session } from './helpers.ts';
 
 const SHOTS = process.env.BAYVOX_SHOTS;
 
@@ -248,29 +248,6 @@ async function buy(page: Page, game: Session, skip: readonly string[] = []): Pro
   }
 }
 
-/** Runs the clock, answering event cards with the first option that can be afforded, until `done` holds. */
-async function runUntil(page: Page, game: Session, done: (s: GameSnapshot) => boolean, timeoutMs: number): Promise<void> {
-  const t0 = Date.now();
-  for (;;) {
-    const s = await game.snapshot();
-    const event = s.events[0];
-    if (event !== undefined) {
-      await page.getByTestId('event-card').locator('button.bv-choice:not([disabled])').first().click();
-      await expect.poll(async () => (await game.snapshot()).events.some((e) => e.uid === event.uid)).toBe(false);
-      continue;
-    }
-    if (done(s)) return;
-    if (Date.now() - t0 > timeoutMs)
-      throw new Error(`runUntil: not done after ${timeoutMs} ms at ${s.date}: ${s.nextAction.kind}, ${s.nextAction.hint}`);
-    await page.waitForTimeout(100);
-  }
-}
-
-async function speed(page: Page, game: Session, x: 1 | 10 | 100): Promise<void> {
-  await runUntil(page, game, () => true, 10_000);
-  await page.getByTestId(`speed-${x}`).click();
-}
-
 /** The small bore carries pods, not trains: a player who wants a railway leaves it alone. */
 const NOT_A_RAILWAY = ['smallBoreLoop'];
 
@@ -286,7 +263,7 @@ interface Played {
 
 /**
  * A mission from the title screen to its scorecard by clicks: the official alignment, the reforms the sheet puts
- * first (at the start and again at the tender gate), the gates, the clock at 100x in between. No trip to the Design sheet.
+ * first (at the start and again at the tender gate), the gates, "Next decision" between them and Skip to end for the bore. No trip to the Design sheet.
  */
 async function playMission(page: Page, game: Session, mission: string, tag: string): Promise<Played> {
   const next = page.getByTestId('next-action');
@@ -322,21 +299,27 @@ async function playMission(page: Page, game: Session, mission: string, tag: stri
 
   // ---- approvals, tender, utilities
   await next.click();
-  await runUntil(page, game, (s) => s.clock.hold === 'gate', 60_000);
+  await playOn(page, game, (s) => s.clock.hold === 'gate', 60_000);
   // The tender gate: the last moment for the design and the contract prices. The finished phases paid capital.
   await page.getByTestId('gate-reforms').click();
   const atTender = await buy(page, game, NOT_A_RAILWAY);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('gate-go').click();
-  await speed(page, game, 100);
-  await runUntil(page, game, (s) => s.nextAction.kind === 'launchTBM', 90_000);
+  await playOn(page, game, (s) => s.nextAction.kind === 'launchTBM', 90_000);
   await shot(page, `${tag}-topbar-launch-gate`);
 
   // ---- build on autopilot, fit-out, open
   await page.getByTestId('gate-go').click();
   await expect.poll(async () => (await game.snapshot()).mission.stage).toBe('build');
-  await speed(page, game, 100);
-  await runUntil(page, game, (s) => s.nextAction.kind === 'openLine', 200_000);
+  // The bore starts at Regular; a look at it, a stretch at Faster, then Skip to end. After the breakthrough
+  // "Next decision" runs the fit-out to the last gate.
+  await expect(page.getByTestId('speed-1')).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(3000);
+  await shot(page, `${tag}-topbar-boring`);
+  const progress = (s: GameSnapshot): number => Math.min(...(s.projects[0]?.tbms.map((t) => t.progress) ?? [0]));
+  await playOn(page, game, (s) => progress(s) > 0.3, 90_000, 10);
+  await shot(page, `${tag}-boring-faster`);
+  await playOn(page, game, (s) => s.nextAction.kind === 'openLine', 200_000);
   await next.click();
   await expect(page.getByTestId('screen-scorecard')).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(500);

@@ -79,7 +79,7 @@ test('with the dig brush in hand a click digs at the cursor; hovering does not',
   expectNoErrors(game);
 });
 
-test('cut plane toggles by hook and by key, and shows a cap', async ({ page }, testInfo) => {
+test('cut plane toggles by hook and shows a cap; no key moves it', async ({ page }, testInfo) => {
   const game = await openSynthetic(page, testInfo, 'hud=0');
   const plain = await game.shot('cut-off');
   const plainStats = await game.stats();
@@ -97,16 +97,16 @@ test('cut plane toggles by hook and by key, and shows a cap', async ({ page }, t
   expect(cutStats.quads).toBe(plainStats.quads);
   expect(await distinctColours(page, cut)).toBeGreaterThan(200);
 
-  // Keyboard: ] raises the plane, C turns it off again.
-  await page.keyboard.press('BracketRight');
+  // The view is the game's to set: the keys that used to move the plane (] [ C) do nothing.
+  for (const key of ['BracketRight', 'BracketLeft', 'KeyC']) await page.keyboard.press(key);
+  expect(await view(page)).toMatchObject({ cut: true, cutY: -12 });
+  await page.evaluate(() => window.__game.setView?.({ cutY: -11 }));
   expect((await view(page)).cutY).toBe(-11);
-  await page.keyboard.press('KeyC');
+  await page.evaluate(() => window.__game.setView?.({ cut: false }));
   expect((await view(page)).cut).toBe(false);
   await game.settled();
   expect((await game.shot('cut-off-again')).equals(plain)).toBe(true);
   expect((await game.stats()).drawCalls).toBe(plainStats.drawCalls);
-  await page.keyboard.press('KeyC');
-  expect((await view(page)).cut).toBe(true);
 
   await expect(page.evaluate(() => window.__game.setView?.({ cutRadius: 100_000 }))).rejects.toThrow(/cutRadius/);
   expectNoErrors(game);
@@ -116,14 +116,17 @@ test('x-ray shows the tunnel through the terrain', async ({ page }, testInfo) =>
   const game = await openSynthetic(page, testInfo, 'hud=0');
   const plain = await game.shot('xray-off');
   const plainStats = await game.stats();
+  // No key for it any more: the game switches it on while a machine bores.
   await page.keyboard.press('KeyX');
+  expect((await view(page)).xray).toBe(false);
+  await page.evaluate(() => window.__game.setView?.({ xray: true }));
   expect((await view(page)).xray).toBe(true);
   await game.settled();
   const xray = await game.shot('xray-on');
   expect(xray.equals(plain)).toBe(false);
   // Terrain is drawn three times (depth, solids behind the first surface, ghost) and water is hidden.
   expect((await game.stats()).drawCalls).toBeGreaterThan(plainStats.drawCalls);
-  await page.keyboard.press('KeyX');
+  await page.evaluate(() => window.__game.setView?.({ xray: false }));
   await game.settled();
   expect((await game.shot('xray-off-again')).equals(plain)).toBe(true);
   expectNoErrors(game);

@@ -7,7 +7,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { GameSnapshot } from '@bayvox/sim';
 import { expect, type Page, test } from '@playwright/test';
-import { expectNoErrors, openGame, openTitle, type Session } from './helpers.ts';
+import { expectNoErrors, openGame, openTitle, playOn, type Session } from './helpers.ts';
 
 const SHOTS = process.env.BAYVOX_SHOTS;
 
@@ -160,6 +160,10 @@ test('enacting housing spends capital, adds riders and draws a pile-on in a wide
   const second = await enactHousing(page, game, 'sanAntonioCenter');
   await expect(page.getByTestId(`post-${second.at(-1)?.id}`)).toBeVisible();
   await page.getByTestId('panel-close').click();
+  // The sheet closed on a draft that can be approved: the gate card takes the centre and the box folds under it.
+  await expect(page.getByTestId('gate-card')).toHaveAttribute('data-gate', 'approveProject');
+  await expect(page.getByTestId('backlash').locator('li')).toHaveCount(0);
+  await page.getByTestId('gate-later').click();
   const all = burst.length + second.length;
   await expect(page.getByTestId('backlash').locator('li')).toHaveCount(Math.min(4, all));
   if (all > 4) await expect(page.getByTestId('backlash-more')).toHaveText(`+${all - 4} more`);
@@ -219,24 +223,6 @@ test('the Vegas-style small bore is enactable: cheaper and faster, and it says w
   expectNoErrors(game);
 });
 
-/** Runs the clock, answering event cards with the first option that can be afforded, until `done` holds. */
-async function runUntil(page: Page, game: Session, done: (s: GameSnapshot) => boolean, timeoutMs: number): Promise<void> {
-  const t0 = Date.now();
-  for (;;) {
-    const s = await game.snapshot();
-    const event = s.events[0];
-    if (event !== undefined) {
-      await page.getByTestId('event-card').locator('button.bv-choice:not([disabled])').first().click();
-      await expect.poll(async () => (await game.snapshot()).events.some((e) => e.uid === event.uid)).toBe(false);
-      continue;
-    }
-    if (done(s)) return;
-    if (Date.now() - t0 > timeoutMs)
-      throw new Error(`runUntil: not done after ${timeoutMs} ms at ${s.date}: ${s.nextAction.kind}, ${s.nextAction.hint}`);
-    await page.waitForTimeout(100);
-  }
-}
-
 test('Dumbarton to Meta with homes on the salt works, played by clicks to the scorecard', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'gpu', 'the full playthrough needs the hardware renderer');
   test.setTimeout(300_000);
@@ -261,11 +247,11 @@ test('Dumbarton to Meta with homes on the salt works, played by clicks to the sc
   await shot(page, 'dumbarton-pile-on');
   await page.getByTestId('panel-close').click();
 
-  // Gates and approvals as they come, the clock at 100x in between, until the line is open.
+  // Gates and approvals as they come, "Next decision" and Skip to end in between, until the line is open.
   const next = page.getByTestId('next-action');
   let folded = false;
   for (let step = 0; step < 40; step++) {
-    await runUntil(
+    await playOn(
       page,
       game,
       (s) => s.clock.hold === 'gate' || s.nextAction.command !== null || s.projects[0]?.scorecard.final === true,
@@ -283,10 +269,10 @@ test('Dumbarton to Meta with homes on the salt works, played by clicks to the sc
       }
       await page.getByTestId('gate-go').click();
     } else await next.click();
-    await expect.poll(async () => (await game.snapshot()).tick, { timeout: 15_000 }).toBeGreaterThan(s.tick);
-    const now = await game.snapshot();
-    if (now.clock.hold === null && now.events.length === 0 && now.projects[0]?.scorecard.final !== true)
-      await page.getByTestId('speed-100').click();
+    // Through the decision: the project stands somewhere else.
+    await expect
+      .poll(async () => JSON.stringify((await game.snapshot()).nextAction.command), { timeout: 15_000 })
+      .not.toBe(JSON.stringify(s.nextAction.command));
   }
   expect(folded).toBe(true);
   await expect(page.getByTestId('screen-scorecard')).toBeVisible({ timeout: 30_000 });

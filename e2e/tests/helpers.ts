@@ -188,3 +188,54 @@ export async function distinctColours(page: Page, png: Buffer): Promise<number> 
 export function expectNoErrors(session: Session): void {
   expect(session.errors).toEqual([]);
 }
+
+/** The bore speed buttons of the top bar: Regular, Faster, Skip to end. */
+export type BoreSpeed = 1 | 10 | 100;
+
+/** Answers the event card on screen, if any, with the first option that can be afforded. Returns the event id, or null without a card. */
+export async function answerCard(page: Page, game: Session): Promise<string | null> {
+  const event = (await game.snapshot()).events[0];
+  if (event === undefined) return null;
+  const card = page.getByTestId('event-card');
+  await expect(card).toBeVisible();
+  await card.locator('button.bv-choice:not([disabled])').first().click();
+  // The card is gone (another may follow at once: it has another uid).
+  await expect.poll(async () => (await game.snapshot()).events.some((e) => e.uid === event.uid)).toBe(false);
+  return event.id;
+}
+
+/**
+ * Plays on with the time controls of the top bar until `done` holds, the way a player does: event cards are
+ * answered, "Next decision" is pressed whenever time stands with no machine boring, and the `bore` button
+ * (Skip to end unless told otherwise) is pressed while one bores. Gates are the caller's decisions: `done`
+ * must hold at any gate the run reaches. Returns the ids of the event cards answered.
+ */
+export async function playOn(
+  page: Page,
+  game: Session,
+  done: (s: GameSnapshot) => boolean,
+  timeoutMs: number,
+  bore: BoreSpeed = 100,
+): Promise<string[]> {
+  const answered: string[] = [];
+  const t0 = Date.now();
+  for (;;) {
+    const id = await answerCard(page, game);
+    if (id !== null) {
+      answered.push(id);
+      continue;
+    }
+    const s = await game.snapshot();
+    if (s.events.length > 0) continue;
+    if (done(s)) return answered;
+    if (s.clock.hold === 'gate') throw new Error(`playOn: at a gate at ${s.date} and not done: ${s.nextAction.kind}, ${s.nextAction.hint}`);
+    if (Date.now() - t0 > timeoutMs)
+      throw new Error(`playOn: not done after ${timeoutMs} ms at ${s.date}: ${s.nextAction.kind}, ${s.nextAction.hint}`);
+    const mode = await page.getByTestId('time').getAttribute('data-mode');
+    const button = page.getByTestId(mode === 'bore' ? `speed-${bore}` : 'time-next');
+    // A card or a change of state may come between the look and the click: the next round sees it.
+    if ((await button.count()) === 1 && (await button.getAttribute('aria-pressed')) !== 'true' && (await button.isEnabled()))
+      await button.click({ timeout: 2000 }).catch(() => undefined);
+    await page.waitForTimeout(100);
+  }
+}
