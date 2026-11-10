@@ -194,7 +194,6 @@ test('the Vegas-style small bore is enactable: cheaper and faster, and it says w
   expect(cardBefore.ridersPerDay).toBeGreaterThan(8000);
 
   await page.getByTestId('nav-reforms').click();
-  await page.getByTestId('branch-tunnelling').click();
   await expect(page.getByTestId('reform-head-smallBoreLoop')).toContainText('The Vegas-style small bore');
   await page.getByTestId('reform-head-smallBoreLoop').click();
   const note = page.getByTestId('reform-body-smallBoreLoop');
@@ -214,7 +213,7 @@ test('the Vegas-style small bore is enactable: cheaper and faster, and it says w
   expect(cardAfter.ridersPerDay).toBeLessThanOrEqual(8000);
   expect(cardAfter.yours.costCents).toBeLessThan(cardBefore.yours.costCents);
   expect(cardAfter.yours.yearsToOpen).toBeLessThanOrEqual(cardBefore.yours.yearsToOpen);
-  expect(after.politicalCapital).toBe(before.politicalCapital - 15);
+  expect(after.politicalCapital).toBe(before.politicalCapital - 50);
   expect(after.socialPosts?.at(-1)?.cause).toBe('reform:smallBoreLoop');
   await expect(page.getByTestId('backlash')).toBeVisible();
   expectNoErrors(game);

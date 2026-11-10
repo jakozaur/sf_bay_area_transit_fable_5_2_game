@@ -115,13 +115,9 @@ test('depth costs money: the whole line at 80 m is dearer than at 20 m, and a tr
   await expect(page.getByTestId('readout-problem')).toContainText('bore or mine it');
   expect(await cost()).toBeGreaterThan(official);
   await page.screenshot({ path: testInfo.outputPath('deep-trench.png') });
-  // As twin bores (the reforms by command, the design and the depth by mouse): deeper is dearer, for Poland too.
-  await command(page, { t: 'enactReform', id: 'twoTracks' });
+  // As twin bores (the reform by command selects them; the depth by mouse): deeper is dearer, for Poland too.
   await command(page, { t: 'enactReform', id: 'twinBoreStandard' });
-  await page.getByTestId('open-design').click();
-  await page.getByTestId('design-twinBore').click();
   await expect.poll(async () => (await game.snapshot()).projects[0]?.design.tunnel).toBe('twinBore');
-  await page.getByTestId('panel-close').click();
   const at80 = await cost();
   const polandAt80 = await poland();
   await depthAll(20);
@@ -210,7 +206,7 @@ test('names on the map stay readable: clear of the toolbar, and of the notices w
   // Three reforms at once: three notices. They stand in one column and none of them covers a plate.
   await officialPlan(page);
   await page.keyboard.press('Escape');
-  for (const id of ['twoTracks', 'twinBoreStandard', 'shallowBoxes']) await command(page, { t: 'enactReform', id });
+  for (const id of ['twinBoreStandard', 'stationCatalogue', 'roundTheClock']) await command(page, { t: 'enactReform', id });
   await expect(page.locator('.bv-toast')).toHaveCount(3);
   await page.waitForTimeout(400);
   const toasts = await page.locator('.bv-toast').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON()));

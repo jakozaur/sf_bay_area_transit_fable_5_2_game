@@ -82,6 +82,20 @@ test('the title screen boots over the whole Bay with the mission list', async ({
   await expect(page.locator('.lil-gui')).toHaveCount(0);
   expect((await game.stats()).voxelsShown).toBe(false);
   expect((await game.snapshot()).tick).toBe(0);
+  // Every briefing: what to connect and the 2x Poland target. No objective is the official budget, the official
+  // date, a rider count or a stretch goal.
+  for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch', 'sandbox']) {
+    await page.getByTestId(`mission-${id}`).click();
+    const objectives = await page.getByTestId('brief-objectives').locator('li').allTextContents();
+    expect(objectives.length, id).toBeGreaterThanOrEqual(1);
+    expect(
+      objectives.filter((o) => /within 2x Poland on cost and time/.test(o)),
+      id,
+    ).toHaveLength(1);
+    for (const o of objectives) expect(o, id).not.toMatch(/official|budget|\$|\b(19|20)\d\d\b|riders|stretch|open by|under /i);
+    await page.getByTestId('brief-back').click();
+    await expect(page.getByTestId('screen-title')).toBeVisible();
+  }
   await page.getByTestId('title-credits').click();
   await expect(page.getByTestId('credits')).toContainText('OpenStreetMap');
   await shooter(page, testInfo, 'title')('title-credits');
@@ -102,7 +116,12 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   await page.getByTestId('mission-the-portal').click();
   await expect(page.getByTestId('screen-briefing')).toBeVisible();
   await expect(page.getByTestId('brief-cost')).toContainText('$6.84 billion');
-  await expect(page.getByTestId('brief-objectives').locator('li')).toHaveCount(6);
+  // One thing to build and one number to beat: the connect objective and the 2x Poland target.
+  await expect(page.getByTestId('brief-objectives').locator('li')).toHaveCount(2);
+  await expect(page.getByTestId('brief-objectives')).toContainText('within 2x Poland on cost and time');
+  // The official plan is one line of the briefing.
+  await expect(page.getByTestId('brief-cost')).toContainText('x Poland');
+  await expect(page.getByTestId('brief-date')).toHaveCount(0);
   await page.waitForTimeout(1500);
   await shot('briefing');
   await page.getByTestId('brief-start').click();
@@ -125,23 +144,18 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   // ---- design: twin bore is locked behind a reform and says which
   await page.getByTestId('open-design').click();
   await expect(page.getByTestId('panel-design')).toBeVisible();
-  await expect(page.getByTestId('design-lock-twinBore')).toContainText('Two tracks are enough');
+  await expect(page.getByTestId('design-lock-twinBore')).toContainText('Polish tunnel');
   await expect(page.getByTestId('design-price-twinBore')).toContainText('$');
   await shot('design-locked');
-  await page.getByTestId('design-unlock-twoTracks').click();
+  await page.getByTestId('design-unlock-twinBoreStandard').click();
   await expect(page.getByTestId('panel-reforms')).toBeVisible();
-  // The link opened the reform tree on the reform that unlocks the design, already expanded.
-  await expect(page.getByTestId('branch-design')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('reform-preview-twoTracks')).toBeVisible();
-  await shot('reform-two-tracks');
-  const pcBefore = (await game.snapshot()).politicalCapital;
-  await page.getByTestId('enact-twoTracks').click();
-  await expect.poll(async () => (await game.snapshot()).reforms.find((r) => r.id === 'twoTracks')?.status).toBe('enacted');
-  expect((await game.snapshot()).politicalCapital).toBeLessThan(pcBefore);
-  // The third track is gone, the twin bore is still locked: the standard must allow two small tubes. That reform
-  // is the one that buys the Polish tunnel (it was a trap: a free click in the chooser did what it sold for 20).
-  await page.getByTestId('reform-head-twinBoreStandard').click();
+  // The link opened the reform sheet on the reform that unlocks the design, already expanded. One list: no tabs.
+  await expect(page.locator('[data-testid^="branch-"]')).toHaveCount(0);
   await expect(page.getByTestId('reform-preview-twinBoreStandard')).toBeVisible();
+  // The reform that allows the Polish tunnel also picks it: the sheet says so.
+  await expect(page.getByTestId('reform-picks-twinBoreStandard')).toContainText('switches this line to');
+  await shot('reform-twin-bore');
+  const pcBefore = (await game.snapshot()).politicalCapital;
   const offered = (await game.snapshot()).reforms.find((r) => r.id === 'twinBoreStandard')?.preview;
   if (offered === null || offered === undefined) throw new Error('the twin-bore standard has no preview');
   // The reform screen holds time, so the preview is a forecast run: what it promises is what enacting does.
@@ -149,16 +163,21 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   expect(offered.costDeltaCents).toBeLessThan(-1e10);
   await page.getByTestId('enact-twinBoreStandard').click();
   await expect.poll(async () => (await game.snapshot()).reforms.find((r) => r.id === 'twinBoreStandard')?.status).toBe('enacted');
+  expect((await game.snapshot()).politicalCapital).toBeLessThan(pcBefore);
+  // One step: the line is twin bore now, with no click in the design chooser, at the price the preview promised.
+  expect((await game.snapshot()).projects[0]?.design.tunnel).toBe('twinBore');
   expect((await game.snapshot()).headline?.yoursPerKmCents).toBe(offered.costPerKmAfterCents);
+  // What open, itemized contracts would save while the contracts are not let yet.
+  const beforeTender = (await game.snapshot()).reforms.find((r) => r.id === 'bestValueAward')?.preview?.costDeltaCents ?? 0;
+  expect(beforeTender).toBeLessThan(-1e10);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('open-design').click();
   await expect(page.getByTestId('design-lock-twinBore')).toHaveCount(0);
+  await expect(page.getByTestId('design-twinBore')).toContainText('Chosen');
   // Four tunnel methods, one opening date: the chooser says the stations set it.
   await expect(page.getByTestId('design-time-twinBore')).toContainText('they set the date');
+  // The price tag of the chosen option is the estimate, to the cent.
   const tag = (await game.snapshot()).projects[0]?.design.options.find((o) => o.id === 'twinBore')?.costCents;
-  await page.getByTestId('design-twinBore').click();
-  await expect.poll(async () => (await game.snapshot()).projects[0]?.design.tunnel).toBe('twinBore');
-  // The price tag of the option was the estimate with it chosen, to the cent.
   expect((await game.snapshot()).projects[0]?.receipt.columns.yours.costCents).toBe(tag);
   // The reform and the Polish design moved the headline: the ratio is computed, not a constant.
   const designedRatio = (await game.snapshot()).headline?.ratio ?? 0;
@@ -192,13 +211,15 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   await expect(page.getByTestId('speed-1')).toHaveAttribute('aria-pressed', 'true');
   await expect(next).toHaveText('Launch the TBM');
   await expect(page.getByTestId('gate-card')).toBeVisible();
-  // The contracts were let at tender: a procurement reform now changes nothing here, and the screen says why
-  // before the capital is spent. (The second playtest halved the price at this gate with banked capital.)
+  // The contracts were let at tender: the procurement reform no longer touches their prices, and the screen says
+  // why before the capital is spent. (The second playtest halved the price at this gate with banked capital.)
+  // What is left of it is the part that works on a running site (the supply chain).
   await page.getByTestId('gate-reforms').click();
-  await page.getByTestId('branch-procurement').click();
   await page.getByTestId('reform-head-bestValueAward').click();
   await expect(page.getByTestId('reform-notes-bestValueAward')).toContainText('let at tender');
-  expect((await game.snapshot()).reforms.find((r) => r.id === 'bestValueAward')?.preview?.costDeltaCents).toBe(0);
+  const afterTender = (await game.snapshot()).reforms.find((r) => r.id === 'bestValueAward')?.preview?.costDeltaCents ?? 0;
+  expect(afterTender).toBeLessThanOrEqual(0);
+  expect(afterTender).toBeGreaterThan(beforeTender / 2);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('nav-project').click();
   await expect(page.getByTestId('phase-utilities')).toBeVisible();
@@ -330,9 +351,9 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   expect(ratio).toBeCloseTo(p.receipt.columns.yours.costPerKmCents / p.receipt.columns.poland.costPerKmCents, 6);
   expect(ratio).toBeGreaterThan(1.5);
   expect(ratio).toBeLessThan(statusQuoRatio);
-  await expect(page.getByTestId('score-verdict')).toContainText(`${ratio.toFixed(1)}x Poland per km`);
+  await expect(page.getByTestId('score-verdict')).toContainText(`${ratio.toFixed(1)}x Poland`);
   await expect(page.getByTestId('receipt-line-priceLevel')).toBeVisible();
-  await expect(page.getByTestId('receipt-reform-done-twoTracks').first()).toBeVisible();
+  await expect(page.getByTestId('receipt-reform-done-twinBoreStandard').first()).toBeVisible();
   // At least one event card came up on the way and was answered by a click.
   console.log(
     `[${testInfo.project.name}] opened ${final.date}, $${(p.scorecard.yours.costCents / 1e11).toFixed(2)}B, ${ratio.toFixed(1)}x Poland, events: ${events.join(', ')}`,
@@ -340,8 +361,18 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   expect(events.length).toBeGreaterThan(0);
 
   // ---- next mission is unlocked; keep playing returns to the open line
-  // The rating says which axis holds it down.
-  if (p.scorecard.stars < 3) await expect(page.getByTestId('score-stars-reason')).toContainText('weakest axis');
+  // One half of the target met (the timeline; the cost is far over 2x): two stars, the rule in one line, no confetti.
+  const target = p.scorecard.polandTarget;
+  if (target === undefined) throw new Error('the scorecard has no Poland target');
+  expect(target.timeRatio).toBeLessThanOrEqual(2);
+  expect(target.costRatio).toBeGreaterThan(2);
+  expect(p.scorecard.stars).toBe(2);
+  await expect(page.getByTestId('score-stars').getByRole('img')).toHaveAttribute('aria-label', '2 of 3 stars');
+  await expect(page.getByTestId('score-stars-rule')).toContainText('2 one half of the target');
+  await expect(page.getByTestId('score-stars-reason')).toContainText('within 2x Poland on time');
+  await expect(page.getByTestId('score-target')).toContainText('2x Poland target: failed');
+  await expect(page.getByTestId('confetti')).toHaveCount(0);
+  await expect(page.getByTestId('score-official')).toContainText('$6.84B');
   await expect(page.getByTestId('score-next')).toBeEnabled();
   await page.getByTestId('score-keep').click();
   await expect(page.getByTestId('topbar')).toBeVisible();

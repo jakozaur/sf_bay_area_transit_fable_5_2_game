@@ -32,10 +32,15 @@ async function drawOfficial(page: Page, game: Session, close = true): Promise<vo
   if (close) await page.getByTestId('tool-close').click();
 }
 
-async function enact(page: Page, game: Session, branch: string, id: string): Promise<void> {
-  await page.getByTestId(`branch-${branch}`).click();
-  await page.getByTestId(`reform-head-${id}`).click();
-  await page.getByTestId(`enact-${id}`).click();
+/** The Enact button of a reform in the open sheet: on its row, in the one list or under the folded "No effect" group. */
+async function enactButton(page: Page, id: string) {
+  const button = page.getByTestId(`enact-${id}`);
+  if ((await button.count()) === 0) await page.getByTestId('reforms-noeffect').click();
+  return button;
+}
+
+async function enact(page: Page, game: Session, id: string): Promise<void> {
+  await (await enactButton(page, id)).click();
   await expect.poll(async () => (await game.snapshot()).reforms.find((r) => r.id === id)?.status).toBe('enacted');
 }
 
@@ -68,16 +73,19 @@ test('spending political capital draws a pile-on; a post closes, and close all c
   expect((await game.snapshot()).socialPosts ?? []).toHaveLength(0);
   await page.getByTestId('nav-reforms').click();
   const before = (await game.snapshot()).politicalCapital;
-  await enact(page, game, 'design', 'twoTracks');
+  // One list, no tabs.
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  await expect(page.locator('[data-testid^="branch-"]')).toHaveCount(0);
+  await enact(page, game, 'twinBoreStandard');
   const one = await game.snapshot();
-  expect(one.politicalCapital).toBe(before - 15);
+  expect(one.politicalCapital).toBe(before - 40);
   // One spend, one pile-on: 2 to 4 posts from different handles, all about that spend.
   const burst = one.socialPosts ?? [];
   expect(burst.length).toBeGreaterThanOrEqual(2);
   expect(burst.length).toBeLessThanOrEqual(4);
   expect(new Set(burst.map((p) => p.handle)).size).toBe(burst.length);
   expect(new Set(burst.map((p) => p.burst)).size).toBe(1);
-  for (const p of burst) expect(p.cause).toBe('reform:twoTracks');
+  for (const p of burst) expect(p.cause).toBe('reform:twinBoreStandard');
   // They arrive one after another; in the end each is on screen with its handle and text.
   for (const p of burst) {
     const post = page.getByTestId(`post-${p.id}`);
@@ -104,8 +112,8 @@ test('spending political capital draws a pile-on; a post closes, and close all c
   await expect(page.getByTestId('backlash').locator('li')).toHaveCount(burst.length - 1);
 
   // Two more spends, two more pile-ons; the closed post stays closed.
-  await enact(page, game, 'design', 'twinBoreStandard');
-  await enact(page, game, 'design', 'noMezzanines');
+  await enact(page, game, 'stationCatalogue');
+  await enact(page, game, 'roundTheClock');
   const three = (await game.snapshot()).socialPosts ?? [];
   expect(new Set(three.map((p) => p.burst)).size).toBe(3);
   expect(three.length).toBeGreaterThanOrEqual(6);
@@ -116,9 +124,9 @@ test('spending political capital draws a pile-on; a post closes, and close all c
   const shown = await page.getByTestId('backlash').locator('li').allTextContents();
   expect(shown.length).toBeGreaterThan(0);
   for (const text of [...shown, ...three.map((p) => `${p.handle} ${p.text}`)]) expect(text).not.toMatch(/political capital|\bPC\b|points/i);
-  // A reform paid in cash only is not a spend of political capital: no post.
-  await enact(page, game, 'tunnelling', 'groundInvestigation');
-  expect((await game.snapshot()).socialPosts).toHaveLength(three.length);
+  // Political capital is the only price of a reform: none costs cash.
+  expect((await game.snapshot()).reforms.every((r) => r.cost.cents === 0 && r.prereqs.length === 0)).toBe(true);
+  expect((await game.snapshot()).politicalCapital).toBe(before - 40 - 30 - 20);
 
   await page.getByTestId('backlash-close-all').click();
   await expect(page.getByTestId('backlash')).toHaveCount(0);
@@ -137,9 +145,10 @@ test('the specustawa takes the permit phases off the schedule and costs the most
   const yearsBefore = before.projects[0]?.scorecard.yours.yearsToOpen ?? 0;
 
   await page.getByTestId('nav-reforms').click();
-  await page.getByTestId('specustawa-call').click();
+  await expect(page.getByTestId('specustawa-call')).toHaveCount(0);
+  await page.getByTestId('reform-head-specustawa').click();
   await expect(page.getByTestId('reform-body-specustawa')).toContainText('planning and permitting take no time');
-  // The dearest reform on the tree.
+  // The dearest reform on the list.
   const cost = before.reforms.find((r) => r.id === 'specustawa')?.cost.pc ?? 0;
   expect(cost).toBe(Math.max(...before.reforms.map((r) => r.cost.pc)));
   await page.getByTestId('enact-specustawa').click();
@@ -206,42 +215,37 @@ test('the Silicon branch is on the list with its cost-benefit row, and it starts
   expectNoErrors(game);
 });
 
-/** Reforms that fix the design and the contract prices, dearest effect first: they have to be in force at tender. */
-const BEFORE_TENDER = [
-  'specustawa',
-  'twoTracks',
-  'twinBoreStandard',
-  'noMezzanines',
-  'shallowBoxes',
-  'bestValueAward',
-  'inHouseEngineering',
-  'itemizedContracts',
-  'openTenders',
-  'roundTheClock',
-  'leanSupervision',
-  'utilityStatute',
-  'stationCatalogue',
-  'rightSizeTerminal',
-  'emergencyAward',
-  'parallelWorks',
-  'masterPermitting',
-];
-const AFTER_TENDER = ['stageGates', 'payBands', 'importSupplyChain', 'potholeFirst'];
+/** The open reforms in the order the sheet shows them, top first, with the saving each row is sorted on. */
+async function sheetOrder(page: Page, game: Session): Promise<{ id: string; savedCents: number; affordable: boolean }[]> {
+  const ids = await page
+    .getByTestId('reform-list')
+    .locator('[data-testid^="enact-"]')
+    .evaluateAll((els) => els.map((e) => (e.getAttribute('data-testid') ?? '').slice('enact-'.length)));
+  const reforms = (await game.snapshot()).reforms;
+  return ids.map((id) => {
+    const r = reforms.find((x) => x.id === id);
+    if (r === undefined) throw new Error(`the sheet lists reform ${id}, the sim does not`);
+    return { id, savedCents: -(r.preview?.costDeltaCents ?? 0), affordable: r.affordable };
+  });
+}
 
-/** Enacts, by clicks in the open reform sheet, every reform of `order` the capital in hand pays for. Returns the ids enacted. */
-async function buy(page: Page, game: Session, order: readonly string[]): Promise<string[]> {
+/**
+ * Good choices, by clicks in the open reform sheet: the top row that saves money on this line and that the capital
+ * in hand pays for, again and again until there is none. `skip` are reforms a careful player leaves alone.
+ * Returns the ids enacted.
+ */
+async function buy(page: Page, game: Session, skip: readonly string[] = []): Promise<string[]> {
   const bought: string[] = [];
-  for (const id of order) {
-    const r = (await game.snapshot()).reforms.find((x) => x.id === id);
-    if (r === undefined) throw new Error(`no reform ${id}`);
-    if (r.status === 'enacted' || !r.affordable || r.status === 'locked') continue;
-    await page.getByTestId(`branch-${r.branch}`).click();
-    if ((await page.getByTestId(`enact-${id}`).count()) === 0) await page.getByTestId(`reform-head-${id}`).click();
-    await page.getByTestId(`enact-${id}`).click();
-    await expect.poll(async () => (await game.snapshot()).reforms.find((x) => x.id === id)?.status).toBe('enacted');
-    bought.push(id);
+  for (;;) {
+    const order = await sheetOrder(page, game);
+    // The sheet is sorted on the saving: the first row is the largest.
+    for (let i = 1; i < order.length; i++) expect(order[i]?.savedCents).toBeLessThanOrEqual(order[i - 1]?.savedCents ?? 0);
+    const pick = order.find((r) => r.affordable && r.savedCents > 0 && !skip.includes(r.id));
+    if (pick === undefined) return bought;
+    await page.getByTestId(`enact-${pick.id}`).click();
+    await expect.poll(async () => (await game.snapshot()).reforms.find((x) => x.id === pick.id)?.status).toBe('enacted');
+    bought.push(pick.id);
   }
-  return bought;
 }
 
 /** Runs the clock, answering event cards with the first option that can be afforded, until `done` holds. */
@@ -267,49 +271,66 @@ async function speed(page: Page, game: Session, x: 1 | 10 | 100): Promise<void> 
   await page.getByTestId(`speed-${x}`).click();
 }
 
-test('The Portal meets the 2x Poland target with the specustawa and the Polish reforms, played by clicks', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'gpu', 'the full playthrough needs the hardware renderer');
-  test.setTimeout(300_000);
-  const game = await openTitle(page, testInfo);
+/** The small bore carries pods, not trains: a player who wants a railway leaves it alone. */
+const NOT_A_RAILWAY = ['smallBoreLoop'];
+
+interface Played {
+  costRatio: number;
+  timeRatio: number;
+  stars: number;
+  early: string[];
+  atTender: string[];
+  enacted: number;
+  offered: number;
+}
+
+/**
+ * A mission from the title screen to its scorecard by clicks: the official alignment, the reforms the sheet puts
+ * first (at the start and again at the tender gate), the gates, the clock at 100x in between. No trip to the Design sheet.
+ */
+async function playMission(page: Page, game: Session, mission: string, tag: string): Promise<Played> {
   const next = page.getByTestId('next-action');
-  await expect(page.getByTestId('title-target')).toContainText('2x');
-  await page.getByTestId('mission-the-portal').click();
-  await expect(page.getByTestId('brief-what')).toContainText('Fable 5.2');
+  await page.getByTestId(`mission-${mission}`).click();
+  await expect(page.getByTestId('screen-briefing')).toBeVisible();
   await page.waitForTimeout(1200);
-  await shot(page, 'portal-briefing');
+  await shot(page, `${tag}-briefing`);
   await page.getByTestId('brief-start').click();
   await expect(page.getByTestId('topbar')).toBeVisible();
   await game.settled();
   await drawOfficial(page, game, false);
-  // With nothing changed the cost is far over the target; the head start keeps the timeline inside it.
+  // With nothing changed the cost is far over the target.
   const start = (await game.snapshot()).projects[0]?.scorecard.polandTarget;
   expect(start?.met).toBe(false);
-  expect(start?.costRatio).toBeGreaterThan(10);
+  expect(start?.costRatio).toBeGreaterThan(9);
   // The cost half of the target is the colour of the big ratio box.
   await expect(page.getByTestId('headline-ratio')).toHaveClass(/is-missed/);
+  await shot(page, `${tag}-topbar-start`);
 
-  // ---- reforms before tender, the Polish design
+  // ---- reforms before tender: what the sheet puts first, as far as the capital goes
   await page.getByTestId('nav-reforms').click();
-  const early = await buy(page, game, BEFORE_TENDER);
-  expect(early).toContain('specustawa');
-  await page.getByTestId('panel-close').click();
-  await page.getByTestId('open-design').click();
-  await page.getByTestId('design-twinBore').click();
-  await page.getByTestId('design-compactBox').click();
-  await expect.poll(async () => (await game.snapshot()).projects[0]?.design.tunnel).toBe('twinBore');
+  await page.waitForTimeout(300);
+  await shot(page, `${tag}-reforms-list`);
+  const early = await buy(page, game, NOT_A_RAILWAY);
+  await shot(page, `${tag}-reforms-bought`);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('tool-close').click();
-  await shot(page, 'portal-after-reforms');
+  // The Polish tunnel came with its reform (or with the mission): nobody opened the Design sheet.
+  const designed = (await game.snapshot()).projects[0];
+  expect(designed?.design.tunnel).toBe('twinBore');
+  // The estimate still carries its contingency: the reforms brought it most of the way, the final books say the rest.
+  expect(designed?.scorecard.polandTarget?.costRatio).toBeLessThan((start?.costRatio ?? 0) / 3);
 
   // ---- approvals, tender, utilities
   await next.click();
   await runUntil(page, game, (s) => s.clock.hold === 'gate', 60_000);
+  // The tender gate: the last moment for the design and the contract prices. The finished phases paid capital.
+  await page.getByTestId('gate-reforms').click();
+  const atTender = await buy(page, game, NOT_A_RAILWAY);
+  await page.getByTestId('panel-close').click();
   await page.getByTestId('gate-go').click();
   await speed(page, game, 100);
   await runUntil(page, game, (s) => s.nextAction.kind === 'launchTBM', 90_000);
-  await page.getByTestId('gate-reforms').click();
-  const late = await buy(page, game, [...BEFORE_TENDER, ...AFTER_TENDER]);
-  await page.getByTestId('panel-close').click();
+  await shot(page, `${tag}-topbar-launch-gate`);
 
   // ---- build on autopilot, fit-out, open
   await page.getByTestId('gate-go').click();
@@ -319,20 +340,64 @@ test('The Portal meets the 2x Poland target with the specustawa and the Polish r
   await next.click();
   await expect(page.getByTestId('screen-scorecard')).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(500);
-  await shot(page, 'portal-scorecard');
+  await shot(page, `${tag}-scorecard`);
 
-  const p = (await game.snapshot()).projects[0];
+  const final = await game.snapshot();
+  const p = final.projects[0];
   const target = p?.scorecard.polandTarget;
   if (p === undefined || target === undefined) throw new Error('no final scorecard');
   expect(p.scorecard.final).toBe(true);
+  const enacted = final.reforms.filter((r) => r.status === 'enacted').length;
   console.log(
-    `[m2] Portal by clicks: cost ${target.costRatio.toFixed(2)}x, time ${target.timeRatio.toFixed(2)}x Poland, met ${target.met}; before tender: ${early.join(', ')}; later: ${late.join(', ')}; capital left ${(await game.snapshot()).politicalCapital}`,
+    `[m2] ${mission} by clicks: cost ${target.costRatio.toFixed(2)}x, time ${target.timeRatio.toFixed(2)}x Poland, ${p.scorecard.stars} stars; at the start: ${early.join(', ')}; at the tender gate: ${atTender.join(', ') || 'none'}; ${enacted} of ${final.reforms.length} reforms enacted; capital left ${final.politicalCapital}`,
   );
-  expect(target.costRatio).toBeLessThanOrEqual(2);
-  expect(target.timeRatio).toBeLessThanOrEqual(2);
-  expect(target.met).toBe(true);
+  return {
+    costRatio: target.costRatio,
+    timeRatio: target.timeRatio,
+    stars: p.scorecard.stars,
+    early,
+    atTender,
+    enacted,
+    offered: final.reforms.length,
+  };
+}
+
+/** Both halves of the target met: three stars on the card, the target line passed, the full burst of confetti. */
+async function expectThreeStars(page: Page, played: Played): Promise<void> {
+  expect(played.costRatio).toBeLessThanOrEqual(2);
+  expect(played.timeRatio).toBeLessThanOrEqual(2);
+  expect(played.stars).toBe(3);
+  await expect(page.getByTestId('score-stars').getByRole('img')).toHaveAttribute('aria-label', '3 of 3 stars');
+  await expect(page.getByTestId('score-stars-rule')).toContainText('3 both');
   await expect(page.getByTestId('score-target')).toContainText('2x Poland target: passed');
-  // Inside the target: the full burst of confetti over the scorecard.
   await expect(page.getByTestId('confetti')).toHaveAttribute('data-pieces', '120');
+  // The official plan is one line on the card, not a column and not a condition.
+  await expect(page.getByTestId('score-official')).toContainText(/\$[\d.]+B, [\d.]+x Poland\.$/);
+  await expect(page.getByTestId('score-col-sponsor')).toHaveCount(0);
+  await expect(page.getByTestId('score-axes')).toHaveCount(0);
+}
+
+test('The Portal meets the 2x Poland target with the reforms the sheet puts first, played by clicks', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'gpu', 'the full playthrough needs the hardware renderer');
+  test.setTimeout(300_000);
+  const game = await openTitle(page, testInfo);
+  await expect(page.getByTestId('title-target')).toContainText('2x');
+  const played = await playMission(page, game, 'the-portal', 'portal');
+  await expectThreeStars(page, played);
+  // Good choices, not everything: the capital did not reach the whole list.
+  await expect(page.getByTestId('score-official')).toContainText('Official plan');
+  expect(played.early).toContain('twinBoreStandard');
+  expect(played.early).not.toContain('specustawa');
+  expect(played.enacted).toBeLessThan(played.offered);
+  expectNoErrors(game);
+});
+
+test('the Googleplex spur meets the 2x Poland target the same way, played by clicks', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'gpu', 'the full playthrough needs the hardware renderer');
+  test.setTimeout(300_000);
+  const game = await openTitle(page, testInfo);
+  const played = await playMission(page, game, 'googleplex-spur', 'googleplex');
+  await expectThreeStars(page, played);
+  expect(played.enacted).toBeLessThan(played.offered);
   expectNoErrors(game);
 });

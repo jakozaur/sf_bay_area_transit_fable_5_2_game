@@ -107,34 +107,32 @@ test('The Portal: the plan panel, the headline, the design tag and the receipt s
     // (it did, to another rounding). The top bar is the receipt's own number.
     await expect(page.getByTestId('readout-costPerKm')).toHaveCount(0);
     await expect(page.getByTestId('readout-ratio')).toHaveCount(0);
-    expect(dollars(await page.getByTestId('headline-yours').textContent())).toBeCloseTo(r.columns.yours.costPerKmCents / 100, -8);
-    expect(dollars(await page.getByTestId('headline-poland').textContent())).toBeCloseTo(r.columns.poland.costPerKmCents / 100, -7);
+    // One number in the top bar: the cost against Poland. The per-km pair is gone.
+    await expect(page.getByTestId('headline-yours')).toHaveCount(0);
+    await expect(page.getByTestId('headline-poland')).toHaveCount(0);
+    const shown = Number.parseFloat((await page.getByTestId('headline-ratio').textContent()) ?? '');
+    expect(shown).toBeCloseTo(r.columns.yours.costPerKmCents / r.columns.poland.costPerKmCents, shown >= 10 ? 0 : 1);
     expect(dollars(await page.getByTestId('readout-cost').textContent())).toBeCloseTo(r.columns.yours.costCents / 100, -8);
     // A date like every other date on screen.
     await expect(page.getByTestId('readout-opens')).toContainText(/[A-Z][a-z]{2} \d{4}$/);
     return { poland: r.columns.poland.costCents, ratio: (await page.getByTestId('headline-ratio').textContent()) ?? '' };
   };
   const official = await agree();
-  // The Polish design: three reforms (the third track goes, the standard allows twin tubes, the mezzanine goes),
-  // then twin bore and the compact box in the chooser, by mouse.
+  // The Polish design: two reforms (the Polish tunnel, the standard compact stations), by mouse.
   await page.getByTestId('nav-reforms').click();
-  await page.getByTestId('branch-design').click();
-  for (const id of ['twoTracks', 'twinBoreStandard', 'noMezzanines']) {
-    await page.getByTestId(`reform-head-${id}`).click();
+  for (const id of ['twinBoreStandard', 'stationCatalogue']) {
     // A double click on Enact: charged once, no error toast with an internal id.
     await page.getByTestId(`enact-${id}`).dblclick();
     await expect(page.getByTestId(`reform-${id}`)).toContainText('Enacted');
   }
   await expect(page.getByTestId('toasts')).not.toContainText('already enacted');
-  expect((await game.snapshot()).politicalCapital).toBe(300 - 15 - 10 - 15);
+  expect((await game.snapshot()).politicalCapital).toBe(200 - 40 - 30);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('open-design').click();
-  // The twin-bore standard has redrawn the mined cavern nobody chose as twin tubes; the trenches are still trenches.
-  await expect(page.getByTestId('design-now')).toContainText('twin bore');
-  await expect(page.getByTestId('design-now')).toContainText('cut-and-cover');
-  await page.getByTestId('design-twinBore').click();
-  await page.getByTestId('design-compactBox').click();
+  // The reforms chose the Polish tunnel and the compact box themselves: the chooser only shows them.
+  await expect(page.getByTestId('design-now')).toHaveCount(0);
   await expect(page.getByTestId('design-twinBore')).toContainText('Chosen');
+  await expect(page.getByTestId('design-compactBox')).toContainText('Chosen');
   await page.getByTestId('panel-close').click();
   const polish = await agree();
   expect(polish.poland).toBe(official.poland);
