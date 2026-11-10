@@ -90,14 +90,14 @@ const MISSIONS: MissionCard[] = [
       ['oracle', 'Oracle Redwood Shores tunnel', 'Under the lagoon, into the towers.', 'oracle'],
     ] as const
   ).map(
-    ([id, title, pitch, siteId], i): MissionCard => ({
+    ([id, title, pitch, siteId]): MissionCard => ({
       id,
       title,
       pitch,
       siteId,
       freeBuild: false,
-      locked: true,
-      lockReason: i === 0 ? 'Open The Portal first.' : 'Open the mission before it first.',
+      locked: false,
+      lockReason: null,
       completed: false,
       bestStars: null,
       briefing: { what: title, officialCost: 'No official figure', officialDate: 'No official date', why: pitch, source: 'fixture' },
@@ -1120,9 +1120,7 @@ export const SCENES = {
       saves: [
         { slot: 'auto', scenarioId: 'the-portal', title: 'The Portal', date: '2031-08-04', tick: 1730, savedAt: '2026-11-10T12:00:00Z' },
       ],
-      missions: MISSIONS.map((m, i) =>
-        i === 0 ? { ...m, completed: true, bestStars: 2 } : i === 1 ? { ...m, locked: false, lockReason: null } : m,
-      ),
+      missions: MISSIONS.map((m, i) => (i === 0 ? { ...m, completed: true, bestStars: 2 } : m)),
     }),
     snapshot: snapshot({ stage: 'plan' }),
   }),

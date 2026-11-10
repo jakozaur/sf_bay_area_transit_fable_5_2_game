@@ -73,14 +73,14 @@ function rig(kv: KeyValueStore = createMemoryStore()): Rig {
   return { session, driver, log, sites, kv };
 }
 
-test('title, briefing, start: screens, locks and the hooks in order', async () => {
+test('title, briefing, start: screens, no locks and the hooks in order', async () => {
   const { session, driver, log, sites } = rig();
   const port = session.port;
   expect(port.state.get()).toMatchObject({ screen: 'title', missionId: null, saves: [], error: null });
-  expect(port.state.get().missions.map((m) => m.locked)).toEqual([false, true, true, true, false]);
-  expect(() => port.brief('googleplex-spur')).toThrow(/locked. Open The Portal first/);
+  // Every mission can be picked at any time: nothing is locked on a fresh profile.
+  expect(port.state.get().missions.every((m) => !m.locked && m.lockReason === null)).toBe(true);
   expect(() => port.brief('nope')).toThrow(/unknown mission "nope"/);
-  await expect(port.start('googleplex-spur')).rejects.toThrow(/locked/);
+  expect(() => port.start('nope')).toThrow(/unknown mission "nope"/);
 
   port.brief('the-portal');
   expect(port.state.get()).toMatchObject({ screen: 'briefing', missionId: 'the-portal' });
@@ -96,6 +96,9 @@ test('title, briefing, start: screens, locks and the hooks in order', async () =
   await session.startUnlocked('googleplex-spur');
   expect(sites).toEqual(['googleplex']);
   expect(log.slice(-3)).toEqual(['siteLoaded', 'detach', 'start:googleplex-spur']);
+  // A mission the old campaign order kept shut is briefed without The Portal being opened.
+  port.brief('oracle-shuttle');
+  expect(port.state.get()).toMatchObject({ screen: 'briefing', missionId: 'oracle-shuttle', error: null });
 });
 
 test('a mission that fails to load goes back to where it came from with the reason', async () => {

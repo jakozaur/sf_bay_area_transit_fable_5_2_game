@@ -2,9 +2,9 @@
 import { expect, test } from '@playwright/test';
 import { calls, cues, lastCall, open, tid } from './helpers.ts';
 
-test('title: Play and a mission row brief the mission, Continue loads the save, locked rows are disabled', async ({ page }) => {
+test('title: Play and a mission row brief the mission, Continue loads the save, every row is open', async ({ page }) => {
   await open(page, 'title-continue');
-  await expect(tid(page, 'mission-dumbarton')).toBeDisabled();
+  await expect(tid(page, 'mission-dumbarton')).toBeEnabled();
   await tid(page, 'title-continue').click();
   expect(await lastCall(page)).toEqual({ name: 'session.load', args: ['auto'] });
   await open(page, 'title');

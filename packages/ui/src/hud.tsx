@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Bar, Btn, Bullet, cx, type StoreProps } from './bits.tsx';
 import type { PanelId } from './contract.ts';
 import { capital, dateLong, duration, money, moneyPerKm, ratio } from './format.ts';
-import { act, actionButton, missionProject, selectTool } from './model.ts';
+import { act, actionButton, missionProject, polandTarget, postKey, selectTool, socialPosts } from './model.ts';
 
 const SPEED_LABEL: Readonly<Record<GameSpeed, string>> = { 0: 'Pause', 1: '1x', 10: '10x', 100: '100x' };
 const HOLD_TEXT = { event: 'Time waits: answer the card', gate: 'Time waits: your move' } as const;
@@ -15,6 +15,8 @@ export function TopBar({ store }: StoreProps): JSX.Element {
   const s = store.snapshot.value;
   const speed = store.speed.value;
   const h = s.headline;
+  const project = missionProject(s);
+  const target = project === null ? null : polandTarget(project);
   const nav: { id: PanelId; label: string }[] = [
     { id: 'project', label: 'Project' },
     { id: 'reforms', label: 'Reforms' },
@@ -85,6 +87,23 @@ export function TopBar({ store }: StoreProps): JSX.Element {
             <span class="gap" data-testid="headline-ratio" title="Your cost per route-km divided by Poland's, computed by the model">
               {ratio(h.ratio)}
             </span>
+            {target !== null && (
+              <div
+                class="pair bv-target"
+                data-testid="hud-target"
+                title={`The target: finish at no more than ${target.limit}x Poland's cost and ${target.limit}x Poland's timeline, on this route.`}
+              >
+                <span class="k">Target: {target.limit}x Poland or less</span>
+                <span class="v">
+                  <span class={target.costRatio <= target.limit ? 'is-met' : 'is-missed'} data-testid="hud-target-cost">
+                    cost {ratio(target.costRatio)}
+                  </span>
+                  <span class={target.timeRatio <= target.limit ? 'is-met' : 'is-missed'} data-testid="hud-target-time">
+                    time {ratio(target.timeRatio)}
+                  </span>
+                </span>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -454,6 +473,59 @@ export function Toasts({ store }: StoreProps): JSX.Element {
         </button>
       ))}
     </div>
+  );
+}
+
+/** Posts shown at once; the rest is a count. */
+const MAX_POSTS = 3;
+
+/**
+ * Social media backlash: a small box at the bottom with the posts the sim wrote when political capital was spent,
+ * newest on top. Closing is UI-local. Nothing here takes focus: the buttons are clicked, and a click blurs them.
+ */
+export function Backlash({ store }: StoreProps): JSX.Element | null {
+  const closed = store.postsClosed.value;
+  const open = socialPosts(store.snapshot.value)
+    .filter((p) => !closed.has(postKey(p)))
+    .reverse();
+  if (open.length === 0) return null;
+  const more = open.length - MAX_POSTS;
+  return (
+    <aside
+      class={cx('bv-backlash bv-live', store.panel.value !== null && 'is-beside-sheet')}
+      aria-label="Social media backlash"
+      data-testid="backlash"
+    >
+      <div class="head">
+        <span>Backlash</span>
+        {more > 0 && (
+          <span class="more" data-testid="backlash-more">
+            +{more}
+          </span>
+        )}
+        <button type="button" class="bv-link on-ink" tabIndex={-1} data-testid="backlash-close-all" onClick={() => store.closeAllPosts()}>
+          Close all
+        </button>
+      </div>
+      <ul>
+        {open.slice(0, MAX_POSTS).map((p) => (
+          <li key={postKey(p)} data-testid={`post-${p.id}`} data-cause={p.cause}>
+            <span class="handle">{p.handle}</span>
+            <button
+              type="button"
+              class="x"
+              tabIndex={-1}
+              aria-label="Close this post"
+              data-testid={`post-close-${p.id}`}
+              onClick={() => store.closePost(postKey(p))}
+            >
+              x
+            </button>
+            <p>{p.text}</p>
+          </li>
+        ))}
+      </ul>
+    </aside>
   );
 }
 

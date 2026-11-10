@@ -7,6 +7,7 @@ import type { CameraStatus, GameSpeed, GameViewState, SessionState, ToolAvailabi
 import type { BayServices, GameSnapshot } from '@bayvox/sim';
 import type { ReadonlySignal, Signal } from '@preact/signals';
 import { mount } from './app.tsx';
+import type { CostBenefitRow } from './model.ts';
 import { createStore } from './store.ts';
 
 /** Side panels opened from the HUD buttons. Title, briefing, event card and scorecard are screens driven by state, not panels. */
@@ -40,6 +41,12 @@ export interface UiProps {
   store: UiStore;
 }
 
+/** What the app hands the UI besides the services: static data the UI must not import a package for. */
+export interface UiExtras {
+  /** The cost-benefit comparison of the missions (costBenefit() of packages/scenarios), shown on the mission picker. */
+  costBenefit?: readonly CostBenefitRow[];
+}
+
 export interface UiHandle {
   readonly store: UiStore;
   /** Unmounts the UI and drops every subscription made on the services. */
@@ -55,6 +62,6 @@ export function createUiStore(services: BayServices): UiStore & { dispose(): voi
  * Mounts the whole UI (title screen, briefing, HUD, panels, event cards, scorecard) into `root`, an element
  * laid over the canvas. Pointer and key events that the UI handles must not reach the canvas.
  */
-export function mountUi(root: HTMLElement, services: BayServices): UiHandle {
-  return mount(root, services);
+export function mountUi(root: HTMLElement, services: BayServices, extras: UiExtras = {}): UiHandle {
+  return mount(root, services, extras);
 }

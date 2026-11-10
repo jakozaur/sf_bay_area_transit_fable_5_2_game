@@ -606,6 +606,11 @@ export function Objectives({ store }: StoreProps): JSX.Element | null {
 
 // ---------------------------------------------------------------- reforms
 
+/** The special-purpose infrastructure act (M2 shared contract id). */
+const SPECUSTAWA = 'specustawa';
+const SPECUSTAWA_NOTE =
+  'The Polish special-purpose act: the corridor becomes a special zone where every permit phase takes zero time. It costs a lot of political capital, expect backlash, and it is the fastest way under the 2x Poland timeline.';
+
 function reformCost(r: ReformView): string {
   const parts: string[] = [];
   if (r.cost.pc > 0) parts.push(capital(r.cost.pc));
@@ -644,7 +649,10 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
     <li class={cx('bv-reform', `is-${r.status}`)} data-testid={`reform-${r.id}`}>
       <span class="stop" />
       <button type="button" class="bv-reform-head" aria-expanded={open} data-testid={`reform-head-${r.id}`} onClick={onToggle}>
-        <span class="title">{r.title}</span>
+        <span class="title">
+          {r.title}
+          {r.id === SPECUSTAWA && r.status !== 'enacted' && <span class="bv-tag is-hi bv-tag-gap">skips permitting</span>}
+        </span>
         <span class="cost">{r.status === 'enacted' ? <span class="bv-tag is-good">Enacted</span> : reformCost(r)}</span>
         {!open && p !== null && (
           <span class="fx" data-testid={`reform-fx-${r.id}`}>
@@ -656,6 +664,11 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
       {open && (
         <div class="bv-reform-body" data-testid={`reform-body-${r.id}`}>
           <p>{r.description}</p>
+          {r.id === SPECUSTAWA && (
+            <p class="bv-small bv-spec" data-testid="reform-specustawa-note">
+              {SPECUSTAWA_NOTE}
+            </p>
+          )}
           <ul class="bv-fxlist" data-testid={`reform-effects-${r.id}`}>
             {r.effects.map((e) => (
               <li key={`${e.key}${e.op}`}>{effectText(e)}</li>
@@ -734,10 +747,31 @@ export function ReformsPanel({ store }: StoreProps): JSX.Element {
   const [branch, setBranch] = useState<string>(focus?.branch ?? BRANCHES[0].id);
   const [open, setOpen] = useState<string | null>(focus?.id ?? null);
   const inBranch = s.reforms.filter((r) => r.branch === branch);
+  const spec = s.reforms.find((r) => r.id === SPECUSTAWA);
+  // A branch the sim lists and this build has no tab title for still gets a tab: no reform may be unreachable.
+  const branches = [
+    ...BRANCHES.map((b) => ({ id: b.id as string, title: b.title as string })),
+    ...[...new Set(s.reforms.map((r) => r.branch))]
+      .filter((id) => !BRANCHES.some((b) => b.id === id))
+      .map((id) => ({ id, title: id.charAt(0).toUpperCase() + id.slice(1) })),
+  ];
   return (
     <Sheet store={store} id="reforms" title="Reforms" sub={`${capital(s.politicalCapital)} to spend, time waits`}>
+      {spec !== undefined && spec.status !== 'enacted' && open !== SPECUSTAWA && (
+        <button
+          type="button"
+          class="bv-spec-call"
+          data-testid="specustawa-call"
+          onClick={() => {
+            setBranch(spec.branch);
+            setOpen(SPECUSTAWA);
+          }}
+        >
+          <b>{spec.title}:</b> skip all permitting in a special zone. {reformCost(spec)}.
+        </button>
+      )}
       <div class="bv-branches" role="tablist" aria-label="Reform branches">
-        {BRANCHES.map((b) => {
+        {branches.map((b) => {
           const all = s.reforms.filter((r) => r.branch === b.id);
           const done = all.filter((r) => r.status === 'enacted').length;
           return (

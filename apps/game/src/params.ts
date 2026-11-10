@@ -51,8 +51,7 @@ function flag(q: URLSearchParams, name: string, fallback: boolean): boolean {
 function word(q: URLSearchParams, name: string): string | null {
   const raw = q.get(name);
   if (raw === null) return null;
-  if (!/^[a-z0-9-]+$/.test(raw))
-    throw new RangeError(`URL parameter ${name}=${raw} must be an id of lower-case letters, digits and dashes`);
+  if (!/^[A-Za-z0-9-]+$/.test(raw)) throw new RangeError(`URL parameter ${name}=${raw} must be an id of letters, digits and dashes`);
   return raw;
 }
 

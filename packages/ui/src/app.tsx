@@ -2,8 +2,8 @@
 import type { BayServices } from '@bayvox/sim';
 import { type JSX, render } from 'preact';
 import { useErrorBoundary } from 'preact/hooks';
-import type { UiHandle } from './contract.ts';
-import { Banner, CameraHelp, MapLabels, ObjectiveStrip, Toasts, Toolbar, TopBar } from './hud.tsx';
+import type { UiExtras, UiHandle } from './contract.ts';
+import { Backlash, Banner, CameraHelp, MapLabels, ObjectiveStrip, Toasts, Toolbar, TopBar } from './hud.tsx';
 import { type KeyInput, resolveKey } from './keys.ts';
 import { CreditsPanel, HelpPanel, MenuPanel } from './menu.tsx';
 import { act, selectTool } from './model.ts';
@@ -94,6 +94,7 @@ function Screens({ store }: { store: UiStoreInternal }): JSX.Element {
       {!eventOpen && <GateCard store={store} />}
       <CameraHelp store={store} />
       <Toolbar store={store} />
+      <Backlash store={store} />
       <Banner store={store} />
       <Toasts store={store} />
       {eventOpen && <EventCard store={store} />}
@@ -109,11 +110,11 @@ function targetKind(target: EventTarget | null): KeyInput['target'] {
   return 'other';
 }
 
-export function mount(root: HTMLElement, services: BayServices): UiHandle {
+export function mount(root: HTMLElement, services: BayServices, extras: UiExtras = {}): UiHandle {
   const doc = root.ownerDocument;
   const win = doc.defaultView;
   if (win === null) throw new Error('mountUi: root is not attached to a window');
-  const store = createStore(services);
+  const store = createStore(services, extras);
   const ac = new AbortController();
 
   let style = doc.getElementById(STYLE_ID);

@@ -2,7 +2,8 @@
 import type { GameSpeed, Readable } from '@bayvox/core';
 import type { BayServices, FeedItem, GameSnapshot, Notice } from '@bayvox/sim';
 import { type ReadonlySignal, type Signal, signal } from '@preact/signals';
-import type { PanelId, UiStore } from './contract.ts';
+import type { PanelId, UiExtras, UiStore } from './contract.ts';
+import { type CostBenefitRow, postKey, socialPosts } from './model.ts';
 
 /** A line shown in the toast stack. `tone` picks the stripe colour; `banner` items take the big breakthrough treatment. */
 export interface Toast {
@@ -30,6 +31,12 @@ export interface UiStoreInternal extends UiStore {
   openReform(reformId: string): void;
   /** The gate the player has looked at and put aside ("project id:gate"), or null: its card stays down until the next gate. */
   readonly gateDismissed: Signal<string | null>;
+  /** Mission comparison rows for the mission picker; empty when the app has none. */
+  readonly costBenefit: readonly CostBenefitRow[];
+  /** Backlash posts the player closed (postKey). UI-local: the sim keeps the posts. */
+  readonly postsClosed: Signal<ReadonlySet<string>>;
+  closePost(key: string): void;
+  closeAllPosts(): void;
   dispose(): void;
 }
 
@@ -75,7 +82,7 @@ function mirror<T>(source: Readable<T>, disposers: (() => void)[]): ReadonlySign
   return s;
 }
 
-export function createStore(services: BayServices): UiStoreInternal {
+export function createStore(services: BayServices, extras: UiExtras = {}): UiStoreInternal {
   const disposers: (() => void)[] = [];
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const snapshot = mirror(services.sim.snapshot, disposers);
@@ -85,6 +92,9 @@ export function createStore(services: BayServices): UiStoreInternal {
   const reformFocus = signal<string | null>(null);
   const gateDismissed = signal<string | null>(null);
   const first = snapshot.value;
+  // Posts already in the snapshot when the UI mounts (a loaded save) are history, not news.
+  const postsClosed = signal<ReadonlySet<string>>(new Set(socialPosts(first).map(postKey)));
+  let lastPostId = socialPosts(first).at(-1)?.id ?? 0;
   // Items already in the feed when the UI mounts (a loaded save) are history, not news.
   const feedSeen = signal(first.feed.length > 0 ? first.feed[first.feed.length - 1].seq : 0);
   const noticesSeen = new Set(first.notices.map(noticeKey));
@@ -117,8 +127,14 @@ export function createStore(services: BayServices): UiStoreInternal {
     if (services.session.state.get().screen === 'loading') {
       feedSeen.value = last;
       for (const n of s.notices) noticesSeen.add(noticeKey(n));
+      postsClosed.value = new Set(socialPosts(s).map(postKey));
+      lastPostId = socialPosts(s).at(-1)?.id ?? 0;
       return;
     }
+    // A restart rewinds the post ids: what was closed in the previous run says nothing about this one.
+    const newestPost = socialPosts(s).at(-1)?.id ?? 0;
+    if (newestPost < lastPostId) postsClosed.value = new Set();
+    lastPostId = newestPost;
     // A restart or a load of an older save rewinds the feed: forget what the previous run showed.
     if (last < feedSeen.value) feedSeen.value = last;
     for (const item of s.feed) {
@@ -192,6 +208,14 @@ export function createStore(services: BayServices): UiStoreInternal {
     },
     reformFocus,
     gateDismissed,
+    costBenefit: extras.costBenefit ?? [],
+    postsClosed,
+    closePost(key) {
+      postsClosed.value = new Set([...postsClosed.value, key]);
+    },
+    closeAllPosts() {
+      postsClosed.value = new Set(socialPosts(snapshot.value).map(postKey));
+    },
     openReform(reformId) {
       reformFocus.value = reformId;
       if (panel.value !== 'reforms') services.audio.cue('ui.open');

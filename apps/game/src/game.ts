@@ -36,7 +36,7 @@ import {
   screenRay,
 } from '@bayvox/input';
 import { CAP_MAX_RADIUS, createEntityLayer, VoxelRenderer } from '@bayvox/render';
-import { SCENARIOS, scenarioById, THE_PORTAL } from '@bayvox/scenarios';
+import { costBenefit, SCENARIOS, scenarioById, THE_PORTAL } from '@bayvox/scenarios';
 import { type BayServices, createSim, type GameSnapshot, isDrivable, type MissionTarget, type ScenarioDef } from '@bayvox/sim';
 import { connectAnchors, createToolHost, type PlanAnchor } from '@bayvox/tools';
 import { mountUi } from '@bayvox/ui';
@@ -574,7 +574,7 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       }
     });
 
-    const ui = params.hud && uiRoot !== null ? mountUi(uiRoot, services) : null;
+    const ui = params.hud && uiRoot !== null ? mountUi(uiRoot, services, { costBenefit: costBenefit() }) : null;
     const debug = params.debug ? await import('./hud.ts') : null;
     const hudStats = { fps: 0, frameMs: 0, chunks: 0, queued: 0, quads: 0, drawCalls: 0, triangles: 0, gpuMB: 0 };
     const debugView = { ...view.state.get() };

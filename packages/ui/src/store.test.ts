@@ -1,7 +1,7 @@
 import type { FeedItem } from '@bayvox/sim';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { createUiStore } from './index.ts';
-import { actionButton, missionProject, safeRatio, selectTool, visibleLines } from './model.ts';
+import { actionButton, missionProject, polandTarget, postKey, type SocialPost, safeRatio, selectTool, visibleLines } from './model.ts';
 import { nextMissionToPlay } from './screens.tsx';
 import { BANNER_MS, createStore, TOAST_MS } from './store.ts';
 import { createFakeServices, SCENES, snapshot } from './testing/index.ts';
@@ -187,6 +187,45 @@ test('helpers: mission project, visible receipt lines, safe ratio, the mission P
   expect(nextMissionToPlay(SCENES.title.session.missions)?.id).toBe('the-portal');
   expect(nextMissionToPlay(SCENES['title-continue'].session.missions)?.id).toBe('googleplex');
   expect(nextMissionToPlay([])).toBeNull();
+});
+
+test('backlash posts: closing one hides it, close all hides every post, a restart forgets what was closed', () => {
+  const services = fake('drive');
+  const base = services.sim.snapshot.get();
+  const post = (id: number, tick: number): SocialPost => ({ id, tick, handle: `@voter${id}`, text: `post ${id}`, cause: 'reform' });
+  const withPosts = (posts: SocialPost[]) => ({ ...base, socialPosts: posts });
+  // Posts already there when the UI mounts are history.
+  services.setSnapshot(withPosts([post(1, 3)]));
+  const store = createStore(services);
+  const open = (): number[] =>
+    ((store.snapshot.value as { socialPosts?: SocialPost[] }).socialPosts ?? [])
+      .filter((p) => !store.postsClosed.value.has(postKey(p)))
+      .map((p) => p.id);
+  expect(open()).toEqual([]);
+  services.setSnapshot(withPosts([post(1, 3), post(2, 9), post(3, 9), post(4, 12)]));
+  expect(open()).toEqual([2, 3, 4]);
+  store.closePost(postKey(post(3, 9)));
+  expect(open()).toEqual([2, 4]);
+  store.closeAllPosts();
+  expect(open()).toEqual([]);
+  services.setSnapshot(withPosts([post(1, 3), post(2, 9), post(3, 9), post(4, 12), post(5, 20)]));
+  expect(open()).toEqual([5]);
+  // Restart: ids start over, and the same post at the same tick is news again.
+  services.setSnapshot(withPosts([post(1, 3)]));
+  expect(open()).toEqual([1]);
+  store.dispose();
+});
+
+test('the 2x Poland target falls back to the scorecard columns and is met only when both ratios are within the limit', () => {
+  const project = missionProject(SCENES.scorecard.snapshot);
+  if (project === null) throw new Error('fixture: the scorecard scene has no project');
+  const sc = project.scorecard;
+  const t = polandTarget(project);
+  expect(t?.costRatio).toBe(sc.yours.costCents / sc.poland.costCents);
+  expect(t?.timeRatio).toBe(sc.yours.yearsToOpen / sc.poland.yearsToOpen);
+  expect(t?.met).toBe((t?.costRatio ?? 9) <= 2 && (t?.timeRatio ?? 9) <= 2);
+  const given = { costRatio: 1.5, timeRatio: 1.9, limit: 2, met: true };
+  expect(polandTarget({ ...project, scorecard: { ...sc, polandTarget: given } as typeof sc })).toBe(given);
 });
 
 test('fixture receipts obey the contract: base plus lines equals the column total', () => {

@@ -1,8 +1,57 @@
 /** View-model helpers shared by the components: which project is the mission's, and what the "do it" button does. */
 import { TOOL_KEYS, type ToolId } from '@bayvox/core';
-import type { GameCommand, GameSnapshot, Geology, NextAction, ProjectView, ReceiptLine, TbmView } from '@bayvox/sim';
+import {
+  type GameCommand,
+  type GameSnapshot,
+  type Geology,
+  type NextAction,
+  POLAND_TARGET_LIMIT,
+  type PolandTarget,
+  type ProjectView,
+  type ReceiptLine,
+  type SocialPost,
+  type TbmView,
+} from '@bayvox/sim';
 import type { PanelId } from './contract.ts';
 import type { UiStoreInternal } from './store.ts';
+
+/** One row of the mission comparison (costBenefit() of packages/scenarios, M2 shared contract). */
+export interface CostBenefitRow {
+  scenarioId: string;
+  name: string;
+  lengthKm: number;
+  polandCostCents: number;
+  officialCostCents: number;
+  dailyRiders: number;
+  polandCostPerRiderUsd: number;
+  benefitCostRatio: number;
+}
+
+export type { PolandTarget, SocialPost };
+export { POLAND_TARGET_LIMIT };
+
+/** The snapshot's backlash posts, oldest first. Read at the boundary: a snapshot from before M2 has none. */
+export function socialPosts(s: GameSnapshot): readonly SocialPost[] {
+  return s.socialPosts ?? [];
+}
+
+/** Identity of a post across snapshots. The tick is part of it: a restarted mission reuses ids. */
+export function postKey(p: SocialPost): string {
+  return `${p.id}:${p.tick}`;
+}
+
+/**
+ * The 2x Poland target of a project: the sim's `scorecard.polandTarget` when the snapshot carries it, else the
+ * same two ratios from the scorecard columns. Null while there is no Polish figure to divide by.
+ */
+export function polandTarget(p: ProjectView): PolandTarget | null {
+  const sc = p.scorecard;
+  if (sc.polandTarget !== undefined) return sc.polandTarget;
+  const costRatio = safeRatio(sc.yours.costCents, sc.poland.costCents);
+  const timeRatio = safeRatio(sc.yours.yearsToOpen, sc.poland.yearsToOpen);
+  if (costRatio === null || timeRatio === null) return null;
+  return { costRatio, timeRatio, limit: POLAND_TARGET_LIMIT, met: costRatio <= POLAND_TARGET_LIMIT && timeRatio <= POLAND_TARGET_LIMIT };
+}
 
 /** The project the mission is scored on, or the one being planned, or null before anything is drawn. */
 export function missionProject(s: GameSnapshot): ProjectView | null {

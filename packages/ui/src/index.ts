@@ -4,3 +4,4 @@ export const PACKAGE_NAME = '@bayvox/ui';
 export * from './contract.ts';
 export * as format from './format.ts';
 export { type KeyInput, type KeyIntent, type KeyState, resolveKey } from './keys.ts';
+export type { CostBenefitRow, PolandTarget, SocialPost } from './model.ts';

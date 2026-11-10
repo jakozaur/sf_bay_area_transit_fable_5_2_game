@@ -4,15 +4,72 @@ import { playerSource, type ScoreColumn } from '@bayvox/sim';
 import type { JSX } from 'preact';
 import { Bar, Btn, Bullet, cx, Dim, Stars, type StoreProps } from './bits.tsx';
 import { count, dateLong, dateMonth, money, moneyPerKm, ratio, years } from './format.ts';
-import { act, missionProject, safeRatio } from './model.ts';
+import { act, missionProject, POLAND_TARGET_LIMIT, polandTarget, safeRatio } from './model.ts';
 import { ReceiptTable } from './panels.tsx';
 
-const PITCH = 'Dig the tunnels the Bay Area keeps planning. Then find out why Poland builds the same thing for a fraction.';
+export const GAME_TITLE = 'Polish the Public Transport';
+export const TAGLINE = 'Can you build a train to the HQ of the authors of Fable 5.2?';
+const TARGET_LINE = `The target: no more than ${POLAND_TARGET_LIMIT}x Poland's cost and ${POLAND_TARGET_LIMIT}x Poland's timeline.`;
 
-/** The mission "Play" starts: the first unlocked campaign mission not yet opened, else the first unlocked one. */
+/** The mission "Play" starts: the first campaign mission not yet opened, else the first one. Every mission can be picked. */
 export function nextMissionToPlay(missions: readonly MissionCard[]): MissionCard | null {
-  const open = missions.filter((m) => !m.locked);
-  return open.find((m) => !m.freeBuild && !m.completed) ?? open[0] ?? null;
+  return missions.find((m) => !m.freeBuild && !m.completed) ?? missions[0] ?? null;
+}
+
+/**
+ * The quick cost-benefit comparison of the missions, beside the mission list. Costs are Poland-priced and
+ * official-style for the reference route; the benefit-cost ratio is the scenarios package's simple one.
+ */
+function CostBenefit({ store, onPick }: StoreProps & { onPick: (id: string) => void }): JSX.Element | null {
+  const rows = store.costBenefit;
+  if (rows.length === 0) return null;
+  const known = new Set(store.session.value.missions.map((m) => m.id));
+  return (
+    <section class="bv-cb bv-sheet bv-live" aria-label="Mission comparison" data-testid="cost-benefit">
+      <header class="bv-sheet-head">
+        <h2>Which line is worth it?</h2>
+        <span class="sub">quick cost-benefit, reference route</span>
+      </header>
+      <div class="bv-cb-body">
+        <table>
+          <thead>
+            <tr>
+              <th>Mission</th>
+              <th>Length</th>
+              <th>At Polish prices</th>
+              <th>Official style</th>
+              <th>Riders a day</th>
+              <th>Per daily rider</th>
+              <th title="Benefit-cost ratio at Polish prices: above 1 the line pays for itself">Benefit / cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.scenarioId} data-testid={`cb-${r.scenarioId}`}>
+                <td>
+                  {known.has(r.scenarioId) ? (
+                    <button type="button" class="bv-link" onClick={() => onPick(r.scenarioId)}>
+                      {r.name}
+                    </button>
+                  ) : (
+                    r.name
+                  )}
+                </td>
+                <td>{r.lengthKm.toFixed(1)} km</td>
+                <td>{money(r.polandCostCents)}</td>
+                <td>{r.officialCostCents > 0 ? money(r.officialCostCents) : 'none'}</td>
+                <td>{count(r.dailyRiders)}</td>
+                <td>{money(r.polandCostPerRiderUsd * 100)}</td>
+                <td class={r.benefitCostRatio >= 1 ? 'bv-good' : 'bv-bad'}>
+                  <b>{r.benefitCostRatio.toFixed(2)}</b>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 export function TitleScreen({ store }: StoreProps): JSX.Element {
@@ -22,83 +79,80 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
   const brief = (id: string): void => act(store, () => store.services.session.brief(id));
   let campaignNo = 0;
   return (
-    <main class="bv-title bv-live" data-testid="screen-title">
-      <div class="bv-sign">
-        <div class="bv-section-mark" title="The Polish baseline: twin bore, 6.6 m">
-          <span class="bv-bore" aria-hidden="true">
-            <i />
-            <i />
-          </span>
-          <span>Twin bore, 6.6 m. Real map. Real prices.</span>
-        </div>
-        <h1>
-          Bay Area
-          <br />
-          Boring
-        </h1>
-        <p class="pitch">{PITCH}</p>
-      </div>
-      <div class="bv-title-acts">
-        <Btn
-          kind="primary"
-          big
-          testId="title-play"
-          disabledReason={play === null ? 'No mission is available' : null}
-          onClick={() => play !== null && brief(play.id)}
-        >
-          Play
-        </Btn>
-        {save !== undefined && (
-          <>
-            <Btn big onInk testId="title-continue" onClick={() => act(store, () => store.services.session.load(save.slot))}>
-              Continue
-            </Btn>
-            <span class="save" data-testid="title-save">
-              Saved game: {save.title}, {dateLong(save.date)}
+    <>
+      <main class="bv-title bv-live" data-testid="screen-title">
+        <div class="bv-sign">
+          <div class="bv-section-mark" title="The Polish baseline: twin bore, 6.6 m">
+            <span class="bv-bore" aria-hidden="true">
+              <i />
+              <i />
             </span>
-          </>
+            <span>Twin bore, 6.6 m. Real map. Real prices.</span>
+          </div>
+          <h1>
+            Polish the
+            <br />
+            Public Transport
+          </h1>
+          <p class="pitch" data-testid="tagline">
+            {TAGLINE}
+          </p>
+          <p class="target" data-testid="title-target">
+            {TARGET_LINE} Pick any mission.
+          </p>
+        </div>
+        <div class="bv-title-acts">
+          <Btn
+            kind="primary"
+            big
+            testId="title-play"
+            disabledReason={play === null ? 'No mission is available' : null}
+            onClick={() => play !== null && brief(play.id)}
+          >
+            Play
+          </Btn>
+          {save !== undefined && (
+            <>
+              <Btn big onInk testId="title-continue" onClick={() => act(store, () => store.services.session.load(save.slot))}>
+                Continue
+              </Btn>
+              <span class="save" data-testid="title-save">
+                Saved game: {save.title}, {dateLong(save.date)}
+              </span>
+            </>
+          )}
+        </div>
+        {session.error !== null && (
+          <p class="bv-title-error" role="alert" data-testid="session-error">
+            {session.error}
+          </p>
         )}
-      </div>
-      {session.error !== null && (
-        <p class="bv-title-error" role="alert" data-testid="session-error">
-          {session.error}
-        </p>
-      )}
-      <ol class="bv-missions" aria-label="Missions">
-        {session.missions.map((m) => {
-          if (!m.freeBuild) campaignNo++;
-          return (
-            <li key={m.id}>
-              <button
-                type="button"
-                class="bv-mission"
-                data-testid={`mission-${m.id}`}
-                disabled={m.locked}
-                title={m.lockReason ?? undefined}
-                onClick={() => brief(m.id)}
-              >
-                <Bullet tone={m.locked ? 'off' : m.id === play?.id ? 'hi' : undefined}>{m.freeBuild ? '∞' : campaignNo}</Bullet>
-                <span class="name">{m.title}</span>
-                {m.bestStars !== null ? <Stars n={m.bestStars} /> : <span />}
-                {m.locked && m.lockReason !== null ? (
-                  <span class="lock">{m.lockReason}</span>
-                ) : (
+        <ol class="bv-missions" aria-label="Missions">
+          {session.missions.map((m) => {
+            if (!m.freeBuild) campaignNo++;
+            return (
+              <li key={m.id}>
+                <button type="button" class="bv-mission" data-testid={`mission-${m.id}`} onClick={() => brief(m.id)}>
+                  <Bullet tone={m.id === play?.id ? 'hi' : undefined}>{m.freeBuild ? '∞' : campaignNo}</Bullet>
+                  <span class="name">{m.title}</span>
+                  {m.bestStars !== null ? <Stars n={m.bestStars} /> : <span />}
                   <span class="pitch" title={m.pitch}>
                     {m.pitch}
                   </span>
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-      <div class="bv-title-foot">
-        <span>Map data: OpenStreetMap, Overture Maps, USGS, NOAA.</span>
-        <button type="button" class="bv-link on-ink" data-testid="title-credits" onClick={() => store.openPanel('credits')}>
-          Credits
-        </button>
-      </div>
-    </main>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+        <div class="bv-title-foot">
+          <span>Map data: OpenStreetMap, Overture Maps, USGS, NOAA.</span>
+          <button type="button" class="bv-link on-ink" data-testid="title-credits" onClick={() => store.openPanel('credits')}>
+            Credits
+          </button>
+        </div>
+      </main>
+      <CostBenefit store={store} onPick={brief} />
+    </>
   );
 }
 
@@ -131,7 +185,7 @@ export function BriefingScreen({ store }: StoreProps): JSX.Element {
           </dl>
           <p class="bv-note">
             Where an official cost and date exist, they are the ghost you race; where none do, you race the game's own model of the status
-            quo. Poland is the par.
+            quo. Poland is the par. {TARGET_LINE}
           </p>
           <div class="bv-sec">
             <h3>Objectives</h3>
@@ -209,6 +263,7 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
   // The sponsor's figure is measured against Poland on the sponsor's route (the receipt computes it); a model
   // ghost has no route of its own and is measured on this one.
   const ghostToPoland = project.receipt.ratios.ghostToPoland ?? safeRatio(sc.ghost.costPerKmCents, sc.poland.costPerKmCents);
+  const target = polandTarget(project);
   const session = store.services.session;
   const missions = store.session.value.missions;
   const at = missions.findIndex((m) => m.id === store.session.value.missionId);
@@ -232,6 +287,15 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
           {sc.starsReason !== undefined && (
             <p class="bv-note" data-testid="score-stars-reason">
               {sc.starsReason}
+            </p>
+          )}
+          {target !== null && (
+            <p class={cx('bv-target-line', target.met ? 'is-met' : 'is-missed')} data-testid="score-target">
+              <b>
+                {target.limit}x Poland target: {target.met ? 'passed' : 'failed'}.
+              </b>{' '}
+              Cost {ratio(target.costRatio)} Poland ({target.costRatio <= target.limit ? 'within' : 'over'} {target.limit}x), timeline{' '}
+              {ratio(target.timeRatio)} Poland ({target.timeRatio <= target.limit ? 'within' : 'over'} {target.limit}x).
             </p>
           )}
           <div class="bv-score-grid">

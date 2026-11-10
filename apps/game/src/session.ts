@@ -86,11 +86,15 @@ export function createSession(o: SessionOptions): Session {
   };
   let campaign: CampaignProgress = { schemaVersion: 1, missions: { ...EMPTY_CAMPAIGN.missions } };
   let current: ScenarioDef = byId(driver.sim.state.scenario.id);
+  /** Every mission can be picked at any time (owner decision, M2): the campaign order is a suggestion, never a lock. */
+  function openCards(): SessionState['missions'] {
+    return missionCards(campaign, scenarios).map((m) => ({ ...m, locked: false, lockReason: null }));
+  }
   const state = new Cell<SessionState>({
     screen: 'title',
     missionId: null,
     loading: null,
-    missions: missionCards(campaign, scenarios),
+    missions: openCards(),
     saves: [],
     error: null,
   });
@@ -146,7 +150,7 @@ export function createSession(o: SessionOptions): Session {
     const best = campaign.missions[missionId];
     if (best !== undefined && best.stars > result.stars) return;
     campaign = { schemaVersion: 1, missions: { ...campaign.missions, [missionId]: result } };
-    patch({ missions: missionCards(campaign, scenarios) });
+    patch({ missions: openCards() });
     storage.writeCampaign(campaign).catch((err) => patch({ error: `The campaign profile was not saved: ${message(err)}` }));
   }
 
@@ -215,8 +219,7 @@ export function createSession(o: SessionOptions): Session {
   const port: SessionPort = {
     state,
     brief(missionId) {
-      const m = card(missionId);
-      if (m.locked) throw new Error(`session: ${m.title} is locked. ${m.lockReason ?? ''}`.trim());
+      card(missionId);
       const scenario = byId(missionId);
       patch({ screen: 'briefing', missionId, error: null });
       const rect = world.siteRect?.(scenario.siteId);
@@ -225,8 +228,7 @@ export function createSession(o: SessionOptions): Session {
       loadSite(scenario.siteId).catch((err) => patch({ error: message(err) }));
     },
     start(missionId) {
-      const m = card(missionId);
-      if (m.locked) return Promise.reject(new Error(`session: ${m.title} is locked. ${m.lockReason ?? ''}`.trim()));
+      card(missionId);
       return startScenario(byId(missionId));
     },
     save(slot = AUTOSAVE_SLOT) {
@@ -318,7 +320,7 @@ export function createSession(o: SessionOptions): Session {
       try {
         const stored = await storage.readCampaign();
         if (stored !== null) campaign = stored;
-        patch({ missions: missionCards(campaign, scenarios), saves: await storage.listSaves() });
+        patch({ missions: openCards(), saves: await storage.listSaves() });
       } catch (err) {
         patch({ error: `Saved games are unavailable: ${message(err)}` });
       }

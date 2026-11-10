@@ -414,8 +414,38 @@ export const CSS = `
 /* ---------------------------------------------------------------- title and briefing: the station sign */
 .bv-title { position: absolute; top: 0; left: 0; bottom: 0; width: 420px; background: var(--ink); color: #fff; display: flex; flex-direction: column; border-right: 6px solid var(--hi); }
 .bv-sign { padding: 22px 26px 14px; border-bottom: 1px solid var(--ink-3); }
-.bv-sign h1 { font: 700 76px/0.86 var(--f-sign); letter-spacing: 0.01em; text-transform: uppercase; padding-top: 10px; }
+.bv-sign h1 { font: 700 52px/0.9 var(--f-sign); letter-spacing: 0.01em; text-transform: uppercase; padding-top: 10px; }
 .bv-sign .pitch { margin-top: 10px; font-size: 16px; line-height: 1.35; color: var(--fog); max-width: 36ch; }
+.bv-sign .target { margin-top: 6px; font-size: 13px; line-height: 1.35; color: var(--hi); max-width: 40ch; }
+/* The mission comparison: a sheet beside the mission list, over the map backdrop. */
+.bv-cb { position: absolute; left: 442px; bottom: 16px; max-width: calc(100% - 458px); }
+.bv-cb-body { padding: 6px 12px 10px; overflow-x: auto; }
+.bv-cb table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+.bv-cb th, .bv-cb td { padding: 4px 8px 3px; text-align: right; border-bottom: 1px solid var(--paper-2); }
+.bv-cb th:first-child, .bv-cb td:first-child { text-align: left; padding-left: 0; }
+.bv-cb thead th { font-size: 11.5px; border-bottom: 1.5px solid var(--ink); vertical-align: bottom; }
+.bv-cb tbody tr:last-child td { border-bottom: 0; }
+/* The 2x Poland target: live in the top band, a pass or fail line on the scorecard. */
+.bv-headline .bv-target .v { font-size: 17px; display: flex; gap: 10px; }
+.bv-target .is-met { color: var(--good-on-ink); }
+.bv-target .is-missed { color: var(--bad-on-ink); }
+.bv-target-line { margin: 8px 0 2px; padding: 6px 10px 5px; font-size: 14px; border-left: 5px solid var(--bad); background: #fff; }
+.bv-target-line.is-met { border-left-color: var(--good); }
+.bv-tag-gap { margin-left: 8px; }
+.bv-spec { padding: 5px 9px; border-left: 3px solid var(--hi); background: #fff; }
+.bv .bv-spec-call { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 7px 10px 6px; font-size: 13px; line-height: 1.35; border: 1.5px solid var(--ink); border-radius: 3px; background: #fff; box-shadow: inset 4px 0 0 var(--hi); }
+/* Social media backlash: small, bottom right, clear of the toolbar; beside the sheet when a panel is open. */
+.bv-backlash { position: absolute; right: 12px; bottom: 14px; width: 290px; max-width: calc(100% - 24px); background: var(--ink); color: #fff; border-radius: 3px; border-top: 3px solid var(--bad); box-shadow: 0 10px 26px rgba(6, 14, 24, 0.5); font-size: 12px; }
+.bv-backlash.is-beside-sheet { right: 424px; bottom: 76px; }
+.bv-backlash .head { display: flex; align-items: center; gap: 8px; padding: 4px 8px 3px; color: var(--fog); font-size: 11px; }
+.bv-backlash .head .bv-link { margin-left: auto; font-size: 11px; }
+.bv-backlash .more { color: #fff; font-weight: 700; }
+.bv-backlash ul { list-style: none; margin: 0; padding: 0; }
+.bv-backlash li { display: grid; grid-template-columns: 1fr auto; gap: 0 6px; align-items: baseline; padding: 4px 8px; border-top: 1px solid var(--ink-3); }
+.bv-backlash .handle { font-weight: 700; color: var(--hi); }
+.bv .bv-backlash .x { color: var(--fog); font-weight: 700; padding: 0 4px; line-height: 1; }
+.bv .bv-backlash .x:hover { color: #fff; }
+.bv-backlash p { grid-column: 1 / -1; margin: 1px 0 0; line-height: 1.3; }
 .bv-section-mark { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--fog); font-size: 12px; }
 /* Twin bore cross-section with its dimension: the Polish baseline, drawn once. */
 .bv-bore { display: flex; align-items: center; gap: 6px; }
@@ -490,11 +520,13 @@ export const CSS = `
 /* The title sheet at 720 px with a saved game: the sign gives up height so the mission list is not cut off. */
 @media (max-height: 800px) {
   .bv-sign { padding: 14px 26px 10px; }
-  .bv-sign h1 { font-size: 58px; padding-top: 6px; }
+  .bv-sign h1 { font-size: 42px; padding-top: 6px; }
   .bv-sign .pitch { font-size: 14px; margin-top: 6px; }
   .bv-section-mark { margin-bottom: 6px; }
   .bv-title-acts { padding: 8px 26px; }
   .bv .bv-mission { padding: 4px 12px 3px; }
+  .bv-missions { padding: 2px 14px; gap: 0; }
+  .bv .bv-mission .name { font-size: 20px; }
   .bv-title-foot { padding: 7px 26px 9px; }
 }
 /* Narrow windows keep the buttons: labels and the two per-km figures go first, the ratio and the panels stay. */
@@ -505,6 +537,8 @@ export const CSS = `
 }
 @media (max-width: 900px) {
   .bv-headline .pair, .bv-headline .vs, .bv-headline .none { display: none; }
+  .bv-cb { display: none; }
+  .bv-backlash.is-beside-sheet { right: 12px; }
   .bv-headline { flex: 1 1 0; justify-content: center; }
   .bv-nav { gap: 3px; padding: 0 6px; }
   .bv .bv-nav .bv-btn { padding: 4px 6px 3px; font-size: 12px; }
