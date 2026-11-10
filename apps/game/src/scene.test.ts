@@ -2,7 +2,7 @@ import type { PreviewGeometry } from '@bayvox/core';
 import { PORTAL_PROJECT_ID, playMission, THE_PORTAL } from '@bayvox/scenarios';
 import { createSim, type GameSim, type GameSnapshot } from '@bayvox/sim';
 import { expect, test } from 'vitest';
-import { SceneBuilder, type SceneInput } from './scene.ts';
+import { MACHINE_GONE_DAYS, SceneBuilder, type SceneInput } from './scene.ts';
 
 const input = (snapshot: GameSnapshot, over: Partial<SceneInput> = {}): SceneInput => ({
   snapshot,
@@ -19,12 +19,14 @@ const input = (snapshot: GameSnapshot, over: Partial<SceneInput> = {}): SceneInp
 function launched(): GameSim {
   const sim = createSim(THE_PORTAL, 1, null, { events: false });
   sim.dispatch([{ t: 'useOfficialPlan' }, { t: 'approveProject', projectId: PORTAL_PROJECT_ID }]);
-  for (let i = 0; i < 20_000 && sim.snapshot().mission.stage !== 'build'; i++) {
+  // The stepper shows Build from the launch gate on; the headings exist once the gate is passed.
+  const building = (): boolean => (sim.state.projects[0]?.fronts.length ?? 0) > 0;
+  for (let i = 0; i < 20_000 && !building(); i++) {
     const next = sim.snapshot().nextAction.command;
     if (next !== null) sim.dispatch([next]);
     else sim.step();
   }
-  if (sim.snapshot().mission.stage !== 'build') throw new Error('The Portal never reached construction');
+  if (!building()) throw new Error('The Portal never reached construction');
   sim.run(3);
   return sim;
 }
@@ -119,4 +121,21 @@ test('an open line shows moving trains and no machines or pits', () => {
   expect(Math.hypot(c.position.x - a.position.x, c.position.z - a.position.z)).toBeGreaterThan(20);
   // Off the playing screens the trains are not drawn.
   expect(b.build(input(snap, { live: false })).trains).toEqual([]);
+});
+
+test('a machine that broke through is lifted out of the reception box a month later', () => {
+  const sim = launched();
+  const mined = sim.state.projects[0]?.fronts.find((f) => f.method === 'mined');
+  if (mined === undefined) throw new Error('The Portal has no mined heading');
+  for (let i = 0; i < 5000 && mined.breakthroughTick < 0; i++) sim.step();
+  expect(mined.breakthroughTick).toBeGreaterThan(0);
+  const b = new SceneBuilder();
+  const ids = (): string[] => b.build(input(sim.snapshot())).tbms.map((t) => t.id);
+  // Through, and still standing in the box for the banner and the month after.
+  expect(ids()).toContain(mined.id);
+  sim.run(MACHINE_GONE_DAYS + 1);
+  expect(sim.state.projects[0]?.status).toBe('active');
+  expect(ids()).not.toContain(mined.id);
+  // The tunnel it left stays.
+  expect(b.build(input(sim.snapshot())).tunnels.map((t) => t.id)).toContain(`${mined.id}/tunnel`);
 });

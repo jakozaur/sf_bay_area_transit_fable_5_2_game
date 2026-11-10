@@ -18,6 +18,8 @@ import {
   type GameViewState,
   type GroundPick,
   type NamedBookmark,
+  type OverlayHandle,
+  type OverlaySpec,
   type WorldPort,
   type WorldPos,
 } from '@bayvox/core';
@@ -35,7 +37,7 @@ import {
 } from '@bayvox/input';
 import { CAP_MAX_RADIUS, createEntityLayer, VoxelRenderer } from '@bayvox/render';
 import { SCENARIOS, scenarioById, THE_PORTAL } from '@bayvox/scenarios';
-import { type BayServices, createSim, type GameSnapshot, isDrivable, type ScenarioDef } from '@bayvox/sim';
+import { type BayServices, createSim, type GameSnapshot, isDrivable, type MissionTarget, type ScenarioDef } from '@bayvox/sim';
 import { connectAnchors, createToolHost, type PlanAnchor } from '@bayvox/tools';
 import { mountUi } from '@bayvox/ui';
 import { Feedback } from './feedback.ts';
@@ -63,6 +65,12 @@ const SLOW_FRAME_MS = 50;
 const SLOW_DRAW_SPACING = 4;
 /** Wall time fed to the sim per frame is clamped separately: a slow frame still buys its game days, a stalled tab does not. */
 const MAX_SIM_DT = 0.25;
+/** The x-ray the game switches on at a breakthrough goes off again after this many real seconds. */
+const BREAKTHROUGH_XRAY_S = 8;
+/** Ring of a mission target on the map: waiting for a station, and served by one. */
+const TARGET_COLOR = 0xff5a1f;
+const TARGET_SERVED_COLOR = 0x58d29a;
+const TARGET_RING_POINTS = 64;
 
 function createPool(params: GameParams): { pool: MesherPool; continuous: boolean } {
   if (params.workers === 0) return { pool: createSyncMesherPool(), continuous: false };
@@ -310,8 +318,10 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
         return world.store.getVoxel({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) });
       },
       siteBounds() {
-        // Free build plays on the whole map: the voxel site is only where the ground is detailed.
-        if (session.scenario().sandbox === true && worldGround !== undefined) return { ...worldGround.bounds };
+        // A line may stand wherever the map has ground: the voxel site is only where that ground is detailed.
+        // The official lines of the campus missions leave their sites, and the plan tool called them
+        // "not buildable: outside the site" while the sim approved and built them.
+        if (worldGround !== undefined) return { ...worldGround.bounds };
         return { minX: world.min.x, minZ: world.min.z, maxX: world.max.x, maxZ: world.max.z };
       },
       dig(center, radiusM) {
@@ -330,7 +340,17 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       rig,
       state: cameraState,
       size: () => ({ width, height }),
-      poseOf: (ref) => builder.poseOf(ref),
+      poseOf(ref) {
+        const drawn = builder.poseOf(ref);
+        if (drawn !== null || ref.type !== 'tbm' || !live()) return drawn;
+        // A machine the sim has launched and no frame has drawn yet (the snapshot is published before the next
+        // frame builds its scene): its pose in the snapshot is where it will be drawn.
+        for (const p of driver.snapshot().projects) {
+          const t = p.tbms.find((x) => x.id === ref.id);
+          if (t !== undefined) return { position: t.position, yaw: t.yaw, pitch: t.pitch };
+        }
+        return null;
+      },
       animate: () => !params.freeze,
     });
 
@@ -355,6 +375,43 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
     camera.setBookmarks(siteBookmarks(startScenario));
 
     let anchors: PlanAnchor[] = [];
+    /** The rings of the mission targets on the map, one per target, in the order of snapshot.mission.targets. */
+    let targetRings: { handle: OverlayHandle; served: boolean; shown: boolean }[] = [];
+    const ringSpec = (t: MissionTarget): OverlaySpec => {
+      const points: WorldPos[] = [];
+      for (let i = 0; i <= TARGET_RING_POINTS; i++) {
+        const a = (i / TARGET_RING_POINTS) * Math.PI * 2;
+        const x = t.x + Math.cos(a) * t.radiusM;
+        const z = t.z + Math.sin(a) * t.radiusM;
+        // On the surface where the map has one; over open water the ring lies on the water.
+        const y = worldGround === undefined || worldGround.contains(x, z) ? world.groundAt(x, z) : world.seaLevel;
+        points.push({ x, y: y + 1.5, z });
+      }
+      const color = t.served ? TARGET_SERVED_COLOR : TARGET_COLOR;
+      // A stretch target is dashed: wanted, not required.
+      return { kind: 'polyline', points, color, widthPx: 3, xray: true, ...(t.stretch ? { dashM: 30 } : {}) };
+    };
+    /** Draws the rings of a new mission, and afterwards keeps their colour and visibility in step with the snapshot. */
+    const syncTargets = (all: readonly MissionTarget[], visible: boolean): void => {
+      // A target that is not on the loaded map (the synthetic test world has no San Francisco) has no ring to draw.
+      const targets = all.filter((t) => (worldGround === undefined ? inSite(t.x, t.z) : worldGround.contains(t.x, t.z)));
+      if (targets.length !== targetRings.length) {
+        for (const r of targetRings) r.handle.remove();
+        targetRings = targets.map((t) => ({ handle: overlayPort.add(ringSpec(t)), served: t.served, shown: true }));
+      }
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i] as MissionTarget;
+        const r = targetRings[i] as (typeof targetRings)[number];
+        if (r.served !== t.served) {
+          r.served = t.served;
+          r.handle.update(ringSpec(t));
+        }
+        if (r.shown !== visible) {
+          r.shown = visible;
+          r.handle.setVisible(visible);
+        }
+      }
+    };
     const session = createSession({
       scenarios: SCENARIOS,
       seed: params.seed,
@@ -373,6 +430,9 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
         simAttached(scenario, reason) {
           builder.reset();
           overlayPort.clear();
+          // The overlay was cleared: the rings of the old mission went with it.
+          targetRings = [];
+          xrayOffIn = 0;
           feedback.reset(driver.snapshot());
           anchors = connectAnchors(scenario);
           layer.setGhost(referenceLine(scenario));
@@ -502,6 +562,8 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
     let stampsFor: GameSnapshot | null = null;
     /** Project whose line has just opened and whose first train the camera has not gone to yet. */
     let openedProject: string | null = null;
+    /** Real seconds until the x-ray the game switched on at a breakthrough goes off again; 0 when it did not. */
+    let xrayOffIn = 0;
 
     /** The machine the camera rides with: the one the drive tool possesses, or one being watched from the cutaway. */
     function possessed(): string | null {
@@ -569,10 +631,14 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
           if (item.kind === 'breakthrough') {
             const at = builder.poseOf(ref);
             if (at !== null) layer.flash(at.position);
-            // The moment is not fast-forwarded through: back to 1x, and the finished tunnel shows through the ground.
+            // The moment is not fast-forwarded through: back to 1x, and the finished tunnel shows through the ground
+            // for a few seconds. The first playtest was left in x-ray for three game years after the banner.
             if (isPlaying) {
               if (time.speed.get() > 1) time.setSpeed(1);
-              view.set({ xray: true });
+              if (!view.state.get().xray) {
+                view.set({ xray: true });
+                xrayOffIn = BREAKTHROUGH_XRAY_S;
+              }
             }
           } else if (item.kind === 'tbmLaunched' && isPlaying && camera.following() === null && host.active() === null) {
             // The launch happens underground: take the player to the machine. Any map view or pan leaves it again.
@@ -582,6 +648,16 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
           }
         }
       }
+      if (xrayOffIn > 0 && animate) {
+        xrayOffIn -= dt;
+        if (xrayOffIn <= 0) {
+          xrayOffIn = 0;
+          // Unless the line has opened meanwhile: then the x-ray belongs to the train ride.
+          if (snap.services.length === 0) view.set({ xray: false });
+        }
+      }
+      // The places the mission is about are ringed on the map while it is on screen; a ring turns green when a station serves it.
+      syncTargets(isLive ? snap.mission.targets : [], isLive && possessedId === null);
       // Looking through the ground or under a cut, the tunnels are drawn open at the top: track and trains show.
       const seeThrough = view.state.get();
       layer.setCrowns(!(seeThrough.xray || seeThrough.cut));

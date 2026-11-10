@@ -12,6 +12,12 @@ interface Pair<T> {
   cur: T;
 }
 
+/**
+ * Game days a machine stays in its reception box after breaking through. Then it is dismantled and lifted out:
+ * the first playtest found both TBMs still parked in the trainbox three years later, at the opening.
+ */
+export const MACHINE_GONE_DAYS = 30;
+
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
@@ -143,6 +149,8 @@ export class SceneBuilder {
       for (const t of p.tbms) {
         // On an open line the machines are long gone from the reception box.
         if (p.status === 'open') break;
+        // A machine that broke through is lifted out a month later.
+        if (t.status === 'done' && t.breakthroughTick >= 0 && s.tick - t.breakthroughTick > MACHINE_GONE_DAYS) continue;
         // Driven headings move in sub-steps of a few centimetres: the sim's pose is the pose to draw.
         const smooth = !t.driven && t.status === 'running';
         const pose = smooth ? this.tbmPose(t.id, alpha) : null;
