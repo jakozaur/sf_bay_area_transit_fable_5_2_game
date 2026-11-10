@@ -77,6 +77,7 @@ export {
 export { capsuleBetween, carveCapsules, chainages, nearestChainage, offsetPointAt, pointAt, subPath } from './geometry.ts';
 export { faceGeology, type GroundQuery, geologyOfMaterial } from './ground.ts';
 export { housingHomes, housingRiders, housingServed, housingViews, type ProjectRiders, projectRiders } from './housing.ts';
+export { boreDays, expectedBoreDays, machineDiameterM, machineKindOf, machineView, tunnellingCivilCents } from './machine.ts';
 export {
   advanceRate,
   carveShape,
@@ -85,6 +86,7 @@ export {
   effectiveMethod,
   GEOLOGY,
   hardCost,
+  headingShape,
   headingSpans,
   isSmallBore,
   isTbm,

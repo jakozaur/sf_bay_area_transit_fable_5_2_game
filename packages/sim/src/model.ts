@@ -99,6 +99,15 @@ export function carveShape(m: Method, f: DesignFlags): { radiusM: number; latera
   }
 }
 
+/**
+ * The shape a heading carves and the renderer draws under profile `p`: carveShape, except that the small bore
+ * is one 3.7 m tube where the twin bore has two 6.6 m tubes.
+ */
+export function headingShape(m: Method, f: DesignFlags, p: Profile): { radiusM: number; laterals: number[] } {
+  if (m === 'boredTwin' && p['tbm.smallBore'] === 1) return { radiusM: K.smallBoreRadiusM.value, laterals: [0] };
+  return carveShape(m, f);
+}
+
 function relieved(factor: number, relief: number, penaltyAbove: boolean): number {
   const isPenalty = penaltyAbove ? factor > 1 : factor < 1;
   return isPenalty ? 1 + (factor - 1) * (1 - relief) : factor;

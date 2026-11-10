@@ -54,7 +54,8 @@ import {
 import { pointAt } from './geometry.ts';
 import type { GroundQuery } from './ground.ts';
 import { housingViews, projectRiders } from './housing.ts';
-import { carveShape, contractProfile, effectiveMethod, isUnderground, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
+import { machineView } from './machine.ts';
+import { contractProfile, effectiveMethod, headingShape, isUnderground, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
 import {
   buildReceipt,
   buildScorecard,
@@ -80,6 +81,7 @@ import {
   type GameSnapshot,
   type HeadlineView,
   LEDGER_CATEGORIES,
+  type MachineView,
   type MissionView,
   type NextAction,
   PHASES,
@@ -99,6 +101,7 @@ import {
   STATION_BOXES,
   STATION_TEMPLATES,
   type StationOptionView,
+  type TbmView,
   TUNNEL_OPTION_METHOD,
   TUNNEL_OPTIONS,
   type TunnelOptionId,
@@ -352,6 +355,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       }
       const deltaCents = costCents - eac.costCents;
       let headingDays: number | undefined;
+      let machine: MachineView | undefined;
       if (def.group === 'tunnel') {
         const method = TUNNEL_OPTION_METHOD[id as TunnelOptionId];
         const lockProfile = locks.length > 0 ? profileFor([...state.reforms, ...locks]) : p;
@@ -360,13 +364,19 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
           methods: project.methods.map((m) => (isUnderground(m) ? method : m)),
           tunnelChoice: id as TunnelOptionId,
         };
-        headingDays = Math.round(plannedHeadingDays(variant, lockProfile, project.frozen ?? projectFlags(variant, lockProfile)));
+        const variantFlags = project.frozen ?? projectFlags(variant, lockProfile);
+        headingDays = Math.round(plannedHeadingDays(variant, lockProfile, variantFlags));
+        // The machine of the option as it would be built: under the reforms that unlock it, at the prices the project pays.
+        machine =
+          machineView(effectiveMethod(method, variantFlags), variant, contractProfile(project, lockProfile), variantFlags) ?? undefined;
       }
       options.push({
         group: def.group,
         id,
-        label: def.label,
-        description: def.description,
+        // Under the small-bore reform the twin-bore choice is one small tube: the row says what will be bored.
+        label: machine?.kind === 'smallBore' ? `Small bore, ${machine.diameterM} m` : def.label,
+        description:
+          machine?.kind === 'smallBore' ? `One ${machine.diameterM} m tube for pods, not trains. What Las Vegas bores.` : def.description,
         practice: def.practice,
         selected,
         lockedBy: lockTitles(locks),
@@ -376,7 +386,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         daysToOpen: daysNow + deltaDays,
         deltaDays,
         evidence: def.evidence,
-        ...(headingDays === undefined ? { applies: hasBoxStation } : { headingDays, stationDays }),
+        ...(headingDays === undefined ? { applies: hasBoxStation } : { headingDays, stationDays, machine }),
       });
     }
     return { tunnel, stationBox: box, frozen: project.frozen !== null || project.status === 'open', options };
@@ -565,13 +575,20 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         gate: gate ? { ...gate, ready: current && project.awaiting === gate.command } : null,
       };
     });
-    const tbms = project.fronts.map((f) => tbmView(project, f, p, flags));
+    const tbms = project.fronts.map((f) => tbmView(project, f, p, flags, state.tick + state.subTick / SUBSTEPS_PER_DAY));
+    // The active drive: the heading in the player's hands, else the one that is (or was) through last.
+    const inHand = (t: TbmView) => t.driven && !t.autopilot && t.status !== 'done';
+    let bore: TbmView | null = null;
+    for (const t of tbms) {
+      if (t.machine === undefined) continue;
+      if (bore === null || (inHand(t) && !inHand(bore)) || (inHand(t) === inHand(bore) && t.boreTotalDays > bore.boreTotalDays)) bore = t;
+    }
     const tunnelViews: TunnelEntity[] = [];
     for (const f of project.fronts) {
       if (f.boredM <= 0) continue;
       const c = tunnelPath(project, f);
       if (c.path.length < 2) continue;
-      const shape = carveShape(f.method, flags);
+      const shape = headingShape(f.method, flags, p);
       const pathM = pathLength(c.path);
       tunnelViews.push({
         id: `${f.id}/tunnel`,
@@ -632,7 +649,10 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       checks,
       alignment: alignmentView(project, checks, state.version),
       tunnels: tunnelViews,
-      pits: hasLine ? pitViews(project, flags) : [],
+      pits: hasLine ? pitViews(project, flags, p) : [],
+      boreTbmId: bore ? bore.id : null,
+      boreTotalDays: bore ? bore.boreTotalDays : 0,
+      boreDaysDone: bore ? bore.boreDaysDone : 0,
       receipt,
       stationOptions: fc ? fc.stationOptions : [],
       scorecard: fc

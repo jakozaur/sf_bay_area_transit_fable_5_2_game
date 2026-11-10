@@ -406,6 +406,11 @@ export const CONSTANTS = {
     'assumption: civil cost of one 3.7 m single-lane bore against two 6.6 m tubes; the excavated volume is 0.16 of the pair, cost falls less than volume; UNVERIFIED',
     false,
   ),
+  smallBoreRadiusM: c(
+    1.85,
+    'm',
+    'doc 06 section 6.5 (Las Vegas Convention Center Loop: 3.7 m bores); the tube the small-bore machine carves and the renderer draws, no cost or rate reads it',
+  ),
   smallBoreRateFactor: c(
     1.5,
     'x',

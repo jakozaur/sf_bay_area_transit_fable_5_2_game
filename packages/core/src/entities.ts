@@ -27,6 +27,13 @@ export interface EntityPose {
 }
 
 /**
+ * What excavates a heading. 'twinBore': two 6.6 m EPB shields, one per tube. 'singleBore': one large shield for
+ * both tracks. 'smallBore': one 3.7 m shield launched from the surface. 'roadheader': a mined cavern.
+ * 'excavator': a cut-and-cover trench dug from the street.
+ */
+export type MachineKind = 'twinBore' | 'singleBore' | 'smallBore' | 'roadheader' | 'excavator';
+
+/**
  * A tunnelling machine or other heading. `position` is the centre of the cutterhead face on the heading axis;
  * the shield and trailing gear extend backwards from it.
  */
@@ -36,6 +43,16 @@ export interface TbmEntity extends EntityPose {
   radiusM: number;
   /** Lateral offset of each tube axis from the heading axis, metres to the left of travel. One shield is drawn per entry. */
   laterals: number[];
+  /**
+   * The machine of this heading; absent for surface headings and in scenes built before machines had kinds.
+   * A twin bore is one entity with two entries in `laterals` (two shields side by side), not two entities.
+   */
+  machine?: MachineKind;
+  /**
+   * Excavated diameter of one tube in metres, 2 x `radiusM`. For 'roadheader' it is the circle of the cavern's
+   * area, for 'excavator' the width of the trench.
+   */
+  diameterM?: number;
   /** 'running': cutterhead turns and the machine advances. 'stopped': breakdown, event or zero thrust. 'done': broke through. */
   status: 'running' | 'stopped' | 'done';
   /** 0..1 share of full advance, drives the cutterhead spin and the drone loop. */

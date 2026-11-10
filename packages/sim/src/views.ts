@@ -10,11 +10,12 @@ import { isRecovering, planPointAt } from './drive.ts';
 import { freeDeviationM, isDrivable, offPlanFactor } from './engine.ts';
 import { plannedConstructionDays, plannedHeadingDays, plannedStationDays } from './estimate.ts';
 import { chainages, nearestChainage, planDistance, pointAt, segmentIndexAt, subPath } from './geometry.ts';
+import { boreDays, machineDiameterM, machineKindOf } from './machine.ts';
 import {
   advanceRate,
-  carveShape,
   effectiveMethod,
   GEOLOGY,
+  headingShape,
   headingSpans,
   isTbm,
   isUnderground,
@@ -75,14 +76,16 @@ export function liningOf(method: Method): 'ring' | 'arch' | 'box' | 'none' {
   return HEADING_STYLE[method];
 }
 
-export function tbmView(project: ProjectState, f: FrontState, p: Profile, flags: DesignFlags): TbmView {
+/** `tick` is the game day of the snapshot, sub-steps included as a fraction. */
+export function tbmView(project: ProjectState, f: FrontState, p: Profile, flags: DesignFlags, tick: number): TbmView {
   const done = f.chainageM >= f.toM;
   const d = f.drive;
   const seg = segmentIndexAt(project.cum, Math.min(f.chainageM, f.toM - 1e-9));
   // The ground class of the plan where the face is: what the heading is priced and paced on, driven or not.
   const geology = project.waypoints[seg].geology ?? 'softGround';
   const maxRate = advanceRate(f.method, geology, p, f.boredM);
-  const shape = carveShape(f.method, flags);
+  const shape = headingShape(f.method, flags, p);
+  const machine = machineKindOf(f.method, p);
   let stopReason: TbmView['stopReason'] = null;
   if (!done) {
     if (f.downDays > 0) stopReason = f.downReason === 'event' ? 'event' : 'breakdown';
@@ -127,6 +130,9 @@ export function tbmView(project: ProjectState, f: FrontState, p: Profile, flags:
     pitch,
     radiusM: shape.radiusM,
     laterals: shape.laterals,
+    ...(machine === null ? {} : { machine }),
+    diameterM: machineDiameterM(f.method, flags, p),
+    ...boreDays(project, f, p, tick),
     status: done ? 'done' : running ? 'running' : 'stopped',
     thrust,
     chainageM: f.chainageM,
@@ -190,14 +196,14 @@ export function launchLabel(project: ProjectState, flags: DesignFlags): { label:
 }
 
 /** Launch pits of the underground headings of an approved project. Surface headings need none. */
-export function pitViews(project: ProjectState, flags: DesignFlags): LaunchPitEntity[] {
+export function pitViews(project: ProjectState, flags: DesignFlags, p: Profile): LaunchPitEntity[] {
   if (project.status === 'draft') return [];
   const state: LaunchPitEntity['state'] = project.fronts.length > 0 ? 'launched' : project.awaiting === 'launchTBM' ? 'ready' : 'planned';
   const lengthM = K.launchPitLengthM.value;
   const out: LaunchPitEntity[] = [];
   for (const run of headingRuns(project, flags)) {
     if (!isUnderground(run.method)) continue;
-    const shape = carveShape(run.method, flags);
+    const shape = headingShape(run.method, flags, p);
     const at = planPointAt(project.waypoints, project.cum, run.fromM);
     let span = 0;
     for (const l of shape.laterals) span = Math.max(span, Math.abs(l));
@@ -530,18 +536,18 @@ export function projectNextAction(
         'drive',
         id,
         `${verb} ${name}`,
-        `${machine.name} is on autopilot. Take the controls, or speed time up: 9 is 10x, 0 is 100x.`,
+        `${machine.name} is on autopilot. Take the controls, or pick Faster or Skip to end.`,
         'drive',
       );
     }
     if (live.length > 0)
-      return action('wait', id, `Build ${name}`, `${live[0].name} is at work. Speed time up: 9 is 10x, 0 is 100x.`, 'speed');
+      return action('wait', id, `Build ${name}`, `${live[0].name} is at work. Faster or Skip to end speeds it up.`, 'speed');
     return action('wait', id, `Build ${name}`, 'The tunnels are through. The station boxes are being finished.', 'speed');
   }
   const goal = PHASE_GOAL[project.phase];
   const hint = canAffordReform
-    ? `${PHASE_LABELS[project.phase]} runs as a time-lapse. ${pc} political capital buys a reform now.`
-    : `${PHASE_LABELS[project.phase]} runs as a time-lapse.`;
+    ? `${PHASE_LABELS[project.phase]}: Next decision runs the calendar. ${pc} political capital buys a reform now.`
+    : `${PHASE_LABELS[project.phase]}: Next decision runs the calendar.`;
   return action('wait', id, `Get ${name} ${goal}`, hint, canAffordReform ? 'reforms' : 'speed');
 }
 

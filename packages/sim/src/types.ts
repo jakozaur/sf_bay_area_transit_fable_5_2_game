@@ -4,6 +4,7 @@ import type {
   AlignmentIssue,
   GameServices,
   LaunchPitEntity,
+  MachineKind,
   MissionBriefing,
   MissionResult,
   Objective,
@@ -331,6 +332,8 @@ export interface FrontState {
   boredM: number;
   /** Tick the heading reached the end of its run, -1 before. */
   breakthroughTick: number;
+  /** Game day the heading was launched, the sub-steps of that day as a fraction. Absent in older saves. */
+  launchTick?: number;
   /** Null in the planned regime. */
   drive: DriveState | null;
 }
@@ -732,6 +735,29 @@ export interface HeadlineView {
 
 // ---- design chooser, next action, phases (round 2)
 
+/**
+ * The machine a tunnel option is built with, as the design chooser shows it. Every figure is read from the
+ * model: nothing here is a cost line or a rate of its own.
+ */
+export interface MachineView {
+  kind: MachineKind;
+  /** "Two 6.6 m EPB machines". */
+  name: string;
+  /** Excavated diameter of one tube, to 0.1 m. Roadheader: the circle of the cavern's area. Excavator: the trench width. */
+  diameterM: number;
+  /** Shields side by side on one heading: 2 for the twin bore, 1 otherwise. A long line has one such set per heading. */
+  count: number;
+  /** Steady advance of one heading in soft ground under the reforms in force, before breakdowns (model.ts advanceRate). */
+  metresPerDay: number;
+  /**
+   * The model has no machine price. This is the figure it implies: the civil cost of the line's underground
+   * segments built this way, unescalated at current unit prices, before soft costs. Already inside costCents.
+   */
+  priceCents: number;
+  /** What the machine does, then what priceCents is. */
+  note: string;
+}
+
 /** One choice of the design chooser with its price tag and build time. */
 export interface DesignOptionView {
   group: 'tunnel' | 'station';
@@ -763,6 +789,8 @@ export interface DesignOptionView {
    */
   headingDays?: number;
   stationDays?: number;
+  /** Tunnel options only, always present for them: the machine this option is built with (machine.ts). */
+  machine?: MachineView;
   /** Station options only: false while the line has no station the choice applies to, so the two prices are equal. */
   applies?: boolean;
 }
@@ -900,6 +928,12 @@ export interface TbmView extends TbmEntity {
   downDays: number;
   /** Tick of the breakthrough into the reception box, -1 before it. */
   breakthroughTick: number;
+  /** Excavated diameter of one tube, 2 x radiusM to 0.1 m; 0 for surface headings. `machine` is absent only for those. */
+  diameterM: number;
+  /** Game days from launch to breakthrough expected at the settings in force; the days it took once it is through. */
+  boreTotalDays: number;
+  /** Game days since launch, sub-steps of the current day included; stops at the breakthrough. */
+  boreDaysDone: number;
   /** Id of the TunnelEntity behind this heading (ProjectView.tunnels) and of its LaunchPitEntity (ProjectView.pits). */
   tunnelId: string;
   pitId: string;
@@ -1136,6 +1170,14 @@ export interface ProjectView {
   tunnels: TunnelEntity[];
   /** One per underground heading, from approval on. Surface headings (track gangs, viaduct crews) have no pit. */
   pits: LaunchPitEntity[];
+  /**
+   * The active drive, for pacing real time: the underground heading the player drives, else the one expected to
+   * break through last, else (all through) the one that broke through last. Null before launch and for a
+   * line with no underground heading; the two numbers are then 0. They repeat that heading's TbmView fields.
+   */
+  boreTbmId: string | null;
+  boreTotalDays: number;
+  boreDaysDone: number;
   receipt: Receipt;
   scorecard: Scorecard;
   /** Price tags of the station types for this line, STATION_TEMPLATES order. Empty once the design is frozen. */

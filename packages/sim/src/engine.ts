@@ -13,11 +13,11 @@ import type { GroundQuery } from './ground.ts';
 import { housingRiders, projectRiders } from './housing.ts';
 import {
   advanceRate,
-  carveShape,
   civilCentsPerM,
   contractProfile,
   effectiveMethod,
   hardCost,
+  headingShape,
   headingSpans,
   isTbm,
   isUnderground,
@@ -612,16 +612,24 @@ function makeFronts(state: SimState, project: ProjectState): void {
       downReason: null,
       boredM: 0,
       breakthroughTick: -1,
+      launchTick: state.tick + state.subTick / SUBSTEPS_PER_DAY,
       drive: null,
     });
   }
   project.fronts = fronts;
 }
 
-function emitFrontCarve(project: ProjectState, front: FrontState, fromM: number, toM: number, emit: (e: WorldEdit) => void): void {
+function emitFrontCarve(
+  project: ProjectState,
+  front: FrontState,
+  p: Profile,
+  fromM: number,
+  toM: number,
+  emit: (e: WorldEdit) => void,
+): void {
   const flags = project.frozen;
   if (!flags) return;
-  const shape = carveShape(front.method, flags);
+  const shape = headingShape(front.method, flags, p);
   if (shape.radiusM <= 0) return;
   const edits: WorldEdit[] = [];
   for (const lateral of shape.laterals) _carveCapsules(project.waypoints, project.cum, fromM, toM, shape.radiusM, lateral, edits);
@@ -680,16 +688,17 @@ function emitDrivenCarve(
 
 /** Every carve edit implied by construction progress so far. Used after load to rebuild the voxels. */
 export function replayCarves(state: SimState, emit: (e: WorldEdit) => void): void {
+  const p = _profileFor(state.reforms);
   for (const project of state.projects) {
     const flags = project.frozen;
     for (const front of project.fronts) {
       const d = front.drive;
       if (!d || !flags) {
-        emitFrontCarve(project, front, front.fromM, front.chainageM, emit);
+        emitFrontCarve(project, front, p, front.fromM, front.chainageM, emit);
         continue;
       }
       // A driven heading is replayed along its as-built axis; each chord is offset square to itself.
-      const shape = carveShape(front.method, flags);
+      const shape = headingShape(front.method, flags, p);
       const pts: { x: number; y: number; z: number }[] = [];
       for (let i = 0; i + 2 < d.trail.length; i += 3) pts.push({ x: d.trail[i], y: d.trail[i + 1], z: d.trail[i + 2] });
       pts.push({ x: d.carveX, y: d.carveY, z: d.carveZ });
@@ -1489,7 +1498,7 @@ function advanceFront(
     seg++;
   }
   hardSpend(state, project, p, 'civil', cost);
-  if (ctx.emit) emitFrontCarve(project, front, from, to, ctx.emit);
+  if (ctx.emit) emitFrontCarve(project, front, p, from, to, ctx.emit);
   front.chainageM = to;
   front.boredM = to - front.fromM;
   if (to >= front.toM) breakThrough(state, project, front, ctx);
@@ -1511,7 +1520,7 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
   const rate = _advanceRate(front.method, d.geology, p, front.boredM);
   const wasOffPlan = d.offPlan;
   const wasBlocked = d.blocked;
-  const shape = carveShape(front.method, flags);
+  const shape = headingShape(front.method, flags, p);
   // Cover over the crown, read from the world. Without a ground query (headless runs) the rule is off.
   let thin = false;
   if (ctx.ground && d.verticalM > 0) {
