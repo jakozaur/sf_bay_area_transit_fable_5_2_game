@@ -70,6 +70,8 @@ export const CSS = `
 .bv .bv-btn.on-ink:hover:not(:disabled) { background: var(--ink-2); border-color: var(--fog); }
 .bv .bv-btn.on-ink:disabled { color: #6f8496; border-color: var(--ink-2); background: transparent; }
 .bv .bv-btn.on-ink[aria-pressed='true'] { background: #fff; border-color: #fff; color: var(--ink); }
+/* A pressed button under the pointer keeps its own colours: the plain hover rule would put dark text on dark. */
+.bv .bv-btn.on-ink[aria-pressed='true']:hover:not(:disabled) { background: var(--paper-2); border-color: #fff; color: var(--ink); }
 .bv .bv-link { text-decoration: underline; text-underline-offset: 2px; font-weight: 700; }
 .bv .bv-link:hover { color: var(--hi-ink); }
 .bv .bv-link.on-ink:hover { color: var(--hi); }
@@ -119,9 +121,10 @@ export const CSS = `
 .bv-stop.is-now { color: var(--ink); font-weight: 700; }
 .bv-stop.is-now .dot { border-color: var(--hi); background: var(--hi); box-shadow: 0 0 0 2px var(--ink); }
 .bv-stop .link { width: 20px; height: 3px; background: var(--ink); margin: 0 2px 0 6px; }
-.bv-objective { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.bv-objective { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
 .bv-objective .what { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
-.bv-objective .hint { color: var(--soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 0; min-width: 0; }
+/* The hint is the instruction: it wraps to a second line instead of ending in an ellipsis. */
+.bv-objective .hint { color: var(--soft); font-size: 13px; line-height: 1.25; flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .bv .bv-strip .bv-btn { min-height: 28px; flex: none; }
 
 /* ---------------------------------------------------------------- sheets (panels) */
@@ -141,7 +144,8 @@ export const CSS = `
 .bv-sec > h3 { font: 700 17px/1.1 var(--f-sign); letter-spacing: 0.02em; padding-bottom: 3px; border-bottom: 1.5px solid var(--ink); }
 .bv-rows > li, .bv-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--paper-2); }
 .bv-rows > li:last-child { border-bottom: 0; }
-.bv-row .v, .bv-rows .v { font-weight: 700; text-align: right; white-space: nowrap; }
+.bv-row .v, .bv-rows .v { font-weight: 700; text-align: right; }
+.bv-rows > li > span:first-child { flex: none; max-width: 60%; }
 .bv-note { font-size: 12px; line-height: 1.35; color: var(--soft); }
 .bv-evidence { font-size: 12px; line-height: 1.35; color: var(--soft); padding-left: 8px; border-left: 2px solid var(--rule); }
 .bv-tag { display: inline-block; padding: 2px 6px 0; border-radius: 2px; font-size: 11px; font-weight: 700; line-height: 1.5; background: var(--paper-2); color: var(--ink); white-space: nowrap; }
@@ -180,6 +184,7 @@ export const CSS = `
 .bv-choices { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px; }
 .bv .bv-choices .bv-btn { min-height: 28px; padding: 3px 8px 2px; font-size: 13px; }
 .bv .bv-btn[aria-pressed='true'] { background: var(--ink); color: #fff; }
+.bv .bv-btn[aria-pressed='true']:not(.on-ink):hover:not(:disabled) { background: var(--ink-2); color: #fff; }
 .bv-cmds { display: flex; flex-wrap: wrap; gap: 6px; }
 .bv-cmds .bv-btn.is-primary { flex: 1 1 100%; }
 
@@ -268,6 +273,29 @@ export const CSS = `
 .bv-ratios .k { font-size: 11px; line-height: 1.25; color: var(--soft); }
 .bv-dims { display: flex; flex-direction: column; gap: 4px; }
 
+.bv-basis { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 12px; line-height: 1.35; color: var(--soft); }
+.bv-basis dt { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.bv-fxlist { display: flex; flex-direction: column; gap: 1px; font-size: 13px; font-weight: 700; }
+.bv-fxlist li { padding-left: 12px; position: relative; }
+.bv-fxlist li::before { content: ''; position: absolute; left: 0; top: 7px; width: 6px; height: 2px; background: var(--ink); }
+
+/* ---------------------------------------------------------------- names on the map, camera help */
+.bv-maplabels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.bv-maplabel { position: absolute; left: 0; top: 0; will-change: transform; }
+.bv-maplabel .plate {
+  position: absolute; left: 0; bottom: 14px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;
+  padding: 3px 8px 2px; background: var(--ink); color: #fff; border-radius: 3px; border-bottom: 3px solid var(--hi); white-space: nowrap;
+  font-size: 13px; line-height: 1.2; box-shadow: 0 4px 12px rgba(6, 14, 24, 0.5);
+}
+.bv-maplabel .plate::after { content: ''; position: absolute; left: 50%; top: 100%; width: 2px; height: 14px; margin: 3px 0 0 -1px; background: var(--hi); }
+.bv-maplabel .plate span { font-size: 11px; color: var(--fog); }
+.bv-maplabel .plate.is-served { border-bottom-color: var(--good-on-ink); }
+.bv-maplabel .plate.is-served::after { background: var(--good-on-ink); }
+.bv-maplabel .plate.is-stretch { opacity: 0.8; }
+.bv-camhelp { position: absolute; left: 12px; bottom: 14px; padding: 5px 9px 4px; background: rgba(14, 28, 43, 0.82); color: var(--fog); border-radius: 3px; font-size: 12px; white-space: nowrap; }
+.bv-camhelp b { color: #fff; margin-left: 8px; }
+.bv-camhelp b:first-child { margin-left: 0; }
+
 /* ---------------------------------------------------------------- toolbar */
 .bv-toolbar { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; align-items: stretch; background: var(--ink); color: #fff; border-radius: 3px; box-shadow: 0 10px 26px rgba(6, 14, 24, 0.5); }
 .bv-toolbar .grp { display: flex; align-items: center; gap: 4px; padding: 7px 8px; border-right: 1px solid var(--ink-3); position: relative; }
@@ -275,11 +303,13 @@ export const CSS = `
 .bv .bv-tool { display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 4px 11px 3px 6px; border-radius: 3px; border: 1.5px solid transparent; color: #fff; font-weight: 700; white-space: nowrap; }
 .bv .bv-tool:hover:not(:disabled) { background: var(--ink-2); }
 .bv .bv-tool[aria-pressed='true'] { background: #fff; color: var(--ink); }
+.bv .bv-tool[aria-pressed='true']:hover:not(:disabled) { background: var(--paper-2); color: var(--ink); }
 .bv .bv-tool[aria-pressed='true'] .bv-bullet { background: var(--hi); color: #1a0a02; }
 .bv .bv-tool:disabled { color: #6f8496; }
 .bv .bv-tool:disabled .bv-bullet { background: transparent; color: #6f8496; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
 .bv .bv-tool.is-toggle { padding-left: 11px; }
 .bv-cut { display: flex; align-items: center; gap: 3px; font: 700 16px/1 var(--f-sign); }
+.bv-cut .lvl { white-space: nowrap; min-width: 44px; text-align: center; padding-top: 2px; }
 .bv .bv-cut .bv-btn { min-height: 26px; min-width: 26px; padding: 2px 6px 0; }
 .bv-views { position: absolute; bottom: calc(100% + 6px); right: 0; min-width: 190px; padding: 6px; background: var(--ink); border-radius: 3px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 10px 26px rgba(6, 14, 24, 0.5); }
 .bv .bv-views button { padding: 5px 8px 4px; border-radius: 3px; color: #fff; display: flex; justify-content: space-between; gap: 12px; }
@@ -358,7 +388,7 @@ export const CSS = `
 .bv .bv-mission { display: grid; grid-template-columns: 26px 1fr auto; gap: 0 10px; align-items: start; width: 100%; padding: 6px 12px 5px; border-radius: 3px; color: #fff; }
 .bv .bv-mission:hover:not(:disabled) { background: var(--ink-2); }
 .bv .bv-mission .name { font: 700 22px/1 var(--f-sign); padding-top: 4px; letter-spacing: 0.02em; }
-.bv .bv-mission .pitch { grid-column: 2 / -1; font-size: 12px; line-height: 1.35; color: var(--fog); }
+.bv .bv-mission .pitch { grid-column: 2 / -1; font-size: 12px; line-height: 1.35; color: var(--fog); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .bv .bv-mission:disabled .name { color: #7f93a6; }
 .bv .bv-mission .lock { grid-column: 2 / -1; font-size: 12px; color: var(--hi); }
 .bv-mission .bv-bullet { margin-top: 1px; }
@@ -405,6 +435,8 @@ export const CSS = `
 .bv-axes > div { padding: 6px 8px; background: var(--paper-2); border-radius: 3px; font-size: 12px; line-height: 1.3; }
 .bv-axes .ax { font-weight: 700; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; font-size: 13px; }
 .bv-score-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* The receipt on the right is the longer column: the three figures stay in view while it scrolls. */
+.bv-score-side:first-child { position: sticky; top: 0; }
 
 /* ---------------------------------------------------------------- menu, help, credits */
 .bv-menu-list { display: flex; flex-direction: column; gap: 6px; }

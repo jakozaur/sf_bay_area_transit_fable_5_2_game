@@ -3,8 +3,10 @@ import { TOOL_COMMANDS, type ToolId, type ToolOptionSpec } from '@bayvox/core';
 import {
   BRANCHES,
   type DesignOptionView,
+  type Method,
   type PhaseView,
   type ProjectView,
+  playerSource,
   RECEIPT_COLUMNS,
   type Receipt,
   type ReceiptLine,
@@ -19,10 +21,13 @@ import {
   capital,
   count,
   dateMonth,
+  dateMonthOr,
   duration,
   durationDelta,
+  effectText,
   length,
   money,
+  moneyCell,
   moneyDelta,
   moneyPerKm,
   percent,
@@ -171,6 +176,7 @@ function PlanExtras({ store, project }: StoreProps & { project: ProjectView }): 
   return (
     <div class="bv-sec">
       <h3>Design</h3>
+      {d.tunnel === 'mixed' && d.options.length > 0 && <p class="bv-note">Tunnel: {builtNow(project)}.</p>}
       {picked.length === 0 ? (
         <p class="bv-note">No design chosen yet.</p>
       ) : (
@@ -178,7 +184,7 @@ function PlanExtras({ store, project }: StoreProps & { project: ProjectView }): 
           {picked.map((o) => (
             <li key={o.id}>
               <span>{o.label}</span>
-              <span class="v">{money(o.costCents)}</span>
+              <span class="v">{o.practice === 'polish' ? 'Polish practice' : 'California practice'}</span>
             </li>
           ))}
         </ul>
@@ -188,6 +194,25 @@ function PlanExtras({ store, project }: StoreProps & { project: ProjectView }): 
       </Btn>
     </div>
   );
+}
+
+const METHOD_NAME: Readonly<Record<Method, string>> = {
+  boredTwin: 'twin bore',
+  boredSingleLarge: 'single large bore',
+  cutAndCover: 'cut-and-cover',
+  mined: 'mined cavern',
+  atGrade: 'surface track',
+  viaduct: 'viaduct',
+};
+
+/** What the line is built as now, by method and length: "mined cavern 1.03 km, cut-and-cover 1.06 km". */
+export function builtNow(project: ProjectView): string {
+  const byMethod = new Map<Method, number>();
+  for (const g of project.segments) byMethod.set(g.effectiveMethod, (byMethod.get(g.effectiveMethod) ?? 0) + (g.toM - g.fromM));
+  return [...byMethod]
+    .sort((a, b) => b[1] - a[1])
+    .map(([m, len]) => `${METHOD_NAME[m]} ${length(len)}`)
+    .join(', ');
 }
 
 function StationList({ store, project }: StoreProps & { project: ProjectView }): JSX.Element {
@@ -281,7 +306,7 @@ function DesignOption({ store, project, o }: StoreProps & { project: ProjectView
           {body}
         </button>
       )}
-      {o.evidence !== '' && <p class="bv-evidence">{o.evidence}</p>}
+      {playerSource(o.evidence) !== '' && <p class="bv-evidence">{playerSource(o.evidence)}</p>}
     </div>
   );
 }
@@ -317,7 +342,10 @@ export function DesignPanel({ store }: StoreProps): JSX.Element {
       <div class="bv-sec">
         <h3>Tunnel</h3>
         {project.design.tunnel === 'mixed' && (
-          <p class="bv-note">The line mixes methods segment by segment. Picking one applies it to every underground segment.</p>
+          <p class="bv-hint" data-testid="design-now">
+            Now: {builtNow(project)}, {money(project.receipt.columns.yours.costCents)}. Each price below is the whole project with that one
+            method under every underground segment, and the difference against what is drawn now.
+          </p>
         )}
         {tunnel.map((o) => (
           <DesignOption key={o.id} store={store} project={project} o={o} />
@@ -396,7 +424,9 @@ export function ProjectPanel({ store }: StoreProps): JSX.Element {
                 {ph.state === 'done'
                   ? 'done'
                   : ph.state !== 'current'
-                    ? duration(ph.plannedDays)
+                    ? ph.daysLeft < ph.plannedDays
+                      ? `${duration(ph.daysLeft)} left of ${duration(ph.plannedDays)}`
+                      : duration(ph.plannedDays)
                     : ph.gate?.ready === true
                       ? 'ready'
                       : `${duration(ph.daysLeft)} left`}
@@ -486,6 +516,14 @@ export function ProjectPanel({ store }: StoreProps): JSX.Element {
               <span class={cx('v', !f.released && 'bv-soft')}>{money(f.amountCents)}</span>
             </li>
           ))}
+          {(s.ledger.raisedCents ?? 0) > 0 && (
+            <li data-testid="project-raised">
+              <span>
+                Raised when the money ran out <span class="bv-soft bv-small">cash calls</span>
+              </span>
+              <span class="v">{money(s.ledger.raisedCents ?? 0)}</span>
+            </li>
+          )}
         </ul>
       </div>
       <Objectives store={store} />
@@ -536,6 +574,20 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
   const lineLabel = (id: string): string => project?.receipt.lines.find((l) => l.id === id)?.label ?? id;
   const optionLabel = (id: string): string => project?.design.options.find((o) => o.id === id)?.label ?? id;
   const p = r.preview;
+  // A preview of nothing is said as nothing on this project, with what the reform does change.
+  const quiet = p !== null && moneyDelta(p.costDeltaCents) === 'no change' && durationDelta(p.daysDelta) === 'no change';
+  const worth =
+    p === null
+      ? ''
+      : quiet
+        ? `${r.effects.length > 0 ? effectText(r.effects[0]) : 'No effect'}: nothing on this project`
+        : [
+            moneyDelta(p.costDeltaCents) === 'no change' ? null : moneyDelta(p.costDeltaCents),
+            durationDelta(p.daysDelta) === 'no change' ? null : `opens ${durationDelta(p.daysDelta)}`,
+          ]
+            .filter((x) => x !== null)
+            .join(', ');
+  const tooLate = r.status !== 'enacted' && r.branch === 'design' && project?.design.frozen === true;
   return (
     <li class={cx('bv-reform', `is-${r.status}`)} data-testid={`reform-${r.id}`}>
       <span class="stop" />
@@ -543,8 +595,8 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
         <span class="title">{r.title}</span>
         <span class="cost">{r.status === 'enacted' ? <span class="bv-tag is-good">Enacted</span> : reformCost(r)}</span>
         {!open && p !== null && (
-          <span class="fx">
-            {moneyDelta(p.costDeltaCents)}, {durationDelta(p.daysDelta)}
+          <span class="fx" data-testid={`reform-fx-${r.id}`}>
+            {worth}
           </span>
         )}
         {!open && r.status === 'locked' && r.blockedReason !== null && <span class="fx">{r.blockedReason}</span>}
@@ -552,7 +604,18 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
       {open && (
         <div class="bv-reform-body" data-testid={`reform-body-${r.id}`}>
           <p>{r.description}</p>
-          {p !== null && (
+          <ul class="bv-fxlist" data-testid={`reform-effects-${r.id}`}>
+            {r.effects.map((e) => (
+              <li key={`${e.key}${e.op}`}>{effectText(e)}</li>
+            ))}
+          </ul>
+          {tooLate && (
+            <p class="bv-small bv-bad" data-testid={`reform-late-${r.id}`}>
+              <b>Too late for {project?.name}:</b> its design went to tender and is built as tendered.
+            </p>
+          )}
+          {quiet && <p class="bv-note">On this project that changes neither the estimate nor the opening date.</p>}
+          {p !== null && !quiet && (
             <div class="bv-effect" data-testid={`reform-preview-${r.id}`}>
               <div>
                 <div class="k">Cost of the project</div>
@@ -575,11 +638,13 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
             </div>
           )}
           {p === null && r.status !== 'enacted' && <p class="bv-note">No project to measure the effect against yet.</p>}
-          {r.receiptLines.length > 0 && <p class="bv-small">Shrinks on the receipt: {r.receiptLines.map(lineLabel).join(', ')}.</p>}
+          {r.receiptLines.length > 0 && !quiet && (
+            <p class="bv-small">Shrinks on the receipt: {r.receiptLines.map(lineLabel).join(', ')}.</p>
+          )}
           {r.unlocks.length > 0 && <p class="bv-small">Unlocks in the design chooser: {r.unlocks.map(optionLabel).join(', ')}.</p>}
           {r.prereqs.length > 0 && <p class="bv-small">Needs first: {r.prereqs.map(title).join(', ')}.</p>}
           {r.beyondPoland && <p class="bv-small bv-soft">Goes past documented Polish practice.</p>}
-          <p class="bv-evidence">{r.evidence}</p>
+          {playerSource(r.evidence) !== '' && <p class="bv-evidence">{playerSource(r.evidence)}</p>}
           {r.status !== 'enacted' && (
             <>
               <Btn
@@ -611,7 +676,7 @@ export function ReformsPanel({ store }: StoreProps): JSX.Element {
   const [open, setOpen] = useState<string | null>(focus?.id ?? null);
   const inBranch = s.reforms.filter((r) => r.branch === branch);
   return (
-    <Sheet store={store} id="reforms" title="Reforms" sub={`${capital(s.politicalCapital)} to spend`}>
+    <Sheet store={store} id="reforms" title="Reforms" sub={`${capital(s.politicalCapital)} to spend, time waits`}>
       <div class="bv-branches" role="tablist" aria-label="Reform branches">
         {BRANCHES.map((b) => {
           const all = s.reforms.filter((r) => r.branch === b.id);
@@ -691,7 +756,7 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
                 <td>{g.label}</td>
                 {RECEIPT_COLUMNS.map((id) => (
                   <td key={id} class={cx(id === 'yours' && 'is-you')}>
-                    {g.cents[id] === 0 ? '' : moneyDelta(g.cents[id])}
+                    {moneyCell(g.cents[id]) === '0' ? '' : moneyCell(g.cents[id])}
                   </td>
                 ))}
               </tr>
@@ -705,7 +770,7 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
                         <span class={cx('bv-tag', STATUS_TAG[l.status].cls)}>{STATUS_TAG[l.status].text}</span>
                       )}
                       {l.reforms.length === 0 ? (
-                        <span>No reform removes this.</span>
+                        <span>{l.group === 'priceLevel' ? 'Not a lever: no reform removes this.' : 'No reform removes this.'}</span>
                       ) : (
                         l.reforms.map((r) =>
                           r.enacted ? (
@@ -730,7 +795,7 @@ export function ReceiptTable({ store, receipt }: StoreProps & { receipt: Receipt
                   </td>
                   {RECEIPT_COLUMNS.map((id) => (
                     <td key={id} class={cx('n', id === 'yours' && 'is-you')}>
-                      {l.cents[id] === 0 ? <span class="bv-soft">0</span> : moneyDelta(l.cents[id])}
+                      {moneyCell(l.cents[id]) === '0' ? <span class="bv-soft">0</span> : moneyCell(l.cents[id])}
                     </td>
                   ))}
                 </tr>
@@ -796,7 +861,10 @@ export function ReceiptPanel({ store }: StoreProps): JSX.Element {
   const r = project.receipt;
   return (
     <Sheet store={store} id="receipt" title="Receipt" sub={r.final ? 'final' : 'estimate at completion'} wide>
-      <p class="bv-note">Per route-km, nominal USD at 3.71 PLN/USD, all-in. Every ratio is computed by the model.</p>
+      <p class="bv-note">
+        Per route-km, nominal USD at 3.71 PLN/USD, all-in. Every ratio is computed by the model. Poland is this route and these stations
+        built the Polish way at Polish prices: it moves with the route, not with your design.
+      </p>
       <div class="bv-ratios" data-testid="receipt-ratios">
         <div>
           <div class="v bv-hi" data-testid="ratio-yours">
@@ -817,14 +885,21 @@ export function ReceiptPanel({ store }: StoreProps): JSX.Element {
       <ReceiptTable store={store} receipt={r} />
       {r.ghost !== null && (
         <p class="bv-evidence" data-testid="receipt-ghost">
-          {r.ghost.label}: {money(r.ghost.costCents)}, opening {dateMonth(r.ghost.openDate)}. The model's status quo explains{' '}
-          {percent(1 - r.ghost.unexplainedShare)} of it; {percent(Math.abs(r.ghost.unexplainedShare))} is{' '}
-          {r.ghost.unexplainedShare >= 0 ? 'unexplained' : 'overshoot'}. {r.ghost.source}
+          {r.ghost.label}: {money(r.ghost.costCents)} for {length(r.ghost.lengthKm * 1000)},{' '}
+          {dateMonthOr(r.ghost.openDate, '') === '' ? 'no opening date' : `opening ${dateMonth(r.ghost.openDate)}`}. Per route-km the
+          model's status quo comes to {percent(1 - r.ghost.unexplainedShare)} of it. {playerSource(r.ghost.source)}
         </p>
       )}
-      <p class="bv-note">
-        {r.columns.yours.label}: {r.columns.yours.basis} Opens in {years(r.columns.yours.yearsToOpen)}.
-      </p>
+      <dl class="bv-basis" data-testid="receipt-basis">
+        {RECEIPT_COLUMNS.map((id) => (
+          <Fragment key={id}>
+            <dt>{r.columns[id].label}</dt>
+            <dd>
+              {r.columns[id].basis}. {length(r.columns[id].lengthKm * 1000)}, opens in {years(r.columns[id].yearsToOpen)}.
+            </dd>
+          </Fragment>
+        ))}
+      </dl>
     </Sheet>
   );
 }

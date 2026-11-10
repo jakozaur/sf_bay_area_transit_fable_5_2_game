@@ -2,7 +2,7 @@
 import { GAME_SPEEDS, type GameSpeed, TOOL_IDS, type ToolId } from '@bayvox/core';
 import { MISSION_STAGES, type MissionStage } from '@bayvox/sim';
 import type { JSX } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Btn, Bullet, cx, type StoreProps } from './bits.tsx';
 import type { PanelId } from './contract.ts';
 import { capital, dateLong, money, moneyPerKm, ratio } from './format.ts';
@@ -73,8 +73,11 @@ export function TopBar({ store }: StoreProps): JSX.Element {
               </span>
             </div>
             <span class="vs">vs</span>
-            <div class="pair">
-              <span class="k">Poland would pay</span>
+            <div
+              class="pair"
+              title="This route and these stations built the Polish way (twin 6.6 m bores, compact boxes) at Polish prices. It changes with the route and the stations, never with your design or your reforms."
+            >
+              <span class="k">Poland, same route</span>
               <span class="v" data-testid="headline-poland">
                 {moneyPerKm(h.polandPerKmCents)}
               </span>
@@ -128,6 +131,10 @@ export function ObjectiveStrip({ store }: StoreProps): JSX.Element {
   const button = actionButton(store, a);
   const fallback = s.objectives.find((o) => o.status === 'pending' && !o.stretch);
   const what = a.objective !== '' ? a.objective : (fallback?.title ?? s.mission.title);
+  // Political capital that can buy something is said where the eye already is, with the way to spend it.
+  const affordable = s.reforms.filter((r) => r.affordable && r.cost.pc > 0).length;
+  const offerReforms =
+    affordable > 0 && s.projects.length > 0 && s.mission.stage !== 'done' && store.panel.value !== 'reforms' && a.focus !== 'reforms';
   return (
     <div class="bv-strip bv-live" data-testid="objective-strip">
       <ol class="bv-stops" aria-label="Mission stages">
@@ -151,11 +158,88 @@ export function ObjectiveStrip({ store }: StoreProps): JSX.Element {
           {a.hint}
         </span>
       </div>
+      {offerReforms && (
+        <Btn testId="strip-reforms" title="Time waits while the reform tree is open" onClick={() => store.openPanel('reforms')}>
+          Reforms: {affordable} you can afford
+        </Btn>
+      )}
       {button !== null && (
         <Btn kind="primary" testId="next-action" disabledReason={button.disabledReason} onClick={button.run}>
           {button.label}
         </Btn>
       )}
+    </div>
+  );
+}
+
+/**
+ * Names on the map for the places the mission is about: the ends of its connect objectives, each with the ring
+ * a station must fall inside (the app draws the ring). The first playtest had "add a station within 400 m of
+ * 4th and King" and nothing on screen that said where 4th and King is.
+ */
+export function MapLabels({ store }: StoreProps): JSX.Element | null {
+  const targets = store.snapshot.value.mission.targets;
+  const hidden = targets.length === 0 || store.tool.value.id === 'drive';
+  const latest = useRef(targets);
+  latest.current = targets;
+  const els = useRef<(HTMLDivElement | null)[]>([]);
+  const count = targets.length;
+  useEffect(() => {
+    if (hidden) return;
+    let frame = 0;
+    const place = (): void => {
+      const list = latest.current;
+      for (let i = 0; i < list.length; i++) {
+        const el = els.current[i];
+        const t = list[i];
+        if (el === null || el === undefined || t === undefined) continue;
+        let y = 0;
+        try {
+          y = store.services.world.groundAt(t.x, t.z);
+        } catch {
+          // groundAt throws off the map; the label then sits at datum level, which is where the far map draws the Bay.
+        }
+        const p = store.services.camera.project({ x: t.x, y, z: t.z });
+        if (p === null) el.style.visibility = 'hidden';
+        else {
+          el.style.visibility = 'visible';
+          el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+        }
+      }
+      frame = requestAnimationFrame(place);
+    };
+    place();
+    return () => cancelAnimationFrame(frame);
+    // The loop reads the newest targets through the ref; it restarts only when their number or visibility changes.
+  }, [hidden, count, store]);
+  if (hidden) return null;
+  return (
+    <div class="bv-maplabels" data-testid="map-labels" aria-hidden="true">
+      {targets.map((t, i) => (
+        <div
+          key={`${t.x},${t.z}`}
+          class="bv-maplabel"
+          ref={(el) => {
+            els.current[i] = el;
+          }}
+          style={{ visibility: 'hidden' }}
+        >
+          <div class={cx('plate', t.served && 'is-served', t.stretch && 'is-stretch')} data-testid={`map-label-${i}`}>
+            <b>{t.name}</b>
+            <span>{t.served ? 'station in reach' : `station wanted within ${Math.round(t.radiusM)} m`}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The three mouse moves of the map camera, said once where a new player looks for them. */
+export function CameraHelp({ store }: StoreProps): JSX.Element | null {
+  if (store.tool.value.id === 'drive' || store.panel.value !== null) return null;
+  return (
+    <div class="bv-camhelp" data-testid="camera-help">
+      <b>Drag</b> move the map <b>Right-drag</b> turn <b>Wheel</b> zoom
     </div>
   );
 }
@@ -204,7 +288,9 @@ export function Toolbar({ store }: StoreProps): JSX.Element {
             <Btn onInk label="Lower the cut" testId="view-cut-down" onClick={() => setView({ cutY: view.cutY - 1 })}>
               -
             </Btn>
-            <span data-testid="view-cut-y">{Math.round(view.cutY)} m</span>
+            <span class="lvl" data-testid="view-cut-y">
+              {Math.round(view.cutY)} m
+            </span>
             <Btn onInk label="Raise the cut" testId="view-cut-up" onClick={() => setView({ cutY: view.cutY + 1 })}>
               +
             </Btn>

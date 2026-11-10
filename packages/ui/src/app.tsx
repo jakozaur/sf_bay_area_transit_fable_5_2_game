@@ -3,7 +3,7 @@ import type { BayServices } from '@bayvox/sim';
 import { type JSX, render } from 'preact';
 import { useErrorBoundary } from 'preact/hooks';
 import type { UiHandle } from './contract.ts';
-import { Banner, ObjectiveStrip, Toasts, Toolbar, TopBar } from './hud.tsx';
+import { Banner, CameraHelp, MapLabels, ObjectiveStrip, Toasts, Toolbar, TopBar } from './hud.tsx';
 import { type KeyInput, resolveKey } from './keys.ts';
 import { CreditsPanel, HelpPanel, MenuPanel } from './menu.tsx';
 import { act, selectTool } from './model.ts';
@@ -80,14 +80,18 @@ function Screens({ store }: { store: UiStoreInternal }): JSX.Element {
       </>
     );
   }
-  const eventOpen = store.snapshot.value.events.length > 0;
+  // A card waits for the banner: the breakthrough is a moment, and the first playtest had it covered by a
+  // change order that came up 0.7 s later. Time holds for the card either way.
+  const eventOpen = store.snapshot.value.events.length > 0 && store.banner.value === null;
   return (
     <>
+      <MapLabels store={store} />
       <TopBar store={store} />
       <ObjectiveStrip store={store} />
       <ToolPanel store={store} />
       <SidePanel store={store} />
       <DriveHud store={store} />
+      <CameraHelp store={store} />
       <Toolbar store={store} />
       <Banner store={store} />
       <Toasts store={store} />

@@ -153,7 +153,9 @@ test('reforms: branches switch, a reform shows its effect and evidence before bu
   await tid(page, 'reform-head-nepaPageLimits').click();
   const body = tid(page, 'reform-body-nepaPageLimits');
   await expect(body).toContainText('The environmental statement must now be shorter than the tunnel.');
-  await expect(body).toContainText('doc 07 E3');
+  // The evidence is the fact, without the citation of the research docs the player cannot open.
+  await expect(body.locator('.bv-evidence')).toHaveText('FRA 2023 assignment; EIS 3.5 years to 2');
+  await expect(tid(page, 'reform-effects-nepaPageLimits')).toHaveText('Environmental review 50% shorter');
   await expect(tid(page, 'reform-preview-nepaPageLimits')).toContainText('Cost of the project');
   await expect(tid(page, 'reform-preview-nepaPageLimits')).toContainText('Opening date');
   await tid(page, 'enact-nepaPageLimits').click();

@@ -1,6 +1,6 @@
 /** Screens driven by the session state: title with mission select, briefing card, loading, scorecard. */
 import type { MissionCard } from '@bayvox/core';
-import type { ScoreColumn } from '@bayvox/sim';
+import { playerSource, type ScoreColumn } from '@bayvox/sim';
 import type { JSX } from 'preact';
 import { Bar, Btn, Bullet, cx, Dim, Stars, type StoreProps } from './bits.tsx';
 import { count, dateLong, dateMonth, money, moneyPerKm, ratio, years } from './format.ts';
@@ -80,7 +80,13 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
                 <Bullet tone={m.locked ? 'off' : m.id === play?.id ? 'hi' : undefined}>{m.freeBuild ? '∞' : campaignNo}</Bullet>
                 <span class="name">{m.title}</span>
                 {m.bestStars !== null ? <Stars n={m.bestStars} /> : <span />}
-                {m.locked && m.lockReason !== null ? <span class="lock">{m.lockReason}</span> : <span class="pitch">{m.pitch}</span>}
+                {m.locked && m.lockReason !== null ? (
+                  <span class="lock">{m.lockReason}</span>
+                ) : (
+                  <span class="pitch" title={m.pitch}>
+                    {m.pitch}
+                  </span>
+                )}
               </button>
             </li>
           );
@@ -123,7 +129,10 @@ export function BriefingScreen({ store }: StoreProps): JSX.Element {
             <dt>Why it matters</dt>
             <dd data-testid="brief-why">{b.why}</dd>
           </dl>
-          <p class="bv-note">The official cost and date are the ghost you race. Poland is the par.</p>
+          <p class="bv-note">
+            Where an official cost and date exist, they are the ghost you race; where none do, you race the game's own model of the status
+            quo. Poland is the par.
+          </p>
           <div class="bv-sec">
             <h3>Objectives</h3>
             <ul class="bv-objectives" data-testid="brief-objectives">
@@ -135,7 +144,7 @@ export function BriefingScreen({ store }: StoreProps): JSX.Element {
               ))}
             </ul>
           </div>
-          <p class="bv-evidence">{b.source}</p>
+          {playerSource(b.source) !== '' && <p class="bv-evidence">Source: {playerSource(b.source)}</p>}
           {session.error !== null && (
             <p class="bv-bad" role="alert" data-testid="session-error">
               <b>{session.error}</b>
@@ -172,11 +181,17 @@ function Column({ c, you }: { c: ScoreColumn; you: boolean }): JSX.Element {
       <span class="who">{c.label}</span>
       <span class="cost">{money(c.costCents)}</span>
       <span class="km">{moneyPerKm(c.costPerKmCents)}</span>
-      <span class="date">
-        {c.openDate === '' ? 'no date' : `Opens ${dateMonth(c.openDate)}`}
-        <span class="bv-soft"> ({years(c.yearsToOpen)})</span>
+      <span class="date" data-testid={`score-date-${c.kind}`}>
+        {c.openDate === '' ? (
+          'No opening date'
+        ) : (
+          <>
+            Opens {dateMonth(c.openDate)}
+            <span class="bv-soft"> ({years(c.yearsToOpen)})</span>
+          </>
+        )}
       </span>
-      <span class="src">{c.source}</span>
+      <span class="src">{playerSource(c.source)}</span>
     </div>
   );
 }

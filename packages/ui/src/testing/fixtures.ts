@@ -676,7 +676,9 @@ function reforms(pc: number, projectCents: number): ReformView[] {
         : status === 'available' && !affordable
           ? `Costs ${r.cost.pc} political capital, you have ${pc}`
           : null;
-    const saveM = 40 + ((i * 97) % 380);
+    // The machine reforms move nothing on the official design, which has no boring machine: a preview of zero.
+    const quiet = r.id === 'continuousAdvance' || r.id === 'prufrockClass';
+    const saveM = quiet ? 0 : 40 + ((i * 97) % 380);
     return {
       id: r.id,
       branch: r.branch,
@@ -695,7 +697,7 @@ function reforms(pc: number, projectCents: number): ReformView[] {
         : {
             projectId: PROJECT_ID,
             costDeltaCents: -usd(saveM * 1e6),
-            daysDelta: -((i * 53) % 400),
+            daysDelta: quiet ? 0 : -((i * 53) % 400),
             costPerKmAfterCents: Math.round((projectCents - usd(saveM * 1e6)) / LENGTH_KM),
             ratioToPolandAfter: (projectCents - usd(saveM * 1e6)) / usd(383e6),
           },
@@ -827,6 +829,17 @@ export function snapshot(spec: SnapshotSpec): GameSnapshot {
       planProjectId: PROJECT_ID,
       complete: spec.complete === true,
       result: null,
+      targets: [
+        { name: '4th and King', x: 20804, z: -64695, radiusM: 400, stretch: false, served: p !== null && p.stations.length > 0 },
+        {
+          name: 'Salesforce Transit Center',
+          x: 20624.6,
+          z: -66108.8,
+          radiusM: 400,
+          stretch: false,
+          served: p !== null && p.stations.length > 1,
+        },
+      ],
     },
     nextAction: next,
     headline:
@@ -1041,6 +1054,24 @@ const buildSnap = (over: Partial<SnapshotSpec> = {}): GameSnapshot =>
     next: driveNext,
     ...over,
   });
+/**
+ * The same snapshot with a sponsor figure that never had an opening date, as the Dumbarton corridor study:
+ * the ghost's date is the empty string on the receipt and on the scorecard.
+ */
+function withoutGhostDate(s: GameSnapshot): GameSnapshot {
+  return {
+    ...s,
+    projects: s.projects.map((p) => ({
+      ...p,
+      receipt: {
+        ...p.receipt,
+        ghost: p.receipt.ghost === null ? null : { ...p.receipt.ghost, label: 'Corridor study (2017)', openDate: '' },
+      },
+      scorecard: { ...p.scorecard, ghost: { ...p.scorecard.ghost, label: 'Corridor study (2017)', openDate: '', yearsToOpen: 0 } },
+    })),
+  };
+}
+
 const feed = (seq: number, kind: FeedItem['kind'], text: string): FeedItem => ({
   seq,
   tick: 1730,
@@ -1201,7 +1232,26 @@ export const SCENES = {
       notices: [{ tick: 1730, command: 'enactReform', reason: 'Costs 30 political capital, you have 22' }],
     }),
   }),
+  'breakthrough-event': scene('Breakthrough with an event card raised in the same instant', {
+    snapshot: buildSnap({ mode: 'drive' }),
+    tool: DRIVE_TOOL,
+    availability: ALL_TOOLS_AVAILABLE,
+    followUp: buildSnap({
+      mode: 'drive',
+      hold: 'event',
+      event: true,
+      feed: [
+        feed(1, 'breakthrough', 'Breakthrough at Salesforce Transit Center: TBM Emperor Norton is through'),
+        feed(2, 'eventRaised', 'One Man and His Parking Spot'),
+      ],
+    }),
+  }),
   receipt: scene('Receipt panel', { snapshot: buildSnap(), panel: 'receipt', availability: ALL_TOOLS_AVAILABLE }),
+  'receipt-no-date': scene('Receipt panel, sponsor figure without an opening date', {
+    snapshot: withoutGhostDate(buildSnap()),
+    panel: 'receipt',
+    availability: ALL_TOOLS_AVAILABLE,
+  }),
   open: scene('Fit-out done, open the line', {
     snapshot: snapshot({
       stage: 'open',
@@ -1246,6 +1296,20 @@ export const SCENES = {
       complete: true,
       next: { kind: 'viewScorecard', objective: 'The Portal is open', hint: 'See how you did.', focus: 'receipt' },
     }),
+  }),
+  'scorecard-no-date': scene('Scorecard, sponsor figure without an opening date', {
+    session: session('scorecard'),
+    snapshot: withoutGhostDate(
+      snapshot({
+        stage: 'done',
+        tick: 2420,
+        date: '2033-06-30',
+        moneyM: 1790,
+        project: opened,
+        complete: true,
+        next: { kind: 'viewScorecard', objective: 'The line is open', hint: 'See how you did.', focus: 'receipt' },
+      }),
+    ),
   }),
   menu: scene('Menu', { snapshot: buildSnap(), panel: 'menu', availability: ALL_TOOLS_AVAILABLE }),
   help: scene('Controls help', { snapshot: buildSnap(), panel: 'help', availability: ALL_TOOLS_AVAILABLE }),

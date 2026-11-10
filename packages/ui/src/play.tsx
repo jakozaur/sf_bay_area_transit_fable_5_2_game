@@ -1,6 +1,6 @@
 /** Things that appear during play: the event card and the drive instruments. */
 import { TOOL_COMMANDS } from '@bayvox/core';
-import type { EventView, TbmView } from '@bayvox/sim';
+import { type EventView, playerSource, type TbmView } from '@bayvox/sim';
 import type { JSX } from 'preact';
 import { Btn, cx, type StoreProps } from './bits.tsx';
 import { capital, duration, length, money } from './format.ts';
@@ -8,7 +8,9 @@ import { act, command, GEOLOGY_COLORS, possessedTbm } from './model.ts';
 
 function optionCosts(o: EventView['options'][number]): string[] {
   const parts: string[] = [];
-  if (o.costCents !== 0) parts.push(money(o.costCents));
+  // A cash call: what the option brings in comes first, what it costs after.
+  if (o.gainCents !== undefined && o.gainCents > 0) parts.push(`+${money(o.gainCents)} funds`);
+  if (o.costCents !== 0) parts.push(o.gainCents !== undefined && o.gainCents > 0 ? `${money(o.costCents)} fee` : money(o.costCents));
   if (o.delayDays !== 0) parts.push(`${duration(o.delayDays)} delay`);
   if (o.pc !== 0) parts.push(capital(o.pc));
   return parts.length > 0 ? parts : ['Free'];
@@ -60,7 +62,7 @@ export function EventCard({ store }: StoreProps): JSX.Element | null {
             Time stands still until you choose.
             {fallback !== undefined && ` The usual answer: ${fallback.label.replace(/\.$/, '')}.`}
           </p>
-          <p class="bv-evidence">{e.evidence}</p>
+          {playerSource(e.evidence) !== '' && <p class="bv-evidence">{playerSource(e.evidence)}</p>}
         </div>
       </section>
     </div>
@@ -101,10 +103,13 @@ export function DriveHud({ store }: StoreProps): JSX.Element | null {
   const control = (c: { thrust?: number; autopilot?: boolean }): void => command(store, { t: 'tbmControl', headingId: t.id, ...c });
   const quarters = Math.round(t.thrust * 4);
   const limit = d.limitM > 0 ? d.limitM : 1;
-  const clamp = (v: number): number => Math.max(-1, Math.min(1, v / limit));
-  // Needle: 31 px of travel from the centre to the corridor limit.
-  const dotX = 50 + clamp(d.lateralM) * 42;
-  const dotY = 50 - clamp(d.verticalM) * 42;
+  // Square-root scale: the first metres off the plan move the dot the most. On a linear scale to the 30 m
+  // corridor a machine 2 m off sat on the centre mark and the dial said nothing until it was too late.
+  const scale = (v: number): number => Math.sign(v) * Math.sqrt(Math.min(1, Math.abs(v) / limit));
+  const dotX = 50 + scale(d.lateralM) * 42;
+  const dotY = 50 - scale(d.verticalM) * 42;
+  const boredM = t.chainageM - t.fromM;
+  const where = `${Math.abs(d.lateralM).toFixed(1)} ${d.lateralM >= 0 ? 'right' : 'left'}, ${Math.abs(d.verticalM).toFixed(1)} ${d.verticalM >= 0 ? 'high' : 'low'}`;
   return (
     <section class="bv-drive bv-live" data-testid="drive-hud" aria-label={`Driving ${t.name}`}>
       <div class="cell">
@@ -113,7 +118,9 @@ export function DriveHud({ store }: StoreProps): JSX.Element | null {
           {t.autopilot ? 'Autopilot' : 'Manual'}
         </span>
         <span class={cx('s', t.stopReason !== null && 'bv-bad')} data-testid="drive-state">
-          {t.stopReason !== null ? STOP_TEXT[t.stopReason] : `${length(t.chainageM - t.fromM)} of ${length(t.toM - t.fromM)}`}
+          {t.stopReason !== null
+            ? STOP_TEXT[t.stopReason]
+            : `${boredM < 1000 ? `${boredM.toFixed(1)} m` : length(boredM)} of ${length(t.toM - t.fromM)}`}
           {t.downDays > 0 && `, ${duration(t.downDays)}`}
         </span>
       </div>
@@ -162,10 +169,9 @@ export function DriveHud({ store }: StoreProps): JSX.Element | null {
           <div class={cx('v', d.offPlan && 'bv-bad')} data-testid="drive-deviation">
             {d.totalM.toFixed(1)} <small>m</small>
           </div>
-          <span class={cx('s', d.offPlan && 'bv-bad')}>
-            {d.offPlan
-              ? 'Costs extra here'
-              : `${Math.abs(d.lateralM).toFixed(1)} ${d.lateralM >= 0 ? 'right' : 'left'}, ${Math.abs(d.verticalM).toFixed(1)} ${d.verticalM >= 0 ? 'high' : 'low'}`}
+          <span class={cx('s', d.offPlan && 'bv-bad')} data-testid="drive-where">
+            {where}
+            {d.offPlan && ': costs extra'}
           </span>
         </div>
       </div>

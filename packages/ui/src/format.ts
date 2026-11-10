@@ -67,6 +67,73 @@ export function dateMonth(iso: string): string {
   return `${MONTHS[m - 1]} ${y}`;
 }
 
+/** Nov 2026, or `none` for the empty string: a sponsor figure that never had a date (the Dumbarton corridor study). */
+export function dateMonthOr(iso: string, none: string): string {
+  return iso === '' ? none : dateMonth(iso);
+}
+
+/** A receipt cell: a change of money, or a plain 0 where the line adds nothing in that column. */
+export function moneyCell(cents: number): string {
+  return Math.round(finite(cents, 'moneyCell') / 100) === 0 ? '0' : moneyDelta(cents);
+}
+
+const EFFECT_LABEL: Readonly<Record<string, string>> = {
+  'unit.procurement': 'Procurement and risk pricing',
+  'unit.labour': 'Site staffing and work hours',
+  'unit.thirdParty': 'Utilities and third parties',
+  'unit.priceLevel': 'Price level',
+  'systems.factor': 'Track, power and signalling prices',
+  'soft.fixed': 'Consultants and project management',
+  'soft.overheadPerYear': 'Standing organisation per year',
+  'soft.contingency': 'Contingency',
+  'time.planning': 'Environmental review',
+  'time.permitting': 'Permits and funding agreement',
+  'time.procurement': 'Procurement time',
+  'time.utilities': 'Utility relocation time',
+  'time.fitOut': 'Fit-out time',
+  'time.constructionFactor': 'Station and surface works time',
+  'tbm.rate': 'Machine advance',
+  'tbm.breakdown': 'Machine stoppages',
+  'event.lawsuit.rate': 'Lawsuits',
+  'event.utilitySurprise.rate': 'Utility surprises',
+  'event.tbmStuck.rate': 'Stuck machines',
+  'event.changeOrder.rate': 'Change orders',
+  'event.fundingGap.rate': 'Funding reviews',
+  'event.contractorBankruptcy.rate': 'Contractor bankruptcies',
+};
+const MANDATE_LABEL: Readonly<Record<string, string>> = {
+  'design.threeTrack': 'The third track is no longer required',
+  'design.deepBox': 'Cut-and-cover boxes go one level down instead of two',
+  'design.oversizeStations': 'Full-length mezzanines are no longer required',
+  'design.bespoke': 'Stations come from a catalogue',
+  'design.terminalOversize': 'The terminal is fitted out for the trains it will see',
+  'design.twinBoreDefault': 'Caverns and giant bores nobody chose are redrawn as twin bores',
+};
+
+/**
+ * What one effect of a reform does, in words: "Machine advance x1.60", "Lawsuits 20% less often",
+ * "Environmental review 50% shorter". The cost and date preview says what that is worth on this project; this
+ * line says what the reform changes when the preview is zero (a machine reform on a line with no machine).
+ */
+export function effectText(e: { key: string; op: 'mul' | 'add' | 'set'; value: number }): string {
+  const mandate = MANDATE_LABEL[e.key];
+  if (mandate !== undefined) return mandate;
+  if (e.key === 'event.lawsuit.delayCapDays') return `A lawsuit can stop the project for at most ${Math.round(e.value)} days`;
+  if (e.key === 'tbm.geologyRelief') return `Bad ground costs ${Math.round(e.value * 100)}% less of its penalty`;
+  const label = EFFECT_LABEL[e.key];
+  if (label === undefined) throw new Error(`ui format: no label for reform effect "${e.key}"`);
+  if (e.op === 'mul') {
+    if (e.key.startsWith('event.'))
+      return e.value === 0 ? `${label} no longer happen` : `${label} ${Math.round((1 - e.value) * 100)}% less often`;
+    if (e.key === 'tbm.breakdown') return `${label} ${Math.round((1 - e.value) * 100)}% less often`;
+    if (e.key === 'tbm.rate') return `${label} x${e.value.toFixed(2)}`;
+    if (e.key.startsWith('time.')) return `${label} ${Math.round((1 - e.value) * 100)}% shorter`;
+    return `${label} ${Math.round((1 - e.value) * 100)}% cheaper`;
+  }
+  if (e.op === 'add') return `${label} ${e.value < 0 ? 'down' : 'up'} ${Math.round(Math.abs(e.value) * 100)} points`;
+  return `${label} set to ${e.value}`;
+}
+
 /** A span of game days: 12 days, 7 months, 3.4 years. */
 export function duration(days: number): string {
   const d = Math.abs(finite(days, 'duration'));

@@ -84,10 +84,53 @@ test('a rejected command (snapshot notice) shows once as a red toast', () => {
 test('opening and closing a panel plays the cues', () => {
   const services = fake('plan');
   const store = createStore(services);
-  store.openPanel('reforms');
-  store.openPanel('reforms');
+  store.openPanel('receipt');
+  store.openPanel('receipt');
   store.openPanel(null);
   expect(services.calls.map((c) => c.args[0])).toEqual(['ui.open', 'ui.close']);
+  store.dispose();
+});
+
+test('time waits while the reform tree or the design chooser is open, and comes back at the speed it had', () => {
+  const services = fake('approvals');
+  const store = createStore(services);
+  const time = (): unknown[] => services.calls.filter((c) => c.name.startsWith('time.')).map((c) => [c.name, ...c.args]);
+  expect(services.time.speed.get()).toBe(10);
+  store.openPanel('reforms');
+  expect(services.time.speed.get()).toBe(0);
+  // From one deciding panel to the other: still waiting, nothing sent.
+  store.openPanel('design');
+  expect(time()).toEqual([['time.setSpeed', 0]]);
+  store.openPanel(null);
+  expect(services.time.speed.get()).toBe(10);
+  expect(time()).toEqual([
+    ['time.setSpeed', 0],
+    ['time.setSpeed', 10],
+  ]);
+  // A speed the player sets while the panel is open is theirs: closing does not touch it.
+  store.openReform('stageGates');
+  services.time.setSpeed(1);
+  store.openPanel(null);
+  expect(services.time.speed.get()).toBe(1);
+  // Reading panels (project, receipt, menu) do not stop the clock.
+  store.openPanel('project');
+  expect(services.time.speed.get()).toBe(1);
+  store.dispose();
+});
+
+test('a raised event makes no toast of its own: the card is the notice', () => {
+  const services = fake('drive');
+  const store = createStore(services);
+  const base = services.sim.snapshot.get();
+  services.setSnapshot({
+    ...base,
+    feed: [
+      { seq: 1, tick: 1, kind: 'eventRaised', projectId: null, subjectId: 'changeOrder', text: 'Change Order No. 47' },
+      { seq: 2, tick: 1, kind: 'eventResolved', projectId: null, subjectId: 'changeOrder', text: 'Change Order No. 47: Pay it.' },
+    ],
+  });
+  expect(store.toasts.value.map((t) => t.text)).toEqual(['Change Order No. 47: Pay it.']);
+  expect(store.feedSeen.value).toBe(2);
   store.dispose();
 });
 

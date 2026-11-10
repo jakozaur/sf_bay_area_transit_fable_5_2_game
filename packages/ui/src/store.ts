@@ -1,5 +1,5 @@
 /** The UI store: BayServices Readables mirrored as signals, plus UI-local state. See ./contract.ts for the frozen shape. */
-import type { Readable } from '@bayvox/core';
+import type { GameSpeed, Readable } from '@bayvox/core';
 import type { BayServices, FeedItem, GameSnapshot, Notice } from '@bayvox/sim';
 import { type ReadonlySignal, type Signal, signal } from '@preact/signals';
 import type { PanelId, UiStore } from './contract.ts';
@@ -46,6 +46,13 @@ const GOOD_KINDS: ReadonlySet<FeedItem['kind']> = new Set([
 ]);
 const BAD_KINDS: ReadonlySet<FeedItem['kind']> = new Set(['tbmStopped', 'tbmOffPlan', 'objectiveFailed', 'cashShort']);
 const BANNER_KINDS: ReadonlySet<FeedItem['kind']> = new Set(['breakthrough', 'lineOpened']);
+/** Feed kinds with no toast: the event card that opens is the notice, a second line with the same title is noise. */
+const SILENT_KINDS: ReadonlySet<FeedItem['kind']> = new Set(['eventRaised']);
+/**
+ * Panels where the player reads and decides: time waits while one is open, and resumes at the speed it had
+ * when the panel closes. A time-lapse passes a game year in a few seconds; nobody reads a reform in that.
+ */
+const PAUSING_PANELS: ReadonlySet<PanelId> = new Set(['reforms', 'design']);
 
 /** How long a toast and a banner stay, milliseconds. */
 export const TOAST_MS = 6000;
@@ -110,6 +117,7 @@ export function createStore(services: BayServices): UiStoreInternal {
     for (const item of s.feed) {
       if (item.seq <= feedSeen.value) continue;
       feedSeen.value = item.seq;
+      if (SILENT_KINDS.has(item.kind)) continue;
       const tone = GOOD_KINDS.has(item.kind) ? 'good' : BAD_KINDS.has(item.kind) ? 'bad' : 'info';
       push({ key: `feed:${item.seq}`, text: item.text, tone, banner: BANNER_KINDS.has(item.kind), kind: item.kind });
     }
@@ -121,6 +129,26 @@ export function createStore(services: BayServices): UiStoreInternal {
     }
   };
   disposers.push(services.sim.snapshot.subscribe(onSnapshot));
+
+  /** Speed to return to when a pausing panel closes, or null when this store did not pause the game. */
+  let resumeSpeed: GameSpeed | null = null;
+  const setPanel = (next: PanelId | null): void => {
+    const was = panel.value;
+    panel.value = next;
+    const wasPausing = was !== null && PAUSING_PANELS.has(was);
+    const nowPausing = next !== null && PAUSING_PANELS.has(next);
+    if (!wasPausing && nowPausing) {
+      const speed = services.time.speed.get();
+      if (speed !== 0 && services.session.state.get().screen === 'playing') {
+        resumeSpeed = speed;
+        services.time.setSpeed(0);
+      }
+    } else if (wasPausing && !nowPausing && resumeSpeed !== null) {
+      // The player may have set a speed by hand while the panel was open: then it is theirs, not ours to change.
+      if (services.time.speed.get() === 0) services.time.setSpeed(resumeSpeed);
+      resumeSpeed = null;
+    }
+  };
 
   return {
     services,
@@ -145,13 +173,13 @@ export function createStore(services: BayServices): UiStoreInternal {
       if (panel.value === next) return;
       services.audio.cue(next === null ? 'ui.close' : 'ui.open');
       if (next !== 'reforms') reformFocus.value = null;
-      panel.value = next;
+      setPanel(next);
     },
     reformFocus,
     openReform(reformId) {
       reformFocus.value = reformId;
       if (panel.value !== 'reforms') services.audio.cue('ui.open');
-      panel.value = 'reforms';
+      setPanel('reforms');
     },
     dispose() {
       for (const d of disposers) d();

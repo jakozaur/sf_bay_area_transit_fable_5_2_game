@@ -79,8 +79,12 @@ export function actionButton(store: UiStoreInternal, a: NextAction): ActionButto
   }
   if (a.focus === null || a.focus === 'event') return null;
   if (a.focus === 'speed') {
-    if (store.speed.value !== 0) return null;
-    return { label: 'Resume time', disabledReason: null, run: () => act(store, () => store.services.time.togglePause()) };
+    if (store.speed.value === 0)
+      return { label: 'Resume time', disabledReason: null, run: () => act(store, () => store.services.time.togglePause()) };
+    // Machines at work and nothing to decide: the one useful button is the faster clock.
+    if (store.speed.value === 1 && snap.clock.mode === 'build' && snap.clock.hold === null)
+      return { label: 'Fast forward (10x)', disabledReason: null, run: () => act(store, () => store.services.time.setSpeed(10)) };
+    return null;
   }
   const tool = FOCUS_TOOL[a.focus];
   if (tool !== undefined) {
