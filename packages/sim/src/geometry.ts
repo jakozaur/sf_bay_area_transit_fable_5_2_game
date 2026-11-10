@@ -99,6 +99,27 @@ function voxel(p: { x: number; y: number; z: number }): { x: number; y: number; 
   return { x: floor(p.x / VOXEL), y: floor(p.y / VOXEL), z: floor(p.z / VOXEL) };
 }
 
+/** One carve capsule between two world points in metres. */
+export function capsuleBetween(a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }, radiusM: number): WorldEdit {
+  return { t: 'carveCapsule', a: voxel(a), b: voxel(b), radius: radiusM / VOXEL };
+}
+
+/** Points of the alignment from chainage `fromM` to `toM`: both ends and every vertex in between. */
+export function subPath(
+  wps: readonly Waypoint[],
+  cum: readonly number[],
+  fromM: number,
+  toM: number,
+): { x: number; y: number; z: number }[] {
+  const out = [pointAt(wps, cum, fromM)];
+  if (!(toM > fromM)) return out;
+  for (let i = segmentIndexAt(cum, fromM) + 1; i < cum.length - 1 && cum[i] < toM; i++) {
+    if (cum[i] > fromM) out.push({ x: wps[i].x, y: wps[i].y, z: wps[i].z });
+  }
+  out.push(pointAt(wps, cum, toM));
+  return out;
+}
+
 /**
  * Capsule edits that carve the alignment between two chainages, split at every vertex in between.
  * The chain is gap free: each capsule starts on the voxel where the previous one ended.

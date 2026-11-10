@@ -4,13 +4,66 @@
  */
 export const PACKAGE_NAME = '@bayvox/sim';
 
-export { CONSTANTS, type Constant, type ConstantId, constantsTable, DAYS_PER_YEAR, ESCALATION_DAILY } from './constants.ts';
+export { checkAlignment, MIN_SEGMENT_M, minRadiusFor, vertexRadiusM } from './checks.ts';
+export {
+  CONSTANTS,
+  type Constant,
+  type ConstantId,
+  constantsTable,
+  DAYS_PER_YEAR,
+  ESCALATION_DAILY,
+  SUBSTEPS_PER_DAY,
+} from './constants.ts';
 export { dateAtTick, daysToIso, isoToDays } from './dates.ts';
 export { FEEDERS, type Feeder, feederById, type RidershipBreakdown, ridership, ZONES, type Zone } from './demand.ts';
-export { autopilotCommands, eventHazardPerYear, expectedAvailability, parseCommand, projectLengthM, projectSpentCents } from './engine.ts';
+export {
+  DESIGN_OPTIONS,
+  type DesignOptionDef,
+  defaultMethod,
+  designOption,
+  optionLocks,
+  reformUnlocks,
+  stationBoxOf,
+  stationSize,
+  tunnelOf,
+} from './design.ts';
+export { cruiseControls, type DriveLimits, driveSubstep, fixOnPlan, type PlanFix, type PlanPoint, planPointAt } from './drive.ts';
+export {
+  autopilotCommands,
+  eventHazardPerYear,
+  expectedAvailability,
+  handDigCentsPerM3,
+  isDrivable,
+  PC_BREAKTHROUGH,
+  PC_OPENING,
+  PC_PER_MONTH,
+  PC_PHASE_DONE,
+  parseCommand,
+  projectLengthM,
+  projectSpentCents,
+} from './engine.ts';
+export {
+  plannedConstructionDays,
+  plannedHeadingDays,
+  plannedStationDays,
+  type QuickEstimate,
+  quickEstimate,
+  quickOption,
+  quickProject,
+} from './estimate.ts';
 export { EVENTS, type EventDef, type EventOption, eventById } from './events.ts';
-export { comparison, type Forecast, forecastDesign, forecastProject, polandBenchmark } from './forecast.ts';
-export { carveCapsules, chainages, nearestChainage, offsetPointAt, pointAt } from './geometry.ts';
+export {
+  comparison,
+  type DesignRun,
+  designRun,
+  type Forecast,
+  forecastDesign,
+  forecastProject,
+  polandBenchmark,
+  runDesign,
+} from './forecast.ts';
+export { capsuleBetween, carveCapsules, chainages, nearestChainage, offsetPointAt, pointAt, subPath } from './geometry.ts';
+export { faceGeology, type GroundQuery, geologyOfMaterial } from './ground.ts';
 export {
   advanceRate,
   carveShape,
@@ -22,12 +75,16 @@ export {
   isTbm,
   isUnderground,
   PHASE_LABELS,
+  type ProjectGeometry,
   phaseDays,
+  projectFlags,
   sectionAreaM2,
+  standardsFor,
   stationBuildDays,
   stationPln,
   systemsPlnPerM,
 } from './model.ts';
+export { RECEIPT_GROUP_LABELS, RECEIPT_LINE_DEFS, reformReceiptLines } from './receipt.ts';
 export {
   BRANCHES,
   type Branch,
@@ -46,5 +103,6 @@ export {
   unitFactor,
 } from './reforms.ts';
 export { evaluateObjectives, validateScenario } from './scenario.ts';
-export { createSim, EVENT_CARDS, type GameSim, hashState, loadSim, type SimOptions, type WorldSink } from './sim.ts';
+export { createSim, EVENT_CARDS, type GameSim, hashState, loadSim, type SaveOptions, type SimOptions, type WorldSink } from './sim.ts';
+export { serviceCycleS, trainsAt } from './trains.ts';
 export * from './types.ts';

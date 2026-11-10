@@ -210,6 +210,7 @@ describe('demand v0', () => {
       chainageM,
       depthM: 18,
       progress: 0,
+      carvedM: 0,
     });
     const one = ridership({ waypoints, cum, stations: [station('a', 0)] }, []);
     const two = ridership({ waypoints, cum, stations: [station('a', 0), station('b', 6000)] }, []);

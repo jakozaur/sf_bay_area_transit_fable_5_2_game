@@ -3,41 +3,55 @@
  * Pure over a JSON-serializable SimState. No DOM, no three, no wall clock; randomness only from the seeded core PRNG.
  */
 import { type Command, createRng, isInGrid, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
-import { DAYS_PER_YEAR, ESCALATION_DAILY, CONSTANTS as K } from './constants.ts';
+import { checkAlignment, minRadiusFor } from './checks.ts';
+import { DAYS_PER_YEAR, ESCALATION_DAILY, CONSTANTS as K, SUBSTEPS_PER_DAY } from './constants.ts';
 import { ridership } from './demand.ts';
+import { defaultMethod, designOption, optionLocks, stationBoxOf, stationSize } from './design.ts';
+import { driveFromPlan, driveSubstep } from './drive.ts';
 import { EVENTS, type EventDef, type EventOption, eventById } from './events.ts';
-import { carveCapsules, chainages, nearestChainage, segmentIndexAt } from './geometry.ts';
+import { capsuleBetween, carveCapsules, chainages, nearestChainage, pointAt, segmentIndexAt } from './geometry.ts';
+import { faceGeology, type GroundQuery } from './ground.ts';
 import {
   advanceRate,
   carveShape,
   civilCentsPerM,
-  designFlags,
   effectiveMethod,
   hardCost,
   isTbm,
+  isUnderground,
+  PHASE_LABELS,
   phaseDays,
   projectFlags,
+  standardsFor,
   stationBuildDays,
   stationCostCents,
   systemsCostCents,
 } from './model.ts';
-import { type Profile, profileFor, profileReforms, reformById } from './reforms.ts';
+import { type Profile, profileFor, profileReforms, reformById, unitFactor } from './reforms.ts';
 import {
+  type DesignFlags,
+  FEED_LENGTH,
+  type FeedKind,
   type FrontState,
   type GameCommand,
   GEOLOGIES,
+  type Geology,
   LEDGER_CATEGORIES,
   type LedgerCategory,
   METHODS,
   type Method,
+  type PaidLedger,
   type PhaseId,
   type ProjectState,
   SCHEMA_VERSION,
   type ScenarioDef,
   type SimState,
   SPEEDS,
+  STATION_BOXES,
   STATION_TEMPLATES,
   type StationState,
+  TUNNEL_OPTION_METHOD,
+  TUNNEL_OPTIONS,
   type Waypoint,
 } from './types.ts';
 
@@ -62,14 +76,37 @@ const MAX_WAYPOINTS = 512;
 const MAX_STATIONS = 64;
 const MAX_NOTICES = 20;
 const DEFAULT_STATION_DEPTH_M = 18;
-const STATION_CARVE_HALF_LENGTH_M = 70;
-const STATION_CARVE_RADIUS_M = 8;
-/** Political capital: a small monthly mandate plus milestones (doc 07 section 5: earned by delivering). Tuning. */
-const PC_PER_MONTH = 2;
-const PC_PHASE_DONE = 3;
-const PC_BREAKTHROUGH = 5;
-const PC_OPENING = 20;
+/** Share of a station box's width the carve capsule takes as its radius (8 m for the 20 m compact box). */
+const STATION_CARVE_RADIUS_SHARE = 0.4;
+/** A station box is excavated in slices of this half-length, so the world is edited a few times, not daily. */
+const STATION_CARVE_STEP_M = 5;
+const STATION_EXCAVATION_SHARE = K.stationExcavationShare.value;
+/**
+ * Political capital: a small monthly mandate plus milestones (doc 07 section 5: earned by delivering). Tuning,
+ * round 2: The Portal starts with 40, enough for two or three reforms; a first run earns about 130 more by
+ * opening day, so with the reforms that cost money about half the tree is within reach.
+ */
+export const PC_PER_MONTH = 1;
+export const PC_PHASE_DONE = 8;
+export const PC_BREAKTHROUGH = 10;
+export const PC_OPENING = 20;
 const PC_RIDERS_PER_POINT = 10_000;
+const SUBSTEPS = SUBSTEPS_PER_DAY;
+const MAX_GRADE = K.maxGradePct.value / 100;
+const OFF_PLAN_FACTOR = K.driveOffPlanCostFactor.value;
+const TRAIL_STEP_M = K.trailStepM.value;
+const FREE_DEVIATION_M = K.driveFreeDeviationM.value;
+/** A station this close to the end of a heading's run is the box the heading breaks into. */
+const RECEPTION_REACH_M = 150;
+/** A heading repeats its off-plan or corridor banner at most once in this many game days. */
+const NOTICE_GAP_DAYS = 30;
+const CENTS_PER_PLN = 100 / K.plnPerUsdNominal.value;
+// Riders of the Polish baseline, where the waterfall of the receipt starts.
+const SOFT_FIXED_PL = K.softFixedReformed.value;
+const CONTINGENCY_PL = K.contingencyReformed.value;
+const SOFT_PL = (1 + SOFT_FIXED_PL) * (1 + CONTINGENCY_PL);
+/** Largest single hand dig the sim will charge: a 100 m sphere. Anything bigger is a caller bug. */
+const MAX_DIG_M3 = 5_000_000;
 
 /** Machine names. Polish TBMs carry women's names (doc 06 section 2); Mom Chung and Big Alma bored the Central Subway. */
 const TBM_NAMES = ['Anna', 'Krystyna', 'Maria', 'Katarzyna', 'Faustyna', 'Wyspiarka', 'Damroka', 'Karpatka', 'Mom Chung', 'Big Alma'];
@@ -89,6 +126,10 @@ export interface StepContext {
   forecast: boolean;
   /** Runs the same alignment through the Poland profile. Injected to avoid an import cycle; null in forecasts. */
   benchmark: ((state: SimState, project: ProjectState) => { costCents: number; days: number }) | null;
+  /** Material at a world position, for the geology at the face of a driven heading. Null: the plan's geology is used. */
+  ground?: GroundQuery | null;
+  /** Objective status after a day, for the objective feed items. Injected to avoid an import cycle; absent in forecasts. */
+  evaluate?: ((state: SimState) => { id: string; title: string; status: 'pending' | 'done' | 'failed' }[]) | null;
 }
 
 // ---------------------------------------------------------------- initial state
@@ -136,7 +177,27 @@ export function initState(scenario: ScenarioDef, seed: number, opts: { costProfi
     ledger: { total: zeroLedger(), today: zeroLedger(), escalationCents: 0, monthly: [] },
     notices: [],
     version: 0,
+    subTick: 0,
+    feed: [],
+    nextFeedSeq: 1,
+    handDig: { volumeM3: 0, cents: 0 },
+    objectiveStatus: {},
+    missionCompleteTick: -1,
+    cashShort: false,
   };
+}
+
+/** Appends a feed item (banner and audio cue). Forecast runs stay silent. */
+function feed(state: SimState, ctx: StepContext, kind: FeedKind, projectId: string | null, subjectId: string | null, text: string): void {
+  if (ctx.forecast) return;
+  state.feed.push({ seq: state.nextFeedSeq, tick: state.tick, kind, projectId, subjectId, text });
+  state.nextFeedSeq++;
+  if (state.feed.length > FEED_LENGTH) state.feed.shift();
+}
+
+function usd(cents: number): string {
+  const abs = Math.abs(cents);
+  return abs >= 1e11 ? `$${(cents / 1e11).toFixed(2)}B` : `$${(cents / 1e8).toFixed(0)}M`;
 }
 
 // ---------------------------------------------------------------- command parsing
@@ -253,6 +314,35 @@ export function parseCommand(c: Command): GameCommand {
       const eventId = num(c, 'eventId');
       return { t: 'resolveEvent', eventId, optionId: str(c, 'optionId') };
     }
+    case 'useOfficialPlan':
+      return { t: 'useOfficialPlan' };
+    case 'removeProject':
+      return { t: 'removeProject', projectId: str(c, 'projectId') };
+    case 'setDesign': {
+      const out: GameCommand = { t: 'setDesign', projectId: str(c, 'projectId') };
+      if (c.tunnel !== undefined) out.tunnel = oneOf(c, 'tunnel', TUNNEL_OPTIONS);
+      if (c.stationBox !== undefined) out.stationBox = oneOf(c, 'stationBox', STATION_BOXES);
+      if (out.tunnel === undefined && out.stationBox === undefined) bad(c, 'one of tunnel or stationBox is required');
+      return out;
+    }
+    case 'tbmControl': {
+      const out: GameCommand = { t: 'tbmControl', headingId: str(c, 'headingId') };
+      if (c.thrust !== undefined) out.thrust = num(c, 'thrust');
+      if (c.steer !== undefined) out.steer = num(c, 'steer');
+      if (c.pitch !== undefined) out.pitch = num(c, 'pitch');
+      if (c.autopilot !== undefined) {
+        if (typeof c.autopilot !== 'boolean') bad(c, 'autopilot must be a boolean');
+        out.autopilot = c.autopilot;
+      }
+      return out;
+    }
+    case 'chargeDig': {
+      const volumeM3 = num(c, 'volumeM3');
+      if (volumeM3 < 0) bad(c, `volumeM3 must not be negative, got ${volumeM3}`);
+      const out: GameCommand = { t: 'chargeDig', volumeM3 };
+      if (c.projectId !== undefined) out.projectId = str(c, 'projectId');
+      return out;
+    }
     default:
       throw new Error(`sim: unknown command type "${c.t}"`);
   }
@@ -284,9 +374,17 @@ function spend(state: SimState, project: ProjectState, category: LedgerCategory,
  * ("all money in the budget will be spent", doc 06 section 3.3) and forms a pool that event costs draw
  * on first; event costs paid before the pool existed are netted against later accruals.
  */
-function hardSpend(state: SimState, project: ProjectState, p: Profile, category: LedgerCategory, baseCents: number): void {
+function hardSpend(
+  state: SimState,
+  project: ProjectState,
+  p: Profile,
+  category: 'civil' | 'stations' | 'systems',
+  baseCents: number,
+  track = true,
+): void {
   const base = round(baseCents);
   if (base <= 0) return;
+  if (track) addPaid(project.paid, p, category, base);
   spend(state, project, category, base);
   const soft = round(base * p['soft.fixed']);
   spend(state, project, 'soft', soft);
@@ -299,6 +397,30 @@ function hardSpend(state: SimState, project: ProjectState, p: Profile, category:
     project.contingencyPoolCents += net;
     charge(state, project, 'contingency', net, round((net * (cont - contBase)) / cont));
   }
+}
+
+/** Re-prices a hard spend of `base` unescalated cents through the levers of the receipt at profile `p` and adds it to a paid ledger. */
+export function addPaid(paid: PaidLedger, p: Profile, category: 'civil' | 'stations' | 'systems', base: number): void {
+  const systems = category === 'systems' ? p['systems.factor'] : 1;
+  const polish = base / (unitFactor(p) * systems);
+  paid[category] += polish;
+  const steps = paid.steps;
+  let v = polish * SOFT_PL;
+  steps[0] += v;
+  v *= p['unit.procurement'];
+  steps[1] += v;
+  v *= p['unit.labour'];
+  steps[2] += v;
+  v *= p['unit.thirdParty'];
+  steps[3] += v;
+  v *= systems;
+  steps[4] += v;
+  v *= (1 + p['soft.fixed']) / (1 + SOFT_FIXED_PL);
+  steps[5] += v;
+  v *= (1 + p['soft.contingency']) / (1 + CONTINGENCY_PL);
+  steps[6] += v;
+  v *= p['unit.priceLevel'];
+  steps[7] += v;
 }
 
 function eventSpend(state: SimState, project: ProjectState, baseCents: number): void {
@@ -344,6 +466,12 @@ function newProject(id: string): ProjectState {
     ridersPerDay: 0,
     polandCostCents: 0,
     polandDays: 0,
+    tunnelChoice: null,
+    stationBox: null,
+    paid: { civil: 0, stations: 0, systems: 0, steps: [0, 0, 0, 0, 0, 0, 0, 0] },
+    offPlanCents: 0,
+    handDigCents: 0,
+    handDigM3: 0,
   };
 }
 
@@ -405,6 +533,10 @@ function makeFronts(state: SimState, project: ProjectState): void {
       toM: project.cum[j + 1],
       chainageM: project.cum[i],
       downDays: 0,
+      downReason: null,
+      boredM: 0,
+      breakthroughTick: -1,
+      drive: null,
     });
     i = j + 1;
   }
@@ -421,22 +553,115 @@ function emitFrontCarve(project: ProjectState, front: FrontState, fromM: number,
   for (const e of edits) emit(e);
 }
 
-function emitStationCarve(project: ProjectState, s: StationState, emit: (e: WorldEdit) => void): void {
-  if (s.template !== 'undergroundStandard' && s.template !== 'undergroundDeepMined') return;
+/** Carve radius and full half-length of a station's excavation, or null for templates that are not dug out. */
+function stationCarve(s: StationState, flags: DesignFlags): { radiusM: number; halfM: number } | null {
+  if (s.template !== 'undergroundStandard' && s.template !== 'undergroundDeepMined') return null;
+  const size = stationSize(s.template, stationBoxOf(flags));
+  return { radiusM: size.widthM * STATION_CARVE_RADIUS_SHARE, halfM: size.lengthM / 2 };
+}
+
+/** Carves the slices of a station box between two half-lengths, each side of the platform centre. */
+function emitStationCarve(
+  project: ProjectState,
+  s: StationState,
+  fromHalfM: number,
+  toHalfM: number,
+  radiusM: number,
+  emit: (e: WorldEdit) => void,
+): void {
   const len = projectLengthM(project);
-  const from = Math.max(0, s.chainageM - STATION_CARVE_HALF_LENGTH_M);
-  const to = Math.min(len, s.chainageM + STATION_CARVE_HALF_LENGTH_M);
   const edits: WorldEdit[] = [];
-  _carveCapsules(project.waypoints, project.cum, from, to, STATION_CARVE_RADIUS_M, 0, edits);
+  const span = (a: number, b: number) => {
+    const from = Math.max(0, a);
+    const to = Math.min(len, b);
+    if (to > from) _carveCapsules(project.waypoints, project.cum, from, to, radiusM, 0, edits);
+  };
+  if (fromHalfM <= 0) span(s.chainageM - toHalfM, s.chainageM + toHalfM);
+  else {
+    span(s.chainageM - toHalfM, s.chainageM - fromHalfM);
+    span(s.chainageM + fromHalfM, s.chainageM + toHalfM);
+  }
   for (const e of edits) emit(e);
+}
+
+/** Capsules of a driven heading between two axis points, one per tube. Lateral offsets are to the left of travel. */
+function emitDrivenCarve(
+  shape: { radiusM: number; laterals: number[] },
+  a: { x: number; y: number; z: number; dirX: number; dirZ: number },
+  b: { x: number; y: number; z: number; dirX: number; dirZ: number },
+  emit: (e: WorldEdit) => void,
+): void {
+  if (shape.radiusM <= 0) return;
+  for (const lateral of shape.laterals) {
+    emit(
+      capsuleBetween(
+        { x: a.x + a.dirZ * lateral, y: a.y, z: a.z - a.dirX * lateral },
+        { x: b.x + b.dirZ * lateral, y: b.y, z: b.z - b.dirX * lateral },
+        shape.radiusM,
+      ),
+    );
+  }
 }
 
 /** Every carve edit implied by construction progress so far. Used after load to rebuild the voxels. */
 export function replayCarves(state: SimState, emit: (e: WorldEdit) => void): void {
   for (const project of state.projects) {
-    for (const front of project.fronts) emitFrontCarve(project, front, front.fromM, front.chainageM, emit);
-    for (const s of project.stations) if (s.progress >= 1) emitStationCarve(project, s, emit);
+    const flags = project.frozen;
+    for (const front of project.fronts) {
+      const d = front.drive;
+      if (!d || !flags) {
+        emitFrontCarve(project, front, front.fromM, front.chainageM, emit);
+        continue;
+      }
+      // A driven heading is replayed along its as-built axis; each chord is offset square to itself.
+      const shape = carveShape(front.method, flags);
+      const pts: { x: number; y: number; z: number }[] = [];
+      for (let i = 0; i + 2 < d.trail.length; i += 3) pts.push({ x: d.trail[i], y: d.trail[i + 1], z: d.trail[i + 2] });
+      pts.push({ x: d.carveX, y: d.carveY, z: d.carveZ });
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const h = Math.sqrt(dx * dx + dz * dz);
+        if (h <= 0) continue;
+        const dir = { dirX: dx / h, dirZ: dz / h };
+        emitDrivenCarve(shape, { ...a, ...dir }, { ...b, ...dir }, emit);
+      }
+    }
+    if (!flags) continue;
+    for (const s of project.stations) {
+      const carve = stationCarve(s, flags);
+      if (carve && s.carvedM > 0) emitStationCarve(project, s, 0, s.carvedM, carve.radiusM, emit);
+    }
   }
+}
+
+/**
+ * As-built axis of a heading in the planned regime from the start of its run to chainage `toM`, as flat
+ * x, y, z triplets: the start, every TRAIL_STEP_M and every vertex passed. Append-only as `toM` grows.
+ */
+export function plannedTrail(project: ProjectState, fromM: number, toM: number): number[] {
+  const { waypoints, cum } = project;
+  const out: number[] = [];
+  const push = (s: number) => {
+    const p = pointAt(waypoints, cum, s);
+    out.push(p.x, p.y, p.z);
+  };
+  push(fromM);
+  let vertex = _segmentIndexAt(cum, fromM) + 1;
+  const steps = Math.floor((toM - fromM) / TRAIL_STEP_M + 1e-9);
+  for (let k = 1; k <= steps; k++) {
+    const s = fromM + k * TRAIL_STEP_M;
+    while (vertex < cum.length - 1 && cum[vertex] < s - 1e-9) {
+      if (cum[vertex] > fromM) out.push(waypoints[vertex].x, waypoints[vertex].y, waypoints[vertex].z);
+      vertex++;
+    }
+    // A vertex that falls on a step is the step point itself.
+    if (vertex < cum.length - 1 && cum[vertex] <= s + 1e-9) vertex++;
+    push(s);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- command application
@@ -468,6 +693,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
         costProfile: cmd.costProfile ?? state.costProfile,
         events: cmd.events ?? state.eventsEnabled,
       });
+      // A restart never reuses a feed seq, so a consumer that remembers the last one it handled stays correct.
+      fresh.nextFeedSeq = state.nextFeedSeq;
       // Same key set as the old state, so assigning replaces everything.
       Object.assign(state, fresh);
       return;
@@ -490,8 +717,16 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
         state.projects.push(project);
       }
       const segments = cmd.waypoints.length - 1;
-      if (cmd.methods) project.methods = [...cmd.methods];
-      else if (project.methods.length !== segments) project.methods = new Array<Method>(segments).fill('boredTwin');
+      if (cmd.methods) {
+        project.methods = [...cmd.methods];
+        project.tunnelChoice = null;
+      } else if (project.methods.length !== segments) {
+        // A redrawn line keeps its method when it has one; otherwise it gets the chosen or the standard design.
+        const first = project.methods[0];
+        const uniform = first !== undefined && project.methods.every((m) => m === first);
+        const fill = uniform ? first : project.tunnelChoice ? TUNNEL_OPTION_METHOD[project.tunnelChoice] : defaultMethod(profile);
+        project.methods = new Array<Method>(segments).fill(fill);
+      }
       project.waypoints = cmd.waypoints.map((w) => ({ ...w }));
       if (cmd.name) project.name = cmd.name;
       refreshGeometry(project);
@@ -514,7 +749,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (problem) return reject(state, cmd, problem);
       if (waypoints.length >= 2) {
         const neighbour = project.methods[Math.min(Math.max(0, index - 1), project.methods.length - 1)];
-        project.methods.splice(Math.max(0, index - 1), 0, cmd.method ?? neighbour ?? 'boredTwin');
+        project.methods.splice(Math.max(0, index - 1), 0, cmd.method ?? neighbour ?? defaultMethod(profile));
+        if (cmd.method !== undefined && cmd.method !== neighbour) project.tunnelChoice = null;
       }
       project.waypoints = waypoints;
       refreshGeometry(project);
@@ -530,6 +766,7 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (cmd.segment >= project.methods.length)
         return reject(state, cmd, `segment ${cmd.segment} does not exist (${project.methods.length} segments)`);
       project.methods[cmd.segment] = cmd.method;
+      project.tunnelChoice = null;
       refreshEstimate(project, profile);
       state.version++;
       return;
@@ -550,7 +787,7 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
         return reject(state, cmd, `chainage ${chainageM} is outside the alignment (0 to ${len.toFixed(0)} m)`);
       const depthM = cmd.depthM ?? DEFAULT_STATION_DEPTH_M;
       if (depthM < 0 || depthM > 100) return reject(state, cmd, `station depth ${depthM} m is outside 0 to 100`);
-      project.stations.push({ id, name: cmd.name, template: cmd.template, chainageM, depthM, progress: 0 });
+      project.stations.push({ id, name: cmd.name, template: cmd.template, chainageM, depthM, progress: 0, carvedM: 0 });
       refreshGeometry(project);
       refreshEstimate(project, profile);
       state.version++;
@@ -573,6 +810,10 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (!project) return reject(state, cmd, `no project "${cmd.projectId}"`);
       if (project.status !== 'draft') return reject(state, cmd, `project "${project.id}" is already ${project.status}`);
       if (project.methods.length === 0) return reject(state, cmd, `project "${project.id}" has no alignment`);
+      if (!ctx.forecast) {
+        const checks = checkAlignment(project.waypoints, project.methods);
+        if (!checks.ok) return reject(state, cmd, `the alignment of "${project.id}" is not buildable: ${checks.problems[0]}`);
+      }
       project.status = 'active';
       project.approvedTick = state.tick;
       project.approvedEscalation = state.escalation;
@@ -581,6 +822,7 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       project.phaseProgress = head ? head.progress : 0;
       refreshEstimate(project, profile);
       state.version++;
+      feed(state, ctx, 'projectApproved', project.id, null, `${project.name} is approved. The clock is running.`);
       return;
     }
     case 'advancePhase': {
@@ -590,7 +832,7 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       project.awaiting = null;
       project.phase = 'procurement';
       project.phaseProgress = 0;
-      project.frozen = designFlags(profile);
+      project.frozen = standardsFor(project, profile);
       refreshEstimate(project, profile);
       state.version++;
       return;
@@ -604,6 +846,9 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       project.phaseProgress = 0;
       makeFronts(state, project);
       state.version++;
+      for (const front of project.fronts) {
+        if (isDrivable(front.method)) feed(state, ctx, 'tbmLaunched', project.id, front.id, `${front.name} is launched`);
+      }
       return;
     }
     case 'openLine': {
@@ -624,6 +869,14 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
         }
       }
       state.version++;
+      feed(
+        state,
+        ctx,
+        'lineOpened',
+        project.id,
+        null,
+        `${project.name} is open: ${project.ridersPerDay.toLocaleString('en-US')} riders a day, ${usd(projectSpentCents(project))} spent`,
+      );
       return;
     }
     case 'enactReform': {
@@ -642,6 +895,7 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       const next = _profileFor(state.reforms);
       for (const project of state.projects) if (project.status !== 'open') refreshEstimate(project, next);
       state.version++;
+      feed(state, ctx, 'reformEnacted', null, def.id, `Reform enacted: ${def.title}`);
       return;
     }
     case 'resolveEvent': {
@@ -654,10 +908,133 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (state.politicalCapital < option.pc)
         return reject(state, cmd, `option "${option.id}" costs ${option.pc} political capital, you have ${state.politicalCapital}`);
       state.pendingEvents.splice(at, 1);
-      resolveEvent(state, pending.uid, pending.projectId, pending.frontId, def, option, profile, false);
+      resolveEvent(state, pending.uid, pending.projectId, pending.frontId, def, option, profile, false, ctx);
+      return;
+    }
+    case 'useOfficialPlan': {
+      const ref = state.scenario.reference;
+      if (!ref) return reject(state, cmd, `scenario "${state.scenario.id}" has no official plan`);
+      const existing = findProject(state, ref.projectId);
+      if (existing) {
+        const locked = designLocked(existing);
+        if (locked) return reject(state, cmd, locked);
+        // The official plan replaces what was drawn: its stations and design choices go.
+        existing.stations = [];
+        existing.tunnelChoice = null;
+        existing.stationBox = null;
+      } else if (state.projects.length >= MAX_PROJECTS) {
+        return reject(state, cmd, `at most ${MAX_PROJECTS} projects`);
+      }
+      for (const c of ref.commands) applyCommand(state, c, ctx);
+      return;
+    }
+    case 'removeProject': {
+      const at = state.projects.findIndex((p) => p.id === cmd.projectId);
+      if (at < 0) return reject(state, cmd, `no project "${cmd.projectId}"`);
+      if (state.projects[at].status !== 'draft')
+        return reject(state, cmd, `project "${cmd.projectId}" is ${state.projects[at].status}; only a draft can be removed`);
+      state.projects.splice(at, 1);
+      state.version++;
+      return;
+    }
+    case 'setDesign': {
+      const project = findProject(state, cmd.projectId);
+      if (!project) return reject(state, cmd, `no project "${cmd.projectId}"`);
+      const locked = designLocked(project);
+      if (locked) return reject(state, cmd, locked);
+      // Both picks are checked before either is applied.
+      for (const id of [cmd.tunnel, cmd.stationBox]) {
+        if (id === undefined) continue;
+        const locks = optionLocks(id, profile);
+        if (locks.length > 0) {
+          const titles = locks.map((r) => `"${reformById(r)?.title ?? r}"`).join(' and ');
+          return reject(state, cmd, `"${designOption(id).label}" is not allowed by the standards in force; enact ${titles} first`);
+        }
+      }
+      if (cmd.tunnel !== undefined) {
+        const method = TUNNEL_OPTION_METHOD[cmd.tunnel];
+        for (let i = 0; i < project.methods.length; i++) if (isUnderground(project.methods[i])) project.methods[i] = method;
+        project.tunnelChoice = cmd.tunnel;
+      }
+      if (cmd.stationBox !== undefined) project.stationBox = cmd.stationBox;
+      refreshEstimate(project, profile);
+      state.version++;
+      return;
+    }
+    case 'tbmControl': {
+      let project: ProjectState | undefined;
+      let front: FrontState | undefined;
+      for (const pr of state.projects) {
+        const f = pr.fronts.find((x) => x.id === cmd.headingId);
+        if (f) {
+          project = pr;
+          front = f;
+          break;
+        }
+      }
+      if (!project || !front) return reject(state, cmd, `no heading "${cmd.headingId}"`);
+      if (project.status !== 'active' || project.phase !== 'construction')
+        return reject(state, cmd, `project "${project.id}" is not under construction`);
+      if (front.chainageM >= front.toM) return reject(state, cmd, `${front.name} has already broken through`);
+      if (!isDrivable(front.method)) return reject(state, cmd, `${front.name} is not a machine that can be driven`);
+      if (cmd.thrust !== undefined && (cmd.thrust < 0 || cmd.thrust > 1))
+        return reject(state, cmd, `thrust ${cmd.thrust} is outside 0 to 1`);
+      if (cmd.steer !== undefined && (cmd.steer < -1 || cmd.steer > 1)) return reject(state, cmd, `steer ${cmd.steer} is outside -1 to 1`);
+      if (cmd.pitch !== undefined && (cmd.pitch < -1 || cmd.pitch > 1)) return reject(state, cmd, `pitch ${cmd.pitch} is outside -1 to 1`);
+      if (!front.drive) {
+        // Planned regime: the cruise along the alignment needs no controls.
+        if (cmd.autopilot === true && cmd.thrust === undefined && cmd.steer === undefined && cmd.pitch === undefined) return;
+        if (cmd.autopilot !== false) return reject(state, cmd, `${front.name} is on autopilot; send autopilot false to take the controls`);
+        const seg = _segmentIndexAt(project.cum, front.chainageM);
+        const floorM = front.fromM + Math.floor((front.chainageM - front.fromM) / TRAIL_STEP_M + 1e-9) * TRAIL_STEP_M;
+        const trail = plannedTrail(project, front.fromM, floorM);
+        const at = pointAt(project.waypoints, project.cum, front.chainageM);
+        if (front.chainageM - floorM > 1e-6) trail.push(at.x, at.y, at.z);
+        front.drive = driveFromPlan(
+          project.waypoints,
+          project.cum,
+          front.chainageM,
+          project.waypoints[seg].geology ?? 'softGround',
+          trail,
+          front.boredM,
+        );
+        state.version++;
+      }
+      const d = front.drive;
+      if (cmd.autopilot !== undefined) d.autopilot = cmd.autopilot;
+      if (cmd.thrust !== undefined) d.thrust = cmd.thrust;
+      if (cmd.steer !== undefined) d.steer = cmd.steer;
+      if (cmd.pitch !== undefined) d.pitch = cmd.pitch;
+      return;
+    }
+    case 'chargeDig': {
+      if (cmd.volumeM3 > MAX_DIG_M3) return reject(state, cmd, `a dig of ${cmd.volumeM3.toFixed(0)} m3 is more than one brush can move`);
+      const project = cmd.projectId === undefined ? null : findProject(state, cmd.projectId);
+      if (project === undefined) return reject(state, cmd, `no project "${cmd.projectId}"`);
+      const base = round(cmd.volumeM3 * handDigCentsPerM3(profile));
+      const cents = round(base * state.escalation);
+      // Booked as civil works: hand digging is excavation. No soft-cost or contingency riders.
+      charge(state, project, 'civil', cents, cents - base);
+      state.handDig.volumeM3 += cmd.volumeM3;
+      state.handDig.cents += cents;
+      if (project) {
+        project.handDigCents += cents;
+        project.handDigM3 += cmd.volumeM3;
+        state.version++;
+      }
       return;
     }
   }
+}
+
+/** Headings a player can possess: machines that bore or mine a tube. Cut-and-cover fronts and track gangs are not driven. */
+export function isDrivable(m: Method): boolean {
+  return m === 'boredTwin' || m === 'boredSingleLarge' || m === 'mined';
+}
+
+/** Price of the free dig brush at today's unit factors, unescalated cents per cubic metre. */
+export function handDigCentsPerM3(p: Profile): number {
+  return K.handDigPlnPerM3.value * CENTS_PER_PLN * unitFactor(p);
 }
 
 // ---------------------------------------------------------------- events
@@ -671,6 +1048,7 @@ function resolveEvent(
   option: EventOption,
   p: Profile,
   byDefault: boolean,
+  ctx: StepContext,
 ): void {
   const project = findProject(state, projectId);
   if (!project) throw new Error(`sim: event ${uid} points at missing project "${projectId}"`);
@@ -679,10 +1057,16 @@ function resolveEvent(
   let delay = option.delayDays;
   if (def.id === 'lawsuit') delay = Math.min(delay, p['event.lawsuit.delayCapDays']);
   const front = frontId ? project.fronts.find((f) => f.id === frontId) : undefined;
-  if (front) front.downDays += delay;
-  else project.delayDays += delay;
+  if (front) {
+    front.downDays += delay;
+    if (delay > 0) {
+      front.downReason = 'event';
+      feed(state, ctx, 'tbmStopped', projectId, front.id, `${front.name} stands for ${delay} days`);
+    }
+  } else project.delayDays += delay;
   state.eventLog.push({ uid, defId: def.id, projectId, optionId: option.id, tick: state.tick, byDefault });
   state.version++;
+  feed(state, ctx, 'eventResolved', projectId, def.id, `${def.title}: ${option.label}`);
 }
 
 /** Annual hazard of a card for a project under a profile, or 0 when it cannot be drawn. Exposed for tests and tooltips. */
@@ -697,7 +1081,7 @@ export function eventHazardPerYear(def: EventDef, project: ProjectState, p: Prof
   return def.annualRate * p[`event.${def.id}.rate`];
 }
 
-function rollEvents(state: SimState, project: ProjectState, p: Profile, rng: Uint32Array): void {
+function rollEvents(state: SimState, project: ProjectState, p: Profile, rng: Uint32Array, ctx: StepContext): void {
   for (const def of ALL_EVENTS) {
     const hazard = eventHazardPerYear(def, project, p);
     if (hazard <= 0) continue;
@@ -719,25 +1103,34 @@ function rollEvents(state: SimState, project: ProjectState, p: Profile, rng: Uin
     });
     state.nextEventUid++;
     state.version++;
+    feed(state, ctx, 'eventRaised', project.id, def.id, def.title);
   }
 }
 
 // ---------------------------------------------------------------- the daily step
 
-function releaseFunding(state: SimState, phase: PhaseId): void {
+function releaseFunding(state: SimState, phase: PhaseId, ctx: StepContext): void {
   for (const f of state.scenario.start.funding) {
     if (f.release === phase && !state.fundingReleased.includes(f.id)) {
       state.cashCents += f.amountCents;
       state.fundingReleased.push(f.id);
+      feed(state, ctx, 'fundingReleased', null, f.id, `${f.name}: ${usd(f.amountCents)} released`);
     }
   }
 }
 
-function completePhase(state: SimState, project: ProjectState, phase: PhaseId): void {
-  releaseFunding(state, phase);
+const GATE_TEXT = {
+  advancePhase: 'ready to go to tender',
+  launchTBM: 'ready to launch',
+  openLine: 'ready to open',
+} as const;
+
+function completePhase(state: SimState, project: ProjectState, phase: PhaseId, ctx: StepContext): void {
+  releaseFunding(state, phase, ctx);
   state.politicalCapital += PC_PHASE_DONE;
   state.version++;
   project.phaseProgress = 0;
+  feed(state, ctx, 'phaseDone', project.id, phase, `${project.name}: ${PHASE_LABELS[phase].toLowerCase()} done`);
   switch (phase) {
     case 'planning':
       project.phase = 'permitting';
@@ -762,12 +1155,42 @@ function completePhase(state: SimState, project: ProjectState, phase: PhaseId): 
       project.awaiting = 'openLine';
       break;
   }
+  if (project.awaiting) feed(state, ctx, 'gateReady', project.id, project.awaiting, `${project.name} is ${GATE_TEXT[project.awaiting]}`);
 }
 
 /** Expected share of days a TBM is boring, used in forecasts instead of rolling breakdowns. */
 export function expectedAvailability(p: Profile): number {
   const pBreak = BREAK_P * p['tbm.breakdown'];
   return 1 / (1 + pBreak * (BREAK_MIN + (BREAK_SPAN - 1) / 2));
+}
+
+/** The heading reached the end of its run. Machines that bore or mine get a breakthrough banner, exactly once. */
+function breakThrough(state: SimState, project: ProjectState, front: FrontState, ctx: StepContext): void {
+  if (front.breakthroughTick >= 0) return;
+  front.breakthroughTick = state.tick;
+  state.version++;
+  // The reception box is open when the machine arrives, even if its station is behind schedule.
+  const flags = project.frozen;
+  if (flags) {
+    for (const s of project.stations) {
+      if (Math.abs(s.chainageM - front.toM) > RECEPTION_REACH_M) continue;
+      const carve = stationCarve(s, flags);
+      if (!carve || s.carvedM >= carve.halfM) continue;
+      if (ctx.emit) emitStationCarve(project, s, s.carvedM, carve.halfM, carve.radiusM, ctx.emit);
+      s.carvedM = carve.halfM;
+    }
+  }
+  if (!isDrivable(front.method)) return;
+  let where = 'the reception shaft';
+  let best = RECEPTION_REACH_M;
+  for (const s of project.stations) {
+    const d = Math.abs(s.chainageM - front.toM);
+    if (d <= best) {
+      best = d;
+      where = s.name;
+    }
+  }
+  feed(state, ctx, 'breakthrough', project.id, front.id, `Breakthrough at ${where}: ${front.name} is through`);
 }
 
 function stepConstruction(state: SimState, project: ProjectState, p: Profile, ctx: StepContext, rng: Uint32Array | null): void {
@@ -780,7 +1203,7 @@ function stepConstruction(state: SimState, project: ProjectState, p: Profile, ct
     if (front.chainageM < front.toM) {
       advanceFront(state, project, front, p, ctx, rng);
       if (front.chainageM < front.toM) allDone = false;
-    }
+    } else flushDriveCost(state, project, front, p);
     builtM += front.chainageM - front.fromM;
   }
   const ctf = p['time.constructionFactor'];
@@ -789,19 +1212,42 @@ function stepConstruction(state: SimState, project: ProjectState, p: Profile, ct
     const d = Math.min(1 - s.progress, 1 / stationBuildDays(s.template, flags, ctf));
     hardSpend(state, project, p, 'stations', stationCostCents(s, p, flags) * d);
     s.progress += d;
-    if (s.progress >= 1 - 1e-9) {
-      s.progress = 1;
-      if (ctx.emit) emitStationCarve(project, s, ctx.emit);
-    } else {
-      allDone = false;
+    if (s.progress >= 1 - 1e-9) s.progress = 1;
+    else allDone = false;
+    // The box is dug out early in the build, so a machine that arrives finds it open.
+    const carve = stationCarve(s, flags);
+    if (carve) {
+      const share = Math.min(1, s.progress / STATION_EXCAVATION_SHARE);
+      const target = share >= 1 ? carve.halfM : Math.floor((carve.halfM * share) / STATION_CARVE_STEP_M) * STATION_CARVE_STEP_M;
+      if (target > s.carvedM) {
+        if (ctx.emit) emitStationCarve(project, s, s.carvedM, target, carve.radiusM, ctx.emit);
+        s.carvedM = target;
+      }
     }
+    if (s.progress >= 1) feed(state, ctx, 'stationDone', project.id, s.id, `${s.name}: structure complete`);
   }
   const len = cum[cum.length - 1];
   let stationSum = 0;
   for (const s of project.stations) stationSum += s.progress;
   const stationShare = project.stations.length > 0 ? stationSum / project.stations.length : 1;
   project.phaseProgress = Math.min(len > 0 ? builtM / len : 1, stationShare);
-  if (allDone) completePhase(state, project, 'construction');
+  if (allDone) completePhase(state, project, 'construction', ctx);
+}
+
+/** Books the civil cost a driven heading accrued in its sub-steps since the last day boundary. */
+function flushDriveCost(state: SimState, project: ProjectState, front: FrontState, p: Profile): void {
+  const d = front.drive;
+  if (!d || d.pendingCents <= 0) return;
+  hardSpend(state, project, p, 'civil', d.pendingCents - d.pendingOffPlanCents);
+  if (d.pendingOffPlanCents > 0) {
+    // The surcharge buys nothing a receipt lever explains, so it stays out of the paid ledger.
+    hardSpend(state, project, p, 'civil', d.pendingOffPlanCents, false);
+    // The surcharge with its riders at today's prices, for the off-plan line of the receipt.
+    const riders = (1 + p['soft.fixed']) * (1 + p['soft.contingency']);
+    project.offPlanCents += round(d.pendingOffPlanCents * riders * state.escalation);
+  }
+  d.pendingCents = 0;
+  d.pendingOffPlanCents = 0;
 }
 
 function advanceFront(
@@ -812,8 +1258,16 @@ function advanceFront(
   ctx: StepContext,
   rng: Uint32Array | null,
 ): void {
+  // In a forecast a driven heading simply continues along the plan from where it stands.
+  const driven = front.drive !== null && !ctx.forecast;
+  // What the sub-steps of the day accrued is booked first, also in a forecast taken in the middle of a day.
+  flushDriveCost(state, project, front, p);
   if (front.downDays > 0) {
     front.downDays--;
+    if (front.downDays === 0) {
+      front.downReason = null;
+      feed(state, ctx, 'tbmResumed', project.id, front.id, `${front.name} is boring again`);
+    }
     return;
   }
   const flags = project.frozen;
@@ -821,8 +1275,11 @@ function advanceFront(
   const tbm = isTbm(front.method);
   if (tbm && rng && _nextFloat(rng) < BREAK_P * p['tbm.breakdown']) {
     front.downDays = BREAK_MIN + _nextInt(rng, BREAK_SPAN);
+    front.downReason = 'breakdown';
+    feed(state, ctx, 'tbmStopped', project.id, front.id, `${front.name} is down for ${front.downDays} days: cutterhead maintenance`);
     return;
   }
+  if (driven) return;
   const { waypoints, cum } = project;
   let seg = _segmentIndexAt(cum, front.chainageM);
   let rate = _advanceRate(front.method, waypoints[seg].geology ?? 'softGround', p, front.chainageM - front.fromM);
@@ -840,6 +1297,158 @@ function advanceFront(
   hardSpend(state, project, p, 'civil', cost);
   if (ctx.emit) emitFrontCarve(project, front, from, to, ctx.emit);
   front.chainageM = to;
+  front.boredM = to - front.fromM;
+  if (to >= front.toM) breakThrough(state, project, front, ctx);
+}
+
+function planGeology(project: ProjectState, chainageM: number): Geology {
+  return (
+    project.waypoints[_segmentIndexAt(project.cum, Math.min(chainageM, project.cum[project.cum.length - 1] - 1e-9))].geology ?? 'softGround'
+  );
+}
+
+/** One sub-step of a driven heading: pose, cost accrual, carving, the as-built trail, and breakthrough. */
+function driveFront(state: SimState, project: ProjectState, front: FrontState, p: Profile, ctx: StepContext): void {
+  const d = front.drive;
+  const flags = project.frozen;
+  if (!d || !flags) return;
+  const { waypoints, cum } = project;
+  const limits = { minRadiusM: minRadiusFor(front.method), maxGrade: MAX_GRADE };
+  const rate = _advanceRate(front.method, d.geology, p, front.boredM);
+  const wasOffPlan = d.offPlan;
+  const wasBlocked = d.blocked;
+  const step = driveSubstep(d, waypoints, cum, front.toM, rate, limits, freeDeviationM(waypoints, cum, d.planM, limits.minRadiusM));
+  if (d.blocked && !wasBlocked && state.tick - d.corridorNoticeTick >= NOTICE_GAP_DAYS) {
+    d.corridorNoticeTick = state.tick;
+    feed(state, ctx, 'tbmStopped', project.id, front.id, `${front.name} is at the edge of its corridor and re-steers towards the plan`);
+  }
+  if (step.advancedM <= 0) return;
+  front.boredM += step.advancedM;
+  if (d.planM > front.chainageM) front.chainageM = Math.min(front.toM, d.planM);
+  const base = step.advancedM * _civilCentsPerM(front.method, d.geology, p, flags);
+  d.pendingCents += d.offPlan ? base * OFF_PLAN_FACTOR : base;
+  if (d.offPlan) d.pendingOffPlanCents += base * (OFF_PLAN_FACTOR - 1);
+  if (d.offPlan && !wasOffPlan && state.tick - d.offPlanNoticeTick >= NOTICE_GAP_DAYS) {
+    d.offPlanNoticeTick = state.tick;
+    feed(
+      state,
+      ctx,
+      'tbmOffPlan',
+      project.id,
+      front.id,
+      `${front.name} is off the planned alignment: every metre here costs ${Math.round((OFF_PLAN_FACTOR - 1) * 100)} percent more`,
+    );
+  }
+
+  const shape = carveShape(front.method, flags);
+  const dx = d.x - d.carveX;
+  const dy = d.y - d.carveY;
+  const dz = d.z - d.carveZ;
+  if (step.arrived || dx * dx + dy * dy + dz * dz >= 1) {
+    const from = { x: d.carveX, y: d.carveY, z: d.carveZ, dirX: d.carveDirX, dirZ: d.carveDirZ };
+    const to = { x: d.x, y: d.y, z: d.z, dirX: d.dirX, dirZ: d.dirZ };
+    if (ctx.emit) emitDrivenCarve(shape, from, to, ctx.emit);
+    d.carveX = d.x;
+    d.carveY = d.y;
+    d.carveZ = d.z;
+    d.carveDirX = d.dirX;
+    d.carveDirZ = d.dirZ;
+    const sampled = ctx.ground ? faceGeology(ctx.ground, d.x, d.y, d.z, shape.radiusM) : null;
+    d.geology = sampled ?? planGeology(project, d.planM);
+    if (step.arrived || front.boredM - d.trailM >= TRAIL_STEP_M) {
+      d.trail.push(d.x, d.y, d.z);
+      d.trailM = front.boredM;
+    }
+  }
+  if (!step.arrived) return;
+  // Join the reception point of the plan, so the tunnel is open end to end wherever the face came in.
+  const end = pointAt(waypoints, cum, front.toM);
+  const ex = end.x - d.x;
+  const ey = end.y - d.y;
+  const ez = end.z - d.z;
+  if (ex * ex + ey * ey + ez * ez > 0.25) {
+    if (ctx.emit) {
+      const from = { x: d.x, y: d.y, z: d.z, dirX: d.dirX, dirZ: d.dirZ };
+      emitDrivenCarve(shape, from, { ...end, dirX: d.dirX, dirZ: d.dirZ }, ctx.emit);
+    }
+    d.trail.push(end.x, end.y, end.z);
+    d.x = end.x;
+    d.y = end.y;
+    d.z = end.z;
+    d.carveX = end.x;
+    d.carveY = end.y;
+    d.carveZ = end.z;
+  }
+  d.lateralM = 0;
+  d.verticalM = 0;
+  d.offPlan = false;
+  front.chainageM = front.toM;
+  breakThrough(state, project, front, ctx);
+}
+
+/**
+ * Deviation from the plan that carries no surcharge at plan chainage `s`. The plan is a polyline but a machine
+ * turns on a radius, so near a vertex the tolerance widens by the distance between the corner and the curve
+ * that replaces it (at most a curve of twice the minimum radius), tapering to nothing one tangent length away.
+ */
+export function freeDeviationM(wps: readonly Waypoint[], cum: readonly number[], s: number, minRadiusM: number): number {
+  const seg = _segmentIndexAt(cum, Math.min(s, cum[cum.length - 1] - 1e-9));
+  let bulge = 0;
+  for (const v of [seg, seg + 1]) {
+    if (v <= 0 || v >= wps.length - 1) continue;
+    const a = wps[v - 1];
+    const m = wps[v];
+    const b = wps[v + 1];
+    const ax = m.x - a.x;
+    const az = m.z - a.z;
+    const bx = b.x - m.x;
+    const bz = b.z - m.z;
+    const la = Math.sqrt(ax * ax + az * az);
+    const lb = Math.sqrt(bx * bx + bz * bz);
+    const denom = la * lb + (ax * bx + az * bz);
+    if (!(la > 0 && lb > 0 && denom > 0)) continue;
+    const tanHalf = Math.abs(ax * bz - az * bx) / denom;
+    if (tanHalf <= 0) continue;
+    const radius = Math.min(Math.min(la, lb) / 2 / tanHalf, 2 * minRadiusM);
+    const tangent = radius * tanHalf;
+    const away = Math.abs(s - cum[v]);
+    if (away >= tangent) continue;
+    const outside = radius * (Math.sqrt(1 + tanHalf * tanHalf) - 1);
+    bulge = Math.max(bulge, outside * (1 - away / tangent));
+  }
+  return FREE_DEVIATION_M + bulge;
+}
+
+/** True when a heading integrates in sub-steps right now, so a day cannot be advanced in one go. */
+export function hasDrivenHeading(state: SimState): boolean {
+  for (const project of state.projects) {
+    if (project.status !== 'active' || project.phase !== 'construction') continue;
+    for (const front of project.fronts) if (front.drive && front.chainageM < front.toM) return true;
+  }
+  return false;
+}
+
+/**
+ * Advances time by one sub-step, 1 / SUBSTEPS_PER_DAY of a game day. Driven headings integrate here;
+ * everything else runs in advanceDay when the sub-step closes a day.
+ */
+export function advanceSubstep(state: SimState, ctx: StepContext): void {
+  if (!ctx.forecast) {
+    let p: Profile | null = null;
+    for (const project of state.projects) {
+      if (project.status !== 'active' || project.phase !== 'construction' || project.awaiting || project.delayDays > 0) continue;
+      for (const front of project.fronts) {
+        if (!front.drive || front.chainageM >= front.toM || front.downDays > 0) continue;
+        if (!p) p = _profileFor(state.reforms);
+        driveFront(state, project, front, p, ctx);
+      }
+    }
+  }
+  state.subTick++;
+  if (state.subTick >= SUBSTEPS) {
+    state.subTick = 0;
+    advanceDay(state, ctx);
+  }
 }
 
 function stepProject(state: SimState, project: ProjectState, p: Profile, ctx: StepContext, rng: Uint32Array | null): void {
@@ -848,7 +1457,7 @@ function stepProject(state: SimState, project: ProjectState, p: Profile, ctx: St
     project.delayDays--;
     return;
   }
-  if (rng && state.eventsEnabled) rollEvents(state, project, p, rng);
+  if (rng && state.eventsEnabled) rollEvents(state, project, p, rng, ctx);
   if (project.awaiting) return;
   const phase = project.phase;
   if (phase === 'construction') {
@@ -865,7 +1474,14 @@ function stepProject(state: SimState, project: ProjectState, p: Profile, ctx: St
     }
   }
   project.phaseProgress += d;
-  if (project.phaseProgress >= 1 - 1e-9) completePhase(state, project, phase);
+  if (project.phaseProgress >= 1 - 1e-9) completePhase(state, project, phase, ctx);
+}
+
+/** The line is open and every required connect objective is met; in free build, the first line to open. */
+function missionDone(state: SimState, statuses: readonly { id: string; status: string }[]): boolean {
+  const required = state.scenario.objectives.filter((o) => o.kind === 'connect' && o.stretch !== true);
+  if (required.length === 0) return state.projects.some((p) => p.status === 'open');
+  return required.every((o) => statuses.find((s) => s.id === o.id)?.status === 'done');
 }
 
 /** Advances the world by exactly one game day. */
@@ -892,7 +1508,7 @@ export function advanceDay(state: SimState, ctx: StepContext): void {
     const def = eventById(pending.defId);
     const option = def?.options.find((o) => o.id === def.defaultOption);
     if (!def || !option) throw new Error(`sim: pending event ${pending.uid} has unknown card "${pending.defId}" or no default option`);
-    resolveEvent(state, pending.uid, pending.projectId, pending.frontId, def, option, p, true);
+    resolveEvent(state, pending.uid, pending.projectId, pending.frontId, def, option, p, true, ctx);
   }
 
   let spentToday = 0;
@@ -906,6 +1522,32 @@ export function advanceDay(state: SimState, ctx: StepContext): void {
   if (state.tick % 30 === 0) state.politicalCapital += PC_PER_MONTH + Math.floor(riders / PC_RIDERS_PER_POINT);
   state.escalation *= ESC_DAILY;
   if (rng) state.rng = Array.from(rng);
+
+  if (ctx.forecast) return;
+  if (state.cashCents < 0 && !state.cashShort) {
+    state.cashShort = true;
+    feed(state, ctx, 'cashShort', null, null, `The plan of finance has a hole: cash is ${usd(state.cashCents)}`);
+  } else if (state.cashCents >= 0) state.cashShort = false;
+  if (ctx.evaluate) {
+    const statuses = ctx.evaluate(state);
+    for (const o of statuses) {
+      const was = state.objectiveStatus[o.id] ?? 'pending';
+      if (o.status !== was && o.status !== 'pending')
+        feed(
+          state,
+          ctx,
+          o.status === 'done' ? 'objectiveDone' : 'objectiveFailed',
+          null,
+          o.id,
+          `${o.status === 'done' ? 'Objective met' : 'Objective failed'}: ${o.title}`,
+        );
+      state.objectiveStatus[o.id] = o.status;
+    }
+    if (state.missionCompleteTick < 0 && missionDone(state, statuses)) {
+      state.missionCompleteTick = state.tick;
+      feed(state, ctx, 'missionComplete', null, null, `${state.scenario.title}: mission complete`);
+    }
+  }
 }
 
 /** Commands that move every project past its player gates. Used by forecasts, tests and headless runs. */

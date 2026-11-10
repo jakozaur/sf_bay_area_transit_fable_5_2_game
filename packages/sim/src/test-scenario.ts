@@ -30,6 +30,7 @@ export const TEST_DESIGN: GameCommand[] = [
 export function testScenario(over: Partial<ScenarioDef> = {}): ScenarioDef {
   return {
     id: 'test',
+    siteId: 'portal',
     title: 'Test',
     description: 'Synthetic scenario for unit tests.',
     start: {

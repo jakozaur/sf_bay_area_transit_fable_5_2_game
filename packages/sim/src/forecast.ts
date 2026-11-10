@@ -11,7 +11,16 @@ import { dateAtTick } from './dates.ts';
 import { advanceDay, applyCommand, autopilotCommands, projectLengthM, projectSpentCents, type StepContext } from './engine.ts';
 import { designFlags, hardCost, projectFlags } from './model.ts';
 import { POLAND_PROFILE, type Profile, profileFor } from './reforms.ts';
-import { type ComparisonView, type FactorView, LEDGER_CATEGORIES, type LedgerCategory, type ProjectState, type SimState } from './types.ts';
+import {
+  type ComparisonView,
+  type FactorView,
+  type GameCommand,
+  LEDGER_CATEGORIES,
+  type LedgerCategory,
+  type PaidLedger,
+  type ProjectState,
+  type SimState,
+} from './types.ts';
 
 const FORECAST: StepContext = { emit: null, forecast: true, benchmark: null };
 const MAX_FORECAST_DAYS = DAYS_PER_YEAR * 80;
@@ -39,19 +48,37 @@ function shell(state: SimState, projects: ProjectState[], reforms: readonly stri
     eventLog: [],
     notices: [],
     ledger: { total: zeroLedger(), today: zeroLedger(), escalationCents: 0, monthly: [] },
+    feed: [],
+    handDig: { volumeM3: 0, cents: 0 },
+    objectiveStatus: {},
+    subTick: 0,
   };
 }
 
 export interface Forecast {
   costCents: number;
   openTick: number;
+  /** What the project has spent by opening, by ledger category. */
+  spent: Record<LedgerCategory, number>;
+  /** The project's paid ledger at opening (ProjectState.paid): the spend re-priced lever by lever. */
+  paid: PaidLedger;
+}
+
+function copyPaid(p: PaidLedger): PaidLedger {
+  return { civil: p.civil, stations: p.stations, systems: p.systems, steps: [...p.steps] };
 }
 
 function runToOpen(sim: SimState, projectId: string): Forecast {
   for (let day = 0; day <= MAX_FORECAST_DAYS; day++) {
     for (const cmd of _autopilot(sim)) _applyCommand(sim, cmd, FORECAST);
     const project = sim.projects[0];
-    if (project.status === 'open') return { costCents: projectSpentCents(project), openTick: project.openedTick };
+    if (project.status === 'open')
+      return {
+        costCents: projectSpentCents(project),
+        openTick: project.openedTick,
+        spent: { ...project.spent },
+        paid: copyPaid(project.paid),
+      };
     _advanceDay(sim, FORECAST);
   }
   throw new Error(`sim: forecast of project "${projectId}" did not open within ${MAX_FORECAST_DAYS} days`);
@@ -59,40 +86,73 @@ function runToOpen(sim: SimState, projectId: string): Forecast {
 
 /** Estimate at completion and opening tick of a project, continuing from the current state under the current reforms. */
 export function forecastProject(state: SimState, project: ProjectState): Forecast {
-  if (project.status === 'open') return { costCents: projectSpentCents(project), openTick: project.openedTick };
+  if (project.status === 'open')
+    return {
+      costCents: projectSpentCents(project),
+      openTick: project.openedTick,
+      spent: { ...project.spent },
+      paid: copyPaid(project.paid),
+    };
   const copy = JSON.parse(JSON.stringify(project)) as ProjectState;
   return runToOpen(shell(state, [copy], state.reforms, state.tick, state.escalation), project.id);
 }
 
+/** A counterfactual run of a design from a blank project to opening. */
+export interface DesignRun {
+  costCents: number;
+  days: number;
+  spent: Record<LedgerCategory, number>;
+  /** The project as it stood on opening day: geometry, stations and the frozen design. */
+  project: ProjectState;
+}
+
+/** Commands that redraw a project from nothing: its alignment, methods and stations. Design chooser picks are not carried over. */
+export function redrawCommands(project: ProjectState): GameCommand[] {
+  const out: GameCommand[] = [
+    { t: 'setAlignment', projectId: project.id, name: project.name, waypoints: project.waypoints, methods: project.methods },
+  ];
+  for (const s of project.stations) {
+    out.push({
+      t: 'addStation',
+      projectId: project.id,
+      stationId: s.id,
+      name: s.name,
+      template: s.template,
+      chainageM: s.chainageM,
+      depthM: s.depthM,
+    });
+  }
+  return out;
+}
+
+/** Draws a project with `commands` in an empty world under `reforms`, starting at `tick0`, and runs it to opening. */
+export function runDesign(
+  state: SimState,
+  commands: readonly GameCommand[],
+  projectId: string,
+  reforms: readonly string[],
+  tick0: number,
+  escalation0: number,
+): DesignRun {
+  const sim = shell(state, [], reforms, tick0, escalation0);
+  for (const cmd of commands) _applyCommand(sim, cmd, FORECAST);
+  if (sim.projects.length !== 1 || sim.projects[0].id !== projectId)
+    throw new Error(`sim: benchmark could not rebuild project "${projectId}": ${sim.notices.map((n) => n.reason).join('; ')}`);
+  const f = runToOpen(sim, projectId);
+  return { costCents: f.costCents, days: f.openTick - tick0, spent: f.spent, project: sim.projects[0] };
+}
+
 /** The same alignment, stations and start date under any set of reforms, from a blank project. */
-export function forecastDesign(state: SimState, project: ProjectState, reforms: readonly string[]): { costCents: number; days: number } {
+export function designRun(state: SimState, project: ProjectState, reforms: readonly string[]): DesignRun {
   const tick0 = project.approvedTick >= 0 ? project.approvedTick : state.tick;
   const esc0 = project.approvedTick >= 0 ? project.approvedEscalation : state.escalation;
-  const sim = shell(state, [], reforms, tick0, esc0);
-  _applyCommand(
-    sim,
-    { t: 'setAlignment', projectId: project.id, name: project.name, waypoints: project.waypoints, methods: project.methods },
-    FORECAST,
-  );
-  for (const s of project.stations) {
-    _applyCommand(
-      sim,
-      {
-        t: 'addStation',
-        projectId: project.id,
-        stationId: s.id,
-        name: s.name,
-        template: s.template,
-        chainageM: s.chainageM,
-        depthM: s.depthM,
-      },
-      FORECAST,
-    );
-  }
-  if (sim.projects.length !== 1)
-    throw new Error(`sim: benchmark could not rebuild project "${project.id}": ${sim.notices.map((n) => n.reason).join('; ')}`);
-  const f = runToOpen(sim, project.id);
-  return { costCents: f.costCents, days: f.openTick - tick0 };
+  return runDesign(state, redrawCommands(project), project.id, reforms, tick0, esc0);
+}
+
+/** The same alignment, stations and start date under any set of reforms, from a blank project. */
+export function forecastDesign(state: SimState, project: ProjectState, reforms: readonly string[]): { costCents: number; days: number } {
+  const run = designRun(state, project, reforms);
+  return { costCents: run.costCents, days: run.days };
 }
 
 /** What Poland would have paid and how long it would have taken. */

@@ -1,38 +1,98 @@
 /** Public sim object: createSim, loadSim, snapshot, save. */
-import { type Command, type SaveFile, type Sim, stableHashString, type WorldEdit } from '@bayvox/core';
+import {
+  type Command,
+  type EditLogRef,
+  type SaveFile,
+  type Sim,
+  stableHashString,
+  type TunnelEntity,
+  type WorldEdit,
+  type WorldPos,
+} from '@bayvox/core';
+import { checkAlignment } from './checks.ts';
+import { CONSTANTS, SUBSTEPS_PER_DAY } from './constants.ts';
 import { dateAtTick } from './dates.ts';
 import { ridership } from './demand.ts';
+import { DESIGN_OPTIONS, lockTitles, optionLocks, reformUnlocks, stationBoxOf, stationSize, tunnelOf } from './design.ts';
 import {
+  addPaid,
   advanceDay,
+  advanceSubstep,
   applyCommand,
-  expectedAvailability,
+  handDigCentsPerM3,
+  hasDrivenHeading,
   initState,
   parseCommand,
+  plannedTrail,
   projectLengthM,
   projectSpentCents,
   replayCarves,
   type StepContext,
 } from './engine.ts';
+import { estimateAlignment, plannedConstructionDays, quickOption, quickProject } from './estimate.ts';
 import { EVENTS, eventById } from './events.ts';
-import { comparison, type Forecast, forecastProject, polandBenchmark } from './forecast.ts';
-import { pointAt, segmentIndexAt } from './geometry.ts';
-import { advanceRate, effectiveMethod, isTbm, phaseDays, projectFlags, stationBuildDays } from './model.ts';
-import { type Profile, profileFor, REFORMS } from './reforms.ts';
+import { comparison, type DesignRun, designRun, type Forecast, forecastProject, polandBenchmark, runDesign } from './forecast.ts';
+import { pointAt } from './geometry.ts';
+import type { GroundQuery } from './ground.ts';
+import { carveShape, effectiveMethod, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
+import {
+  buildReceipt,
+  buildScorecard,
+  emptyReceipt,
+  ghostOf,
+  missionResult,
+  reformReceiptLines,
+  runColumn,
+  yoursColumn,
+} from './receipt.ts';
+import { POLAND_PROFILE, type Profile, profileFor, profileReforms, REFORMS } from './reforms.ts';
 import { evaluateObjectives, validateScenario } from './scenario.ts';
 import {
+  type AlignmentEstimate,
+  type AlignmentEstimateRequest,
+  type ClockView,
+  type DesignOptionView,
+  type DesignView,
   type EventView,
+  FEED_LENGTH,
+  type FrontState,
   type GameSnapshot,
+  type HeadlineView,
   LEDGER_CATEGORIES,
+  type MissionView,
+  type NextAction,
   PHASES,
   type PhaseId,
+  type PhaseView,
   type ProjectState,
   type ProjectView,
+  type Receipt,
+  type ReformPreview,
   type ReformView,
   SCHEMA_VERSION,
   type ScenarioDef,
+  type Scorecard,
+  type ServiceView,
+  type SimQueries,
   type SimState,
-  type TbmView,
+  STATION_BOXES,
+  TUNNEL_OPTIONS,
 } from './types.ts';
+import {
+  alignmentView,
+  clockView,
+  gameNextAction,
+  liningOf,
+  missionProject,
+  missionStage,
+  pitViews,
+  planProjectId,
+  projectNextAction,
+  serviceView,
+  stationView,
+  tbmView,
+  tunnelProgress,
+} from './views.ts';
 
 /** Anything that accepts world edits: a WorldStore, or a plain collector in tests. */
 export interface WorldSink {
@@ -44,20 +104,51 @@ export interface SimOptions {
   costProfile?: string;
   /** False turns event cards off. TBM breakdowns still roll. */
   events?: boolean;
+  /**
+   * Material at a world position in metres (the app passes WorldPort.voxelAt). A driven heading reads the
+   * ground at its face from it; without it the geology of the planned alignment is used. Must be a pure
+   * function of the world, or replays diverge.
+   */
+  ground?: GroundQuery;
 }
 
-export interface GameSim extends Sim {
-  /** Applies the commands, then advances exactly one game day. */
+/** What a save records besides the sim state. */
+export interface SaveOptions {
+  worldDataVersion?: string;
+  /** Reference to the manual edit log the app stored next to the save (core EditLogRef). */
+  editLog?: EditLogRef;
+}
+
+const RING_M = CONSTANTS.ringLengthM.value;
+const TRAIL_STEP_M = CONSTANTS.trailStepM.value;
+
+/** The player gate that closes each phase, if any, with its button text. */
+const PHASE_GATES: Partial<Record<PhaseId, { command: 'advancePhase' | 'launchTBM' | 'openLine'; label: string }>> = {
+  permitting: { command: 'advancePhase', label: 'Go to tender' },
+  utilities: { command: 'launchTBM', label: 'Launch the TBM' },
+  fitOut: { command: 'openLine', label: 'Open the line' },
+};
+
+export interface GameSim extends Sim, SimQueries {
+  /** Applies the commands, then advances exactly one game day: SUBSTEPS_PER_DAY sub-steps. */
   step(commands?: readonly Command[]): void;
+  /**
+   * Applies the commands, then advances one sub-step (1 / SUBSTEPS_PER_DAY of a game day). Headings in the
+   * driven regime integrate their pose here; everything else runs once, when the sub-step closes a day.
+   * State after N sub-steps depends only on the seed and on which commands arrived before which sub-step.
+   */
+  substep(commands?: readonly Command[]): void;
   /** Applies commands without advancing time (the game is paused, or the caller batches input). */
   dispatch(commands: readonly Command[]): void;
   /** Headless fast-forward. `each` may return commands for the next tick; return false to stop early. */
   run(ticks: number, each?: (sim: GameSim) => readonly Command[] | false | undefined): void;
   snapshot(): GameSnapshot;
+  /** The clock of snapshot().clock without building a snapshot: cheap enough to read after every step of a frame. */
+  clock(): ClockView;
   serialize(): SimState;
   hash(): string;
-  /** Save container v1 (doc 10 section 3.5). */
-  save(worldDataVersion?: string): SaveFile;
+  /** Save container v1 (doc 10 section 3.5). A string argument is the world data version, as before round 2. */
+  save(opts?: string | SaveOptions): SaveFile;
   /** Live state, read-only by convention. For tests and tools; UI code reads snapshot(). */
   readonly state: SimState;
 }
@@ -81,89 +172,285 @@ interface ProjectCache {
   version: number;
   tick: number;
   eac: Forecast;
-  poland: { costCents: number; days: number };
+  poland: DesignRun;
+  statusQuo: DesignRun;
+  /** Tick the status-quo column's clock starts. */
+  statusQuoTick0: number;
+  statusQuoBasis: string;
   riders: number;
+  receipt: Receipt;
+  scorecard: Scorecard;
+  design: DesignView;
+}
+
+interface TunnelCache {
+  /** Trail numbers already turned into points. */
+  taken: number;
+  /** TRAIL_STEP_M steps covered, planned regime only. */
+  steps: number;
+  driven: boolean;
+  done: boolean;
+  path: WorldPos[];
+  rev: number;
 }
 
 /** How stale a cached forecast may get while nothing forecast-relevant changes. */
 const FORECAST_REFRESH_TICKS = 30;
 
-function plannedConstructionDays(project: ProjectState, p: Profile): number {
-  const flags = projectFlags(project, p);
-  let days = 0;
-  for (const s of project.stations) days = Math.max(days, stationBuildDays(s.template, flags, p['time.constructionFactor']));
-  // Longest run of one effective method at its steady rate.
-  let i = 0;
-  while (i < project.methods.length) {
-    const m = effectiveMethod(project.methods[i], flags);
-    let runDays = 0;
-    let j = i;
-    while (j < project.methods.length && effectiveMethod(project.methods[j], flags) === m) {
-      const len = project.cum[j + 1] - project.cum[j];
-      const rate =
-        advanceRate(m, project.waypoints[j].geology ?? 'softGround', p, Number.POSITIVE_INFINITY) *
-        (isTbm(m) ? expectedAvailability(p) : 1);
-      runDays += len / rate;
-      j++;
-    }
-    days = Math.max(days, runDays);
-    i = j;
+/** Reforms in force on day one of the scenario: the status quo the receipt compares against. */
+function startReforms(state: SimState): string[] {
+  const out: string[] = [];
+  for (const id of [...profileReforms(state.costProfile), ...state.scenario.start.policies, ...state.scenario.start.tech]) {
+    if (!out.includes(id)) out.push(id);
   }
-  return days;
+  return out;
 }
 
-function buildSim(state: SimState, world: WorldSink | null): GameSim {
+function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery | null, loaded: boolean): GameSim {
   const emit = world ? (e: WorldEdit) => void world.applyEdit(e) : null;
-  const ctx: StepContext = { emit, forecast: false, benchmark: polandBenchmark };
+  const ctx: StepContext = {
+    emit,
+    forecast: false,
+    benchmark: polandBenchmark,
+    ground,
+    evaluate: (st) => evaluateObjectives(st).map((o) => ({ id: o.id, title: o.title, status: o.status })),
+  };
   const cache = new Map<string, ProjectCache>();
+  const tunnels = new Map<string, TunnelCache>();
+  const services = new Map<string, ServiceView>();
+  let referenceRun: { run: DesignRun; riders: number } | null = null;
+  let previews: { key: string; byId: Map<string, ReformPreview> } | null = null;
+  // Tunnel paths are append-only within one life of the sim; a load or a restart starts a new revision.
+  let rev = loaded ? 1_000_000 + state.tick : 1;
 
-  function forecasts(project: ProjectState): ProjectCache {
+  function resetCaches(): void {
+    cache.clear();
+    tunnels.clear();
+    services.clear();
+    referenceRun = null;
+    previews = null;
+    rev++;
+  }
+
+  /** The scenario's reference plan under the rules of day one, run once. */
+  function reference(): { run: DesignRun; riders: number } | null {
+    const ref = state.scenario.reference;
+    if (!ref) return null;
+    if (!referenceRun) {
+      const run = runDesign(state, ref.commands, ref.projectId, startReforms(state), 0, 1);
+      referenceRun = { run, riders: ridership(run.project, state.scenario.feeders).ridersPerDay };
+    }
+    return referenceRun;
+  }
+
+  function designView(project: ProjectState, p: Profile, eac: Forecast): DesignView {
+    const flags = projectFlags(project, p);
+    const tunnel = tunnelOf(project, flags);
+    const box = stationBoxOf(flags);
+    const lengthKm = projectLengthM(project) / 1000;
+    const daysNow = eac.openTick - state.tick;
+    const current = quickProject(state, project, state.reforms);
+    const options: DesignOptionView[] = [];
+    for (const id of [...TUNNEL_OPTIONS, ...STATION_BOXES]) {
+      const def = DESIGN_OPTIONS.find((o) => o.id === id);
+      if (!def) throw new Error(`sim: design option "${id}" has no definition`);
+      const selected = def.group === 'tunnel' ? tunnel === id : box === id;
+      // The selected option is the current design: its tag is the estimate itself.
+      const q = selected || project.status === 'open' ? current : quickOption(state, project, id);
+      const deltaCents = q.costCents - current.costCents;
+      const deltaDays = Math.round(q.days - current.days);
+      const costCents = eac.costCents + deltaCents;
+      options.push({
+        group: def.group,
+        id,
+        label: def.label,
+        description: def.description,
+        practice: def.practice,
+        selected,
+        lockedBy: lockTitles(optionLocks(id, p)),
+        costCents,
+        costPerKmCents: lengthKm > 0 ? Math.round(costCents / lengthKm) : 0,
+        deltaCents,
+        daysToOpen: daysNow + deltaDays,
+        deltaDays,
+        evidence: def.evidence,
+      });
+    }
+    return { tunnel, stationBox: box, frozen: project.frozen !== null || project.status === 'open', options };
+  }
+
+  function forecasts(project: ProjectState, p: Profile): ProjectCache {
     const hit = cache.get(project.id);
     if (hit && hit.version === state.version && (project.status === 'open' || state.tick - hit.tick < FORECAST_REFRESH_TICKS)) return hit;
+    const eac = forecastProject(state, project);
+    const start = state.scenario.start.date;
+    const year = start.slice(0, 4);
+    // Counterfactual runs of an open line never change: keep them.
+    const keep = hit && project.status === 'open' && hit.poland.project.status === 'open' ? hit : null;
+    const poland = keep ? keep.poland : designRun(state, project, POLAND_PROFILE);
+    const ref = reference();
+    const sqReforms = startReforms(state);
+    let statusQuo: DesignRun;
+    let statusQuoTick0 = 0;
+    let statusQuoBasis: string;
+    if (ref && state.scenario.reference?.projectId === project.id) {
+      statusQuo = ref.run;
+      statusQuoBasis = `${state.scenario.reference.title}, under the rules of ${year}`;
+    } else {
+      statusQuo = keep ? keep.statusQuo : designRun(state, project, sqReforms);
+      statusQuoTick0 = project.approvedTick >= 0 ? project.approvedTick : state.tick;
+      statusQuoBasis = `Your route and methods under the rules of ${year}`;
+    }
+    const tick0 = project.approvedTick >= 0 ? project.approvedTick : state.tick;
+    const final = project.status === 'open';
+    const flags = projectFlags(project, p);
+    const tunnel = tunnelOf(project, flags);
+    const tunnelLabel = tunnel === 'mixed' ? 'Mixed methods' : (DESIGN_OPTIONS.find((o) => o.id === tunnel)?.label ?? tunnel);
+    const playerReforms = state.reforms.filter((id) => !sqReforms.includes(id)).length;
+    const receipt = buildReceipt(
+      project.id,
+      final,
+      {
+        yours: yoursColumn(
+          `${tunnelLabel}, ${playerReforms} ${playerReforms === 1 ? 'reform' : 'reforms'} enacted`,
+          final,
+          project,
+          eac,
+          { offPlanCents: project.offPlanCents, handDigCents: project.handDigCents },
+          tick0,
+        ),
+        statusQuo: runColumn('statusQuo', statusQuoBasis, statusQuo, statusQuoTick0),
+        poland: runColumn('poland', 'Your route as Polish design at Polish prices, every Polish-practice reform enacted', poland, tick0),
+      },
+      ref && state.scenario.reference?.projectId === project.id ? ghostOf(state.scenario, projectLengthM(ref.run.project) / 1000) : null,
+      new Set(state.reforms),
+      start,
+    );
+    const riders = final ? project.ridersPerDay : ridership(project, state.scenario.feeders).ridersPerDay;
+    const scorecard = buildScorecard({
+      receipt,
+      ridersPerDay: riders,
+      referenceRiders: ref && state.scenario.reference?.projectId === project.id ? ref.riders : 0,
+      start,
+      polandSource:
+        'model: this route under POLAND_PROFILE; calibrated to the Warsaw M2 extensions and the Lodz tunnel (doc 11 sections 5.2 and 6.3)',
+    });
     const fresh: ProjectCache = {
       version: state.version,
       tick: state.tick,
-      eac: forecastProject(state, project),
-      poland: polandBenchmark(state, project),
-      riders: project.status === 'open' ? project.ridersPerDay : ridership(project, state.scenario.feeders).ridersPerDay,
+      eac,
+      poland,
+      statusQuo,
+      statusQuoTick0,
+      statusQuoBasis,
+      riders,
+      receipt,
+      scorecard,
+      design: designView(project, p, eac),
     };
     cache.set(project.id, fresh);
     return fresh;
   }
 
-  function projectView(project: ProjectState, p: Profile): ProjectView {
+  /** As-built axis of a heading as points. The array is extended in place while the heading advances. */
+  function tunnelPath(project: ProjectState, f: FrontState): TunnelCache {
+    const done = f.chainageM >= f.toM;
+    const d = f.drive;
+    let c = tunnels.get(f.id);
+    if (!c) {
+      c = { taken: 0, steps: -1, driven: false, done: false, path: [], rev };
+      tunnels.set(f.id, c);
+    }
+    const take = (flat: readonly number[]) => {
+      if (!c) return;
+      for (let i = c.taken; i + 2 < flat.length; i += 3) c.path.push({ x: flat[i], y: flat[i + 1], z: flat[i + 2] });
+      c.taken = flat.length;
+    };
+    if (d) {
+      // A heading taken over mid-run continues the planned trail it already has, point for point.
+      c.driven = true;
+      take(d.trail);
+    } else {
+      const steps = Math.floor((f.chainageM - f.fromM) / TRAIL_STEP_M + 1e-9);
+      if (steps !== c.steps) {
+        c.steps = steps;
+        take(plannedTrail(project, f.fromM, f.chainageM));
+      }
+      if (done && !c.done) {
+        const end = pointAt(project.waypoints, project.cum, f.toM);
+        const last = c.path[c.path.length - 1];
+        if (!last || (last.x - end.x) ** 2 + (last.y - end.y) ** 2 + (last.z - end.z) ** 2 > 1e-6) c.path.push(end);
+      }
+    }
+    c.done = done;
+    return c;
+  }
+
+  function pathLength(path: readonly WorldPos[]): number {
+    let sum = 0;
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1];
+      const b = path[i];
+      sum += Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2);
+    }
+    return sum;
+  }
+
+  function projectView(project: ProjectState, p: Profile, canAffordReform: boolean): ProjectView {
     const flags = projectFlags(project, p);
     const phaseIndex = PHASES.indexOf(project.phase);
-    const phases = PHASES.map((id: PhaseId, i) => {
+    const phases: PhaseView[] = PHASES.map((id: PhaseId, i) => {
       const done = project.status === 'open' || (project.status === 'active' && i < phaseIndex);
       const current = project.status === 'active' && i === phaseIndex;
+      const progress = done ? 1 : current ? project.phaseProgress : 0;
+      const plannedDays = Math.round(id === 'construction' ? plannedConstructionDays(project, p, flags) : phaseDays(id, p));
+      const gate = PHASE_GATES[id];
       return {
         id,
+        label: PHASE_LABELS[id],
         state: done ? ('done' as const) : current ? ('current' as const) : ('todo' as const),
-        progress: done ? 1 : current ? project.phaseProgress : 0,
-        plannedDays: Math.round(id === 'construction' ? plannedConstructionDays(project, p) : phaseDays(id, p)),
+        progress,
+        plannedDays,
+        daysLeft: Math.round(plannedDays * (1 - progress)) + (current ? project.delayDays : 0),
+        gate: gate ? { ...gate, ready: current && project.awaiting === gate.command } : null,
       };
     });
-    const tbms: TbmView[] = project.fronts.map((f) => {
-      const done = f.chainageM >= f.toM;
-      const seg = segmentIndexAt(project.cum, f.chainageM);
-      const rate = advanceRate(f.method, project.waypoints[seg].geology ?? 'softGround', p, f.chainageM - f.fromM);
-      const stopped = f.downDays > 0 || project.delayDays > 0;
-      return {
-        id: f.id,
-        name: f.name,
-        method: f.method,
-        position: pointAt(project.waypoints, project.cum, f.chainageM),
-        chainageM: f.chainageM,
-        fromM: f.fromM,
-        toM: f.toM,
-        progress: f.toM > f.fromM ? (f.chainageM - f.fromM) / (f.toM - f.fromM) : 1,
-        status: done ? 'done' : stopped ? 'stopped' : 'running',
-        rateMPerDay: done || stopped ? 0 : rate,
-      };
-    });
-    const fc = project.methods.length > 0 ? forecasts(project) : null;
-    const empty: Forecast = { costCents: 0, openTick: state.tick };
+    const tbms = project.fronts.map((f) => tbmView(project, f, p, flags));
+    const tunnelViews: TunnelEntity[] = [];
+    for (const f of project.fronts) {
+      if (f.boredM <= 0) continue;
+      const c = tunnelPath(project, f);
+      if (c.path.length < 2) continue;
+      const shape = carveShape(f.method, flags);
+      const pathM = pathLength(c.path);
+      tunnelViews.push({
+        id: `${f.id}/tunnel`,
+        path: c.path,
+        rev: c.rev,
+        lining: liningOf(f.method),
+        radiusM: shape.radiusM,
+        laterals: shape.laterals,
+        ringSpacingM: RING_M,
+        ...tunnelProgress(project, f, pathM),
+      });
+    }
+    const hasLine = project.methods.length > 0;
+    const checks = checkAlignment(project.waypoints, hasLine ? project.methods : undefined);
+    const date = dateAtTick(state.scenario.start.date, state.tick);
+    const fc = hasLine ? forecasts(project, p) : null;
+    const empty: Forecast = { costCents: 0, openTick: state.tick, spent: { ...project.spent }, paid: project.paid };
+    const design: DesignView = fc
+      ? fc.design
+      : { tunnel: 'mixed', stationBox: stationBoxOf(flags), frozen: project.frozen !== null, options: [] };
+    // The best design the player may pick right now that is cheaper than the current one.
+    let cheaper: { label: string; savingCents: number } | null = null;
+    if (!design.frozen) {
+      for (const o of design.options) {
+        if (o.selected || o.lockedBy.length > 0 || o.deltaCents >= -1e8) continue;
+        if (!cheaper || -o.deltaCents > cheaper.savingCents) cheaper = { label: o.label, savingCents: -o.deltaCents };
+      }
+    }
+    const receipt = fc ? fc.receipt : emptyReceipt(project.id, date);
     return {
       id: project.id,
       name: project.name,
@@ -183,27 +470,84 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
         effectiveMethod: effectiveMethod(method, flags),
         geology: project.waypoints[index].geology ?? 'softGround',
       })),
-      stations: project.stations.map((s) => ({
-        id: s.id,
-        name: s.name,
-        template: s.template,
-        chainageM: s.chainageM,
-        position: pointAt(project.waypoints, project.cum, s.chainageM),
-        progress: s.progress,
-      })),
+      stations: hasLine ? project.stations.map((s) => stationView(project, s, flags)) : [],
       tbms,
       waypoints: project.waypoints.map((w) => ({ ...w })),
       spentCents: projectSpentCents(project),
       spentByCategory: { ...project.spent },
       escalationCents: project.escalationCents,
       comparison: comparison(state, project, fc ? fc.eac : empty, fc ? fc.poland : { costCents: 0, days: 0 }, fc ? fc.riders : 0),
+      nextAction: projectNextAction(state, project, checks, cheaper, canAffordReform),
+      design,
+      checks,
+      alignment: alignmentView(project, checks, state.version),
+      tunnels: tunnelViews,
+      pits: hasLine ? pitViews(project, flags) : [],
+      receipt,
+      scorecard: fc
+        ? fc.scorecard
+        : buildScorecard({
+            receipt,
+            ridersPerDay: 0,
+            referenceRiders: 0,
+            start: state.scenario.start.date,
+            polandSource: 'no alignment yet',
+          }),
     };
+  }
+
+  /** What each reform not yet enacted would change for the mission project, from the closed-form estimate. */
+  function reformPreviews(project: ProjectState | null, view: ProjectView | undefined): Map<string, ReformPreview> {
+    const key = `${state.version}/${Math.floor(state.tick / FORECAST_REFRESH_TICKS)}/${project?.id ?? ''}`;
+    if (previews && previews.key === key) return previews.byId;
+    const byId = new Map<string, ReformPreview>();
+    if (project && view && project.status !== 'open' && project.methods.length > 0) {
+      const before = quickProject(state, project, state.reforms);
+      const lengthKm = view.lengthM / 1000;
+      const polandPerKm = view.receipt.columns.poland.costPerKmCents;
+      for (const r of REFORMS) {
+        if (state.reforms.includes(r.id)) continue;
+        const after = quickProject(state, project, [...state.reforms, r.id]);
+        const costDeltaCents = after.costCents - before.costCents;
+        const perKm = lengthKm > 0 ? Math.round((view.receipt.columns.yours.costCents + costDeltaCents) / lengthKm) : 0;
+        byId.set(r.id, {
+          projectId: project.id,
+          costDeltaCents,
+          daysDelta: Math.round(after.days - before.days),
+          costPerKmAfterCents: perKm,
+          ratioToPolandAfter: polandPerKm > 0 ? perKm / polandPerKm : 1,
+        });
+      }
+    }
+    previews = { key, byId };
+    return byId;
   }
 
   function snapshot(): GameSnapshot {
     const p = profileFor(state.reforms);
     const enacted = new Set(state.reforms);
-    const reforms: ReformView[] = REFORMS.map((r) => ({
+    const reformStatus = REFORMS.map((r) => {
+      const status: ReformView['status'] = enacted.has(r.id)
+        ? 'enacted'
+        : r.prereqs.every((id) => enacted.has(id))
+          ? 'available'
+          : 'locked';
+      // Same rules, same order as the enactReform command.
+      const missing = r.prereqs.filter((id) => !enacted.has(id)).map((id) => REFORMS.find((x) => x.id === id)?.title ?? id);
+      let blockedReason: string | null = null;
+      if (status === 'locked') blockedReason = `Needs ${missing.join(', ')} first`;
+      else if (status === 'available' && state.politicalCapital < r.cost.pc)
+        blockedReason = `Costs ${r.cost.pc} political capital, you have ${state.politicalCapital}`;
+      else if (status === 'available' && r.cost.cents > 0 && state.cashCents < r.cost.cents)
+        blockedReason = `Costs $${(r.cost.cents / 1e8).toFixed(0)}M, cash is short`;
+      return { r, status, blockedReason, affordable: status === 'available' && blockedReason === null };
+    });
+    const canAffordReform = reformStatus.some((x) => x.affordable);
+    const projects = state.projects.map((pr) => projectView(pr, p, canAffordReform));
+    const mission = missionProject(state);
+    const missionView = mission ? projects.find((v) => v.id === mission.id) : undefined;
+    const preview = reformPreviews(mission, missionView);
+    const reforms: ReformView[] = reformStatus.map(({ r, status, blockedReason, affordable }) => ({
       id: r.id,
       branch: r.branch,
       title: r.title,
@@ -213,7 +557,12 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
       prereqs: [...r.prereqs],
       effects: r.effects.map((e) => ({ ...e })),
       beyondPoland: r.beyondPoland,
-      status: enacted.has(r.id) ? 'enacted' : r.prereqs.every((id) => enacted.has(id)) ? 'available' : 'locked',
+      status,
+      affordable,
+      blockedReason,
+      preview: status === 'enacted' ? null : (preview.get(r.id) ?? null),
+      receiptLines: reformReceiptLines(r.id),
+      unlocks: reformUnlocks(r.id),
     }));
     const events: EventView[] = state.pendingEvents.map((pe) => {
       const def = eventById(pe.defId);
@@ -235,6 +584,7 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
           costCents: Math.round(hard * o.hardShare * state.escalation),
           delayDays: def.id === 'lawsuit' ? Math.min(o.delayDays, p['event.lawsuit.delayCapDays']) : o.delayDays,
           pc: o.pc,
+          affordable: state.politicalCapital >= o.pc,
         })),
       };
     });
@@ -242,6 +592,41 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
     for (const cat of LEDGER_CATEGORIES) totalSpent += state.ledger.total[cat];
     let riders = 0;
     for (const pr of state.projects) if (pr.status === 'open') riders += pr.ridersPerDay;
+    // The running HUD number: the mission project's cost per route-km against Poland's, from its receipt.
+    const headline: HeadlineView | null =
+      missionView && missionView.lengthM > 0
+        ? {
+            projectId: missionView.id,
+            yoursPerKmCents: missionView.receipt.columns.yours.costPerKmCents,
+            polandPerKmCents: missionView.receipt.columns.poland.costPerKmCents,
+            ratio: missionView.receipt.ratios.yoursToPoland,
+            final: missionView.status === 'open',
+          }
+        : null;
+    const complete = state.missionCompleteTick >= 0;
+    const missionOut: MissionView = {
+      id: state.scenario.id,
+      title: state.scenario.title,
+      freeBuild: state.scenario.sandbox === true,
+      stage: missionStage(mission),
+      projectId: mission ? mission.id : null,
+      planProjectId: planProjectId(state),
+      complete,
+      result: complete && missionView ? missionResult(missionView.scorecard) : null,
+    };
+    const serviceViews: ServiceView[] = [];
+    for (const pr of state.projects) {
+      if (pr.status !== 'open') continue;
+      let sv = services.get(pr.id);
+      if (!sv) {
+        const made = serviceView(pr);
+        if (!made) continue;
+        sv = made;
+        services.set(pr.id, sv);
+      }
+      serviceViews.push(sv);
+    }
+    const nextAction: NextAction = gameNextAction(state, mission, missionView ? missionView.nextAction : null);
     return {
       tick: state.tick,
       date: dateAtTick(state.scenario.start.date, state.tick),
@@ -253,7 +638,7 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
       ticksPerFrame: state.speed,
       moneyCents: state.cashCents,
       politicalCapital: state.politicalCapital,
-      projects: state.projects.map((pr) => projectView(pr, p)),
+      projects,
       ledger: {
         totalSpentCents: totalSpent,
         byCategory: { ...state.ledger.total },
@@ -273,6 +658,26 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
       objectives: evaluateObjectives(state),
       ridersPerDay: riders,
       notices: state.notices.map((n) => ({ ...n })),
+      headline,
+      clock: clockView(state, p),
+      mission: missionOut,
+      nextAction:
+        state.pendingEvents.length > 0 && missionView
+          ? {
+              ...nextAction,
+              kind: 'resolveEvent',
+              focus: 'event',
+              command: null,
+              hint: 'Pick an option on the card. Time stands still until you do.',
+            }
+          : nextAction,
+      services: serviceViews,
+      feed: state.feed.slice(-FEED_LENGTH).map((f) => ({ ...f })),
+      handDig: {
+        volumeM3: state.handDig.volumeM3,
+        cents: state.handDig.cents,
+        centsPerM3: Math.round(handDigCentsPerM3(p) * state.escalation),
+      },
     };
   }
 
@@ -281,11 +686,23 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
     dispatch(commands) {
       // Validate the whole batch before touching state, so a malformed command cannot leave it half applied.
       const parsed = commands.map(parseCommand);
-      for (const cmd of parsed) applyCommand(state, cmd, ctx);
+      for (const cmd of parsed) {
+        applyCommand(state, cmd, ctx);
+        if (cmd.t === 'startScenario') resetCaches();
+      }
     },
     step(commands) {
       if (commands && commands.length > 0) sim.dispatch(commands);
-      advanceDay(state, ctx);
+      // A day is SUBSTEPS_PER_DAY sub-steps. With no driven heading and no open sub-step they are all empty, so the day is advanced in one go.
+      if (state.subTick === 0 && !hasDrivenHeading(state)) advanceDay(state, ctx);
+      else for (let i = 0; i < SUBSTEPS_PER_DAY; i++) advanceSubstep(state, ctx);
+    },
+    substep(commands) {
+      if (commands && commands.length > 0) sim.dispatch(commands);
+      advanceSubstep(state, ctx);
+    },
+    estimateAlignment(req: AlignmentEstimateRequest): AlignmentEstimate {
+      return estimateAlignment(state, req);
     },
     run(ticks, each) {
       if (!Number.isInteger(ticks) || ticks < 0) throw new RangeError(`sim.run: ticks must be a non-negative integer, got ${ticks}`);
@@ -296,17 +713,21 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
       }
     },
     snapshot,
+    clock() {
+      return clockView(state, profileFor(state.reforms));
+    },
     serialize() {
       return JSON.parse(JSON.stringify(state)) as SimState;
     },
     hash() {
       return hashState(state);
     },
-    save(worldDataVersion = 'unversioned') {
-      return {
+    save(opts = {}) {
+      const o: SaveOptions = typeof opts === 'string' ? { worldDataVersion: opts } : opts;
+      const file: SaveFile = {
         format: 'bayvox-save',
         schemaVersion: SCHEMA_VERSION,
-        worldDataVersion,
+        worldDataVersion: o.worldDataVersion ?? 'unversioned',
         scenarioId: state.scenario.id,
         seed: state.seed,
         tick: state.tick,
@@ -314,6 +735,8 @@ function buildSim(state: SimState, world: WorldSink | null): GameSim {
         edits: [],
         stateHash: sim.hash(),
       };
+      if (o.editLog) file.editLog = { ...o.editLog };
+      return file;
     },
   };
   return sim;
@@ -325,17 +748,62 @@ export function createSim(scenario: ScenarioDef, seed: number, world: WorldSink 
   if (problems.length > 0) throw new Error(`sim: invalid scenario: ${problems.join('; ')}`);
   // The scenario lives inside the state, so it must be a plain JSON copy the caller cannot mutate.
   const own = JSON.parse(JSON.stringify(scenario)) as ScenarioDef;
-  return buildSim(initState(own, seed, opts), world);
+  return buildSim(initState(own, seed, opts), world, opts.ground ?? null, false);
 }
 
-/** Save migrations by source schemaVersion. Empty while version 1 is the only one. */
-const MIGRATIONS: Record<number, (save: SaveFile) => SaveFile> = {};
+/**
+ * Version 1 (round 1) to version 2: adds sub-steps, the driven-regime fields of headings, design choices,
+ * the feed and the hand-dig totals with the values a round 1 game had implicitly.
+ */
+function migrateV1(save: SaveFile): SaveFile {
+  const old = JSON.parse(JSON.stringify(save.sim)) as SimState;
+  // The recorded hash covers the version 1 state, so it is checked before anything is added.
+  const hash = hashState(old);
+  if (hash !== save.stateHash) throw new Error(`sim: save is corrupt: state hash ${hash} does not match recorded ${save.stateHash}`);
+  old.schemaVersion = 2;
+  old.subTick = 0;
+  old.feed = [];
+  old.nextFeedSeq = 1;
+  old.handDig = { volumeM3: 0, cents: 0 };
+  old.objectiveStatus = {};
+  old.missionCompleteTick = -1;
+  old.cashShort = old.cashCents < 0;
+  for (const project of old.projects) {
+    project.tunnelChoice = null;
+    project.stationBox = null;
+    project.offPlanCents = 0;
+    project.handDigCents = 0;
+    project.handDigM3 = 0;
+    // Round 1 kept no paid ledger: rebuild it from the books at today's profile and the mean price index since approval.
+    project.paid = { civil: 0, stations: 0, systems: 0, steps: [0, 0, 0, 0, 0, 0, 0, 0] };
+    const index = (old.escalation + (project.approvedTick >= 0 ? project.approvedEscalation : old.escalation)) / 2;
+    for (const cat of ['civil', 'stations', 'systems'] as const) {
+      if (project.spent[cat] > 0) addPaid(project.paid, profileFor(old.reforms), cat, project.spent[cat] / index);
+    }
+    for (const s of project.stations) {
+      // Round 1 carved a box in one go when its structure was complete.
+      const dug = s.progress >= 1 && project.frozen && (s.template === 'undergroundStandard' || s.template === 'undergroundDeepMined');
+      s.carvedM = dug && project.frozen ? stationSize(s.template, stationBoxOf(project.frozen)).lengthM / 2 : 0;
+    }
+    for (const f of project.fronts) {
+      f.downReason = f.downDays > 0 ? 'breakdown' : null;
+      f.boredM = f.chainageM - f.fromM;
+      f.breakthroughTick = f.chainageM >= f.toM ? old.tick : -1;
+      f.drive = null;
+    }
+  }
+  return { ...save, schemaVersion: 2, sim: old, stateHash: hashState(old) };
+}
+
+/** Save migrations by source schemaVersion. */
+const MIGRATIONS: Record<number, (save: SaveFile) => SaveFile> = { 1: migrateV1 };
 
 /**
  * Restores a sim from a save and replays the carve edits of all construction so far into `world`.
  * Fails loudly on an unknown version or a state that does not match its hash; there is no best-effort load.
+ * `opts.ground` is the same ground query createSim takes; cost profile and events come from the save.
  */
-export function loadSim(save: SaveFile, world: WorldSink | null = null): GameSim {
+export function loadSim(save: SaveFile, world: WorldSink | null = null, opts: Pick<SimOptions, 'ground'> = {}): GameSim {
   if (save?.format !== 'bayvox-save') throw new Error(`sim: not a bayvox save (format ${JSON.stringify(save?.format)})`);
   let current = save;
   while (current.schemaVersion !== SCHEMA_VERSION) {
@@ -349,7 +817,7 @@ export function loadSim(save: SaveFile, world: WorldSink | null = null): GameSim
     throw new Error(`sim: save container is version ${SCHEMA_VERSION} but its sim state is version ${state.schemaVersion}`);
   const hash = hashState(state);
   if (hash !== current.stateHash) throw new Error(`sim: save is corrupt: state hash ${hash} does not match recorded ${current.stateHash}`);
-  const sim = buildSim(state, world);
+  const sim = buildSim(state, world, opts.ground ?? null, true);
   if (world) replayCarves(state, (e) => void world.applyEdit(e));
   return sim;
 }

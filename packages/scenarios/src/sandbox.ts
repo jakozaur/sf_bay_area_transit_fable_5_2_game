@@ -5,9 +5,17 @@ import { cameraOver, EXISTING_BART, EXISTING_CALTRAIN, usd } from './helpers.ts'
 
 export const SANDBOX: ScenarioDef = {
   id: 'sandbox',
+  siteId: 'portal',
   title: 'Free build',
   description:
     'The whole Bay, a trillion dollars and all the political capital you can spend. Status-quo rules apply until you change them.',
+  briefing: {
+    what: 'No project. The whole Bay Area, every reform on the table, and a trillion dollars.',
+    officialCost: 'No official figure: nobody has planned what you are about to draw.',
+    officialDate: 'No official date.',
+    why: 'Draw the network the region keeps studying. The receipt still tells you what Poland would have paid.',
+    source: 'doc 08 section 4.6 (free build)',
+  },
   sandbox: true,
   start: {
     date: '2026-11-09',

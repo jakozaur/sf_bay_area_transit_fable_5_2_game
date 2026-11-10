@@ -176,7 +176,7 @@ describe('determinism', () => {
     const sim = createSim(testScenario(), 1);
     sim.run(10);
     const save = sim.save();
-    expect(() => loadSim({ ...save, schemaVersion: 99 })).toThrow(/cannot load save schemaVersion 99; this build reads version 1/);
+    expect(() => loadSim({ ...save, schemaVersion: 99 })).toThrow(/cannot load save schemaVersion 99; this build reads version 2/);
     const tampered = JSON.parse(JSON.stringify(save));
     tampered.sim.cashCents += 1;
     expect(() => loadSim(tampered)).toThrow(/save is corrupt/);
@@ -396,8 +396,9 @@ describe('carve edits', () => {
           { x: 20_000, y: -20, z: -65_000 },
           { x: 20_080, y: -22, z: -65_000, geology: 'bayMud' },
           { x: 20_150, y: -22, z: -65_000 },
-          { x: 20_215, y: -24, z: -65_062 },
-          { x: 20_280, y: -20, z: -65_090 },
+          // Two 20 degree bends between 70 m segments: R about 200 m, inside the curve and grade limits approval enforces.
+          { x: 20_216, y: -23, z: -65_024 },
+          { x: 20_270, y: -21.5, z: -65_069 },
         ],
         methods: ['boredTwin', 'boredTwin', 'mined', 'cutAndCover'],
       },
@@ -465,7 +466,8 @@ describe('carve edits', () => {
         }
       }
     }
-    expect(samples).toBeGreaterThan(600);
+    // Three tubes over the 150 m bored run, then about 70 m mined and 70 m cut-and-cover, one sample per metre.
+    expect(samples).toBeGreaterThan(590);
     expect(solid).toBe(0);
     expect(world.getVoxel({ x: 20_100, y: -22, z: -64_975 })).toBe(Material.ROCK);
     // Separate tubes with ground between them: the three-track mandate puts bores at -11, 0 and +11 m.

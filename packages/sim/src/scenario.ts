@@ -35,6 +35,8 @@ export function validateScenario(s: ScenarioDef): string[] {
   if (typeof s.id !== 'string' || !/^[a-z0-9-]+$/.test(s.id)) bad('id must be lower-case letters, digits and dashes');
   if (typeof s.title !== 'string' || s.title === '') bad('title is empty');
   if (typeof s.description !== 'string' || s.description === '') bad('description is empty');
+  if (typeof s.siteId !== 'string' || !/^[a-z0-9-]+$/.test(s.siteId))
+    bad('siteId must name a voxel site (lower-case letters, digits and dashes)');
   try {
     profileReforms(s.costProfile);
   } catch {

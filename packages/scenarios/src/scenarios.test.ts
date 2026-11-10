@@ -11,6 +11,7 @@ import {
   isoToDays,
   loadSim,
   offsetPointAt,
+  PC_PER_MONTH,
   POLAND_PROFILE,
   type ProfileKey,
   profileFor,
@@ -109,12 +110,21 @@ describe('scenario data', () => {
     const view = sim.snapshot().projects[0];
     expect(view.lengthM / 1000).toBeGreaterThan(CONSTANTS.portalRouteKm.value * 0.97);
     expect(view.lengthM / 1000).toBeLessThan(CONSTANTS.portalRouteKm.value * 1.03);
-    // Doc 05 section 3.1 coordinates through the core frame: 4th and King and the Transit Center are both in SF tile row 15 to 16.
-    const end = xz(37.7897, -122.3966);
-    expect(view.waypoints.at(-1)).toMatchObject(end);
-    expect(end.x).toBeGreaterThan(20_600);
-    expect(end.x).toBeLessThan(20_700);
-    expect(view.segments.map((s) => s.method)).toEqual(['cutAndCover', 'cutAndCover', 'mined', 'mined', 'mined', 'mined', 'cutAndCover']);
+    // The line ends at the centre of the trainbox footprint in the baked data, 80 m from the doc 05 anchor (Salesforce Tower).
+    const end = view.waypoints.at(-1);
+    const anchor = xz(37.7897, -122.3966);
+    expect(Math.hypot((end?.x ?? 0) - anchor.x, (end?.z ?? 0) - anchor.z)).toBeLessThan(100);
+    expect(end?.x).toBeGreaterThan(20_600);
+    expect(end?.x).toBeLessThan(20_700);
+    // Cut-and-cover under Townsend, mined through the two curves, a cut-and-cover throat into the trainbox.
+    const methods = view.segments.map((s) => s.method);
+    expect([...new Set(methods)]).toEqual(['cutAndCover', 'mined']);
+    expect(methods.join(' ').replace(/(\w+)( \1)+/g, '$1')).toBe('cutAndCover mined cutAndCover');
+    // Both curves are drawn as tangent polygons and check out above the limit.
+    expect(view.checks.ok, view.checks.problems.join('; ')).toBe(true);
+    expect(view.checks.minRadiusM).toBeGreaterThan(155);
+    expect(view.checks.minRadiusM).toBeLessThan(165);
+    expect(view.checks.maxGradePct).toBeLessThanOrEqual(view.checks.limits.maxGradePct);
     const mined = view.segments.filter((s) => s.method === 'mined').reduce((sum, s) => sum + s.toM - s.fromM, 0);
     // Doc 02 section 6: about 0.65 mi mined.
     expect(mined).toBeGreaterThan(950);
@@ -330,7 +340,7 @@ describe('reforms on The Portal', () => {
     expect(after.factors[2].value).toBeLessThan(before.factors[2].value);
     // The Polish benchmark does not move.
     expect(after.poland.costCents).toBe(before.poland.costCents);
-    expect(sim.snapshot().politicalCapital).toBe(40 + 2 * 2 - 15 - 15);
+    expect(sim.snapshot().politicalCapital).toBe(40 + 2 * PC_PER_MONTH - 15 - 15);
   });
 });
 

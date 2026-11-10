@@ -176,10 +176,27 @@ export function stationBuildDays(template: StationTemplate, f: DesignFlags, cons
   return months * DAYS_PER_MONTH * constructionFactor;
 }
 
-/** Design flags a project is built to: frozen at tender, else the current standards. */
-export function projectFlags(project: ProjectState, p: Profile): DesignFlags {
-  return project.frozen ?? designFlags(p);
+/**
+ * Standards a project would be tendered under: the profile's mandates, adjusted by the design chooser.
+ * An explicit tunnel choice is built as chosen (the twin-bore standard only redraws designs nobody chose),
+ * and an explicit mezzanine box is paid for even after the mandate is gone.
+ */
+export function standardsFor(project: Pick<ProjectState, 'tunnelChoice' | 'stationBox'>, p: Profile): DesignFlags {
+  const f = designFlags(p);
+  if (project.tunnelChoice !== null) f.twinBoreDefault = false;
+  if (project.stationBox === 'mezzanineBox') f.oversizeStations = true;
+  return f;
 }
+
+/** Design flags a project is built to: frozen at tender, else the current standards and choices. */
+export function projectFlags(project: Pick<ProjectState, 'frozen' | 'tunnelChoice' | 'stationBox'>, p: Profile): DesignFlags {
+  return project.frozen ?? standardsFor(project, p);
+}
+
+/** The part of a project the cost functions read, so a line that is still being drawn can be priced. */
+export type ProjectGeometry = Pick<ProjectState, 'waypoints' | 'methods' | 'cum'> & {
+  stations: readonly Pick<StationState, 'template' | 'depthM'>[];
+};
 
 export interface HardBreakdown {
   civilCents: number;
@@ -192,7 +209,7 @@ export interface HardBreakdown {
  * Unescalated hard cost of a whole project.
  * `polishPrices` = unit factors forced to 1 (same design, Polish prices).
  */
-export function hardCost(project: ProjectState, p: Profile, flags: DesignFlags, polishPrices: boolean): HardBreakdown {
+export function hardCost(project: ProjectGeometry, p: Profile, flags: DesignFlags, polishPrices: boolean): HardBreakdown {
   const relief = p['tbm.geologyRelief'];
   const unit = polishPrices ? 1 : unitFactor(p);
   const sysFactor = polishPrices ? 1 : p['systems.factor'];
@@ -214,7 +231,7 @@ export function hardCost(project: ProjectState, p: Profile, flags: DesignFlags, 
 }
 
 /** Unescalated cost in cents of one station at current prices. */
-export function stationCostCents(s: StationState, p: Profile, flags: DesignFlags): number {
+export function stationCostCents(s: Pick<StationState, 'template' | 'depthM'>, p: Profile, flags: DesignFlags): number {
   return stationPln(s.template, s.depthM, flags) * CENTS_PER_PLN * unitFactor(p);
 }
 
@@ -224,7 +241,7 @@ export function civilCentsPerM(m: Method, geology: Geology, p: Profile, flags: D
 }
 
 /** Unescalated systems cost in cents for the whole project at current prices. */
-export function systemsCostCents(project: ProjectState, p: Profile, flags: DesignFlags): number {
+export function systemsCostCents(project: ProjectGeometry, p: Profile, flags: DesignFlags): number {
   return hardCost(project, p, flags, false).systemsCents;
 }
 

@@ -180,6 +180,99 @@ export const CONSTANTS = {
   breakdownMinDays: c(3, 'days', 'tuning', false),
   breakdownSpanDays: c(12, 'days', 'tuning: stoppage lasts 3 to 14 days', false),
 
+  // --- Round 2: driving, time-lapse, alignment limits, free digging (docs/CONTRACTS.md; the SIM work package may retune values, not names) ---
+  substepsPerDay: c(
+    240,
+    'sub-steps/day',
+    'contract: a driven heading integrates in fixed sub-steps of 6 game minutes (4.4 cm of advance at 10.5 m/day); see SUBSTEPS_PER_DAY',
+    false,
+  ),
+  driveGameHoursPerSecond: c(
+    20,
+    'game h/s',
+    'docs/PLAN.md section 5.3 (possession scale 20: a 2 km drive lasts 3 to 5 real minutes at speed 1x); tuning',
+    false,
+  ),
+  lapseTargetSeconds: c(10, 's', 'round 2 brief: no approval phase lasts longer than about 10 s of real time at speed 1x', false),
+  ringLengthM: c(1.5, 'm', 'doc 06 section 2.1 (Warsaw M2: 5,688 m bored with 3,792 rings)'),
+  minRadiusTwinBoreM: c(
+    150,
+    'm',
+    'docs/PLAN.md section 5.4 (Metro class; Central Subway drove a 137 m curve, doc 02 section 6); tuning',
+    false,
+  ),
+  minRadiusLargeBoreM: c(
+    300,
+    'm',
+    'docs/PLAN.md section 5.4 (Mainline class; Swinoujscie 13.46 m machine on a curve of about 300 m, doc 11 section 3.1); tuning',
+    false,
+  ),
+  maxGradePct: c(
+    3,
+    'percent',
+    'docs/PLAN.md section 5.4 (Mainline class 3 percent; Central Subway built 7 percent, doc 02 section 6); tuning',
+    false,
+  ),
+  driveCorridorM: c(30, 'm', 'tuning: a driven machine cannot move further than this from the planned alignment', false),
+  driveFreeDeviationM: c(3, 'm', 'tuning: deviation from the plan below this carries no surcharge', false),
+  driveOffPlanCostFactor: c(1.25, 'x', 'tuning: civil cost factor for metres bored beyond the free deviation; no source', false),
+  driveVerticalRadiusM: c(
+    1000,
+    'm',
+    'tuning: full pitch input changes the grade by 0.1 percent per metre bored (3 percent over 30 m)',
+    false,
+  ),
+  driveLookaheadM: c(25, 'm', 'tuning: the cruise law steers at the plan point this far ahead of the cutterhead', false),
+  driveResteerFactor: c(
+    4,
+    'x',
+    'tuning: a machine held at the corridor edge re-steers towards the plan this many times faster than it turns while boring, so the hold lasts seconds',
+    false,
+  ),
+  driveFaceMetresPerSecond: c(
+    8,
+    'm/s',
+    'tuning: while a heading is driven the face moves at least this fast in real time at speed 1x (a slow mined heading speeds the clock up); with driveGameHoursPerSecond a 2 km drive lasts about 4 minutes',
+    false,
+  ),
+  buildTargetSeconds: c(
+    300,
+    's',
+    'round 2 brief: a Portal mission on autopilot lasts 5 to 10 real minutes at speed 1x; the longest heading takes this long when nobody drives',
+    false,
+  ),
+  lapseMinDaysPerSecond: c(20, 'days/s', 'tuning: slowest time-lapse, so a short phase does not take the full lapseTargetSeconds', false),
+  trailStepM: c(5, 'm', 'tuning: spacing of the as-built axis points of a tunnel (chord sagitta 2 cm at a 150 m radius)', false),
+  stationExcavationShare: c(
+    0.1,
+    'share',
+    'tuning: a station box is excavated during the first tenth of its build; a box a machine reaches earlier is dug out on arrival',
+    false,
+  ),
+  compactBoxLengthM: c(140, 'm', 'assumption: Warsaw M2 station boxes are about 120 to 160 m long; drawn and carved size only', false),
+  compactBoxWidthM: c(20, 'm', 'assumption: island platform between two tracks plus walls; drawn size only', false),
+  compactBoxHeightM: c(10, 'm', 'assumption: platform level under one slab; drawn size only', false),
+  mezzanineBoxLengthM: c(
+    200,
+    'm',
+    'doc 06 section 3.3 (TCP: US boxes run 2 to 2.6 platform lengths); 200 m against 140 m is the drawn size, the price is stationOversizeFactor',
+    false,
+  ),
+  mezzanineBoxWidthM: c(26, 'm', 'assumption; drawn size only', false),
+  mezzanineBoxHeightM: c(16, 'm', 'assumption: platform level plus a full-length mezzanine; drawn size only', false),
+  launchPitLengthM: c(40, 'm', 'assumption: launch shaft long enough for the shield and the first gantries', false),
+  trainCruiseMps: c(30, 'm/s', 'presentation: a train crosses a 2 km line in about a minute of real time', false),
+  trainDwellS: c(6, 's', 'presentation', false),
+  trainSpacingM: c(2500, 'm', 'presentation: one train per this much line, at least one, at most eight', false),
+  trainCars: c(6, 'cars', 'presentation: Caltrain KISS sets run 6 or 7 cars'),
+  trainCarLengthM: c(25, 'm', 'presentation: about 25 m per bilevel car'),
+  handDigPlnPerM3: c(
+    1450,
+    'PLN/m3',
+    'doc 11 section 5.3 cut-and-cover rate per excavated m3, reused as the price of the free dig brush; the reuse is an assumption',
+    false,
+  ),
+
   // --- Calibration targets and Polish reference figures ---
   portalOfficialCostUsd: c(
     6.84e9,
@@ -222,3 +315,8 @@ export function constantsTable(): { id: string; value: number; unit: string; sou
 /** 1.04 ^ (1 / 365): daily compounding step for 4 percent a year. A literal so no transcendental call touches sim state. */
 export const ESCALATION_DAILY = 1.00010745978;
 export const DAYS_PER_YEAR = 365;
+/**
+ * Sub-steps per game day. Time is counted in sub-steps: GameSim.substep advances one, GameSim.step advances this many.
+ * Only headings in the driven regime integrate per sub-step; everything else runs once per day, at the day boundary.
+ */
+export const SUBSTEPS_PER_DAY = CONSTANTS.substepsPerDay.value;

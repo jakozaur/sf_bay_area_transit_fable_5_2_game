@@ -1,17 +1,33 @@
 /**
  * Dumbarton to Meta: Redwood City Caltrain along the Dumbarton right-of-way to Meta at Willow Road,
  * optionally on across the Bay to Newark and Union City BART (doc 05 section 3.5).
- * Coordinates are the approximate, UNVERIFIED values of doc 05 sections 3.5 and 5.
+ *
+ * Coordinates are world metres (core frame) read off the baked data, verified 2026-11-10. The corridor is the
+ * OSM track "Redwood Junction Industrial Lead" (the Dumbarton Cutoff as far as Chilco Street) and the short
+ * "Dumbarton Branch" east of it:
+ *   Redwood City Caltrain        35441.5, -32566.3   (37.48583, -122.23172)
+ *   Redwood Junction             36565.0, -31726.0   where the lead leaves the Caltrain main line
+ *   lead, east leg of the wye    36829.0, -31633.0 and 37387.0, -31545.0
+ *   lead at 5th Avenue           38584.0, -31652.0
+ *   lead near Marsh Road         39508.0, -31740.0   Marsh Road itself is placed from memory, UNVERIFIED
+ *   lead at the site edge        40646.0, -31849.0
+ *   Dumbarton Branch at Chilco   41432.0, -31924.0
+ *   Willow Road at the tracks    42640.0, -31975.0   between Hamilton Avenue and Bayfront Expressway
+ *   Meta, classic campus         42844.1, -32538.0   (37.485, -122.148, doc 05; MPK 10 to 18 footprints)
+ *   Union City BART              54268.3, -44369.8   (rail network station)
+ * Only the last 1.7 km (east of x 40960) lie inside the meta voxel site. The line is surface track: no tunnel,
+ * no machine to drive.
  */
 import type { GameCommand, ScenarioDef } from '@bayvox/sim';
-import { at, cameraOver, EXISTING_BART, EXISTING_CALTRAIN, usd, xz } from './helpers.ts';
+import { cameraOver, EXISTING_BART, EXISTING_CALTRAIN, usd, world, wp } from './helpers.ts';
 
 export const DUMBARTON_PROJECT_ID = 'dumbarton-meta';
 
-const REDWOOD_CITY = xz(37.4854, -122.2319);
-const WILLOW_ROAD = xz(37.48, -122.15);
-const META = xz(37.485, -122.148);
-const UNION_CITY = xz(37.5906, -122.0173);
+const REDWOOD_CITY = world(35441.5, -32566.3);
+const NORTH_FAIR_OAKS = world(39508.0, -31740.0);
+const WILLOW_ROAD = world(42640.0, -31975.0);
+const META = world(42844.1, -32538.0);
+const UNION_CITY = world(54268.3, -44369.8);
 
 /** The corridor SamTrans owns: surface track in the existing right-of-way as far as Meta. */
 const REFERENCE: GameCommand[] = [
@@ -20,12 +36,17 @@ const REFERENCE: GameCommand[] = [
     projectId: DUMBARTON_PROJECT_ID,
     name: 'Dumbarton to Meta',
     waypoints: [
-      at(37.4854, -122.2319, 4, 'softGround'), // Redwood City Caltrain
-      at(37.484, -122.205, 4, 'softGround'), // Marsh Road and North Fair Oaks
-      at(37.482, -122.178, 3, 'bayMud'), // Bayfront
-      at(37.48, -122.15, 3, 'bayMud'), // Willow Road, Meta
+      wp(REDWOOD_CITY.x, REDWOOD_CITY.z, 5, 'softGround'),
+      wp(36565.0, -31726.0, 5, 'softGround'),
+      wp(36829.0, -31633.0, 5, 'softGround'),
+      wp(37387.0, -31545.0, 4, 'softGround'),
+      wp(38584.0, -31652.0, 4, 'softGround'),
+      wp(NORTH_FAIR_OAKS.x, NORTH_FAIR_OAKS.z, 4, 'bayMud'),
+      wp(40646.0, -31849.0, 3, 'bayMud'),
+      wp(41432.0, -31924.0, 3, 'bayMud'),
+      wp(WILLOW_ROAD.x, WILLOW_ROAD.z, 3, 'bayMud'),
     ],
-    methods: ['atGrade', 'atGrade', 'atGrade'],
+    methods: ['atGrade', 'atGrade', 'atGrade', 'atGrade', 'atGrade', 'atGrade', 'atGrade', 'atGrade'],
   },
   {
     t: 'addStation',
@@ -39,9 +60,9 @@ const REFERENCE: GameCommand[] = [
     t: 'addStation',
     projectId: DUMBARTON_PROJECT_ID,
     stationId: 'marsh-road',
-    name: 'Marsh Road',
+    name: 'North Fair Oaks (Marsh Road)',
     template: 'surface',
-    at: xz(37.484, -122.205),
+    at: NORTH_FAIR_OAKS,
   },
   {
     t: 'addStation',
@@ -55,9 +76,17 @@ const REFERENCE: GameCommand[] = [
 
 export const DUMBARTON_TO_META: ScenarioDef = {
   id: 'dumbarton-to-meta',
+  siteId: 'meta',
   title: 'Dumbarton to Meta',
   description:
     'SamTrans bought this right-of-way for $6.9 million in 1994. Estimates for a railway on it went from $50 million (1998) to $1.6 billion (2017); the current study is for a busway. Lay track to Meta, then decide whether to cross the Bay.',
+  briefing: {
+    what: 'A railway already runs most of the way: the Dumbarton Cutoff from Redwood Junction to Willow Road, 7.5 km, freight only. SamTrans has owned it since 1994.',
+    officialCost: '$1.6 billion, phased, for the whole 33 km corridor to Union City with a new bridge (2017). It was $50 million in 1998.',
+    officialDate: 'No date. The current study is for a busway, with construction after 2031.',
+    why: 'Meta sits on the tracks. Surface rail on an existing right-of-way is the cheapest railway there is, and it still has not been built.',
+    source: 'doc 05 section 3.5 (SamTrans Reimagine Dumbarton; Wikipedia, Dumbarton Rail Corridor)',
+  },
   start: {
     date: '2026-11-09',
     budgetCents: usd(3e8),
@@ -109,9 +138,15 @@ export const DUMBARTON_TO_META: ScenarioDef = {
   costProfile: 'bayAreaStatusQuo',
   reference: {
     title: 'Surface rail in the existing right-of-way',
+    ghostLabel: 'Corridor study (SamTrans, 2017)',
     projectId: DUMBARTON_PROJECT_ID,
     commands: REFERENCE,
-    source: 'doc 05 section 3.5 (corridor, station list, cost history)',
-    note: 'The $1.6B of 2017 covers the whole 20.5 mi corridor with the bridge, not this 7 km; it is the budget objective, not a calibration target.',
+    officialCostCents: usd(1.6e9),
+    // 20.5 mi, Union City to Redwood City, with the bridge: the ghost is compared per route-km, not in total.
+    officialLengthKm: 33,
+    launchPit: { name: 'Redwood Junction (track gang, no pit)', x: 36565, z: -31726 },
+    destination: { name: 'Willow Road station', ...WILLOW_ROAD },
+    source: 'doc 05 section 3.5 (corridor, station list, cost history: $1.6B phased, 2017, for 20.5 mi)',
+    note: 'The $1.6B of 2017 covers the whole 20.5 mi corridor with the bridge, not this 7.5 km; it is compared per route-km and has no opening date.',
   },
 };
