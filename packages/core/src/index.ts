@@ -1,6 +1,7 @@
 export * from './assets/terrain.ts';
 export * from './assets/vectors.ts';
 export * from './chunk.ts';
+export * from './entities.ts';
 export * from './frame.ts';
 export * from './hash.ts';
 export * from './hook.ts';
@@ -9,5 +10,8 @@ export * from './materials.ts';
 export * from './mesh.ts';
 export * from './prng.ts';
 export * from './render.ts';
+export * from './services.ts';
 export * from './sim.ts';
+export * from './stub.ts';
+export * from './tooling.ts';
 export * from './world.ts';

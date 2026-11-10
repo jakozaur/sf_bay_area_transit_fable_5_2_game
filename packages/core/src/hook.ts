@@ -1,5 +1,6 @@
 /** Test hook the app exposes as `window.__game` (doc 10 section 8.3). Structural asserts go through it before any pixel comparison. */
 import type { CameraBookmark, CameraState, RenderStats } from './render.ts';
+import type { GameServices } from './services.ts';
 import type { Command, SimSnapshot } from './sim.ts';
 
 export interface GameStats extends RenderStats {
@@ -51,6 +52,10 @@ export interface GameTestHook {
   stepSim?(ticks: number): void;
   /** UI-facing sim state after the last step (the sim package's full snapshot type extends SimSnapshot). */
   snapshot?(): SimSnapshot;
+  /** Applies queued commands, then advances the sim by exactly `substeps` drive sub-steps (docs/CONTRACTS.md, sub-day motion). */
+  stepSubsteps?(substeps: number): void;
+  /** The services the UI and tools run on, so e2e tests can drive the game the way the UI does. */
+  services?(): GameServices;
   setCamera?(b: CameraBookmark): void;
   /** The camera of the current frame, for projecting world points to the screen in tests. */
   camera?(): CameraState;
@@ -61,6 +66,19 @@ export interface GameTestHook {
   dig?(worldPos: { x: number; y: number; z: number }, radius: number): number;
   view?(): GameViewState;
   setView?(v: Partial<GameViewState>): void;
+  /**
+   * What the entity layer draws in the current frame: machines and trains with the pose they are drawn at
+   * (interpolated), and the layer's own counters (rings, track metres). For asserting motion in tests.
+   */
+  entities?(): {
+    tbms: { id: string; x: number; y: number; z: number; status: string }[];
+    trains: { id: string; x: number; y: number; z: number }[];
+    stations: number;
+    rings: number;
+    trackM: number;
+    /** Machine the camera rides with (drive tool or watch), or null. */
+    possessedTbmId: string | null;
+  };
   /** Draws `frames` frames back to back outside requestAnimationFrame and reports per-frame wall time. */
   benchFrames?(frames: number): FrameBenchResult;
 }
