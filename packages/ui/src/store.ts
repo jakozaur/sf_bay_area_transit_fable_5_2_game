@@ -25,7 +25,7 @@ export interface UiStoreInternal extends UiStore {
   notify(text: string, tone?: Toast['tone']): void;
   dismiss(key: string): void;
   openPanel(panel: PanelId | null): void;
-  /** Reform the reforms panel should open on (its branch selected, its entry expanded), or null. */
+  /** Reform the reforms panel should open on (its entry expanded), or null. */
   readonly reformFocus: Signal<string | null>;
   /** Opens the reforms panel on one reform: the links of locked design options and of receipt lines. */
   openReform(reformId: string): void;

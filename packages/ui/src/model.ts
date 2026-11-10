@@ -10,6 +10,7 @@ import {
   type PolandTarget,
   type ProjectView,
   type ReceiptLine,
+  type ReformView,
   type SocialPost,
   type TbmView,
 } from '@bayvox/sim';
@@ -199,4 +200,28 @@ export function visibleLines(lines: readonly ReceiptLine[]): ReceiptLine[] {
 /** a / b as a model ratio, or null when the denominator is not a positive number yet (no project, placeholders). */
 export function safeRatio(a: number, b: number): number | null {
   return b > 0 && Number.isFinite(a) ? a / b : null;
+}
+
+/** True when a reform's preview moves neither the cost (to the dollar) nor the opening date (to the day) of the project. */
+export function reformIsQuiet(r: ReformView): boolean {
+  const p = r.preview;
+  return p !== null && Math.round(p.costDeltaCents / 100) === 0 && Math.round(p.daysDelta) === 0;
+}
+
+/**
+ * The reforms sheet as one list: what to buy, sorted by what each saves on this project (cost first, days on a
+ * tie, the sim's order after that), then what is already enacted; and apart from them the reforms that change
+ * nothing on this line. Without a project nothing can be measured: every reform stays in `list`, in the sim's order.
+ */
+export function reformList(reforms: readonly ReformView[]): { list: ReformView[]; noEffect: ReformView[] } {
+  const saved = (r: ReformView): number => -(r.preview?.costDeltaCents ?? 0);
+  const sooner = (r: ReformView): number => -(r.preview?.daysDelta ?? 0);
+  const enacted = reforms.filter((r) => r.status === 'enacted');
+  const noEffect = reforms.filter((r) => r.status !== 'enacted' && reformIsQuiet(r));
+  const open = reforms
+    .filter((r) => r.status !== 'enacted' && !reformIsQuiet(r))
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => saved(b.r) - saved(a.r) || sooner(b.r) - sooner(a.r) || a.i - b.i)
+    .map((x) => x.r);
+  return { list: [...open, ...enacted], noEffect };
 }

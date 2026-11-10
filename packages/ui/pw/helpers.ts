@@ -1,3 +1,4 @@
+import { REFORMS } from '@bayvox/sim';
 import { expect, type Page } from '@playwright/test';
 import type { FakeCall, SceneId } from '../src/testing/index.ts';
 
@@ -33,3 +34,10 @@ export async function lastCall(page: Page): Promise<FakeCall> {
 }
 
 export const tid = (page: Page, id: string) => page.getByTestId(id);
+
+/** Title of a reform of the sim, by id. The fixtures show the sim's own reform texts. */
+export function title(reformId: string): string {
+  const def = REFORMS.find((r) => r.id === reformId);
+  if (def === undefined) throw new Error(`the sim has no reform "${reformId}"`);
+  return def.title;
+}

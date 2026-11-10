@@ -54,7 +54,36 @@ const zeroLedger = (): Record<LedgerCategory, number> =>
 
 const PROJECT_ID = 'portal';
 const LENGTH_KM = 2.09;
-const ENACTED = ['narrowRecord', 'stageGates', 'twoTracks'];
+/** Reforms the fixtures name. Each must be in the sim's list: the check below fails loudly on one that is not. */
+const ENACTED = ['inHouseEngineering', 'roundTheClock'];
+/** Change nothing on the fixture project: a preview of zero (the folded group of the reforms sheet). */
+const QUIET = ['prufrockClass', 'smallBoreLoop'];
+/**
+ * The sim's reforms have no prerequisites. The fixture gives one reform a prerequisite all the same, so the
+ * sheet's "Needs first" line and the locked row stay rendered and tested.
+ */
+const FIXTURE_PREREQS: Readonly<Record<string, string[]>> = { railSpecustawa: ['utilityStatute'] };
+/** The reform that allows the twin bore, and the one that allows the compact station box. */
+const TWIN_BORE_REFORM = 'twinBoreStandard';
+const COMPACT_BOX_REFORM = 'stationCatalogue';
+/** The ids above by what the fixture uses them for, for the specs. */
+export const FIXTURE_REFORMS = {
+  enacted: ENACTED,
+  quiet: QUIET,
+  locked: 'railSpecustawa',
+  lockedNeeds: 'utilityStatute',
+  twinBore: TWIN_BORE_REFORM,
+  compactBox: COMPACT_BOX_REFORM,
+  /** Not enacted, on a receipt line beside an enacted one. */
+  onReceipt: 'bestValueAward',
+} as const;
+
+function reformTitle(id: string): string {
+  const def = REFORMS.find((r) => r.id === id);
+  if (def === undefined) throw new Error(`fixture: the sim has no reform "${id}"`);
+  return def.title;
+}
+for (const id of [...ENACTED, ...QUIET, ...Object.keys(FIXTURE_PREREQS), TWIN_BORE_REFORM, COMPACT_BOX_REFORM]) reformTitle(id);
 
 // ---------------------------------------------------------------- missions
 
@@ -76,13 +105,7 @@ const MISSIONS: MissionCard[] = [
       why: 'The terminal has been waiting for a train since 2018. Every Caltrain rider still walks or transfers the last stretch.',
       source: 'SFCTA memo, January 2026: $7.57B indicative, $6.84B excluding the built trainbox (fixture copy).',
     },
-    objectives: [
-      'Run trains from 4th and King to the Salesforce Transit Center',
-      'Spend no more than the official $6.84B',
-      'Open by the official date, Q1 2036',
-      'Stretch: build it for under $2B',
-      'Stretch: pay no more than 3x what Poland would',
-    ],
+    objectives: ['Run trains from 4th and King to the Salesforce Transit Center', 'Finish within 2x Poland on cost and time'],
   },
   ...(
     [
@@ -157,7 +180,7 @@ const LINES: LineSpec[] = [
     label: 'Tunnel cross-section',
     m: [0, 610, 0],
     sq: 1.42,
-    reforms: ['twoTracks', 'twinBoreStandard'],
+    reforms: ['twinBoreStandard'],
     evidence: 'fixture',
   },
   {
@@ -166,7 +189,7 @@ const LINES: LineSpec[] = [
     label: 'Station boxes and mezzanines',
     m: [420, 420, 0],
     sq: 1.31,
-    reforms: ['shallowBoxes', 'noMezzanines'],
+    reforms: ['stationCatalogue'],
     evidence: 'fixture',
   },
   {
@@ -175,7 +198,7 @@ const LINES: LineSpec[] = [
     label: 'Track count and systems scope',
     m: [0, 95, 0],
     sq: 1.05,
-    reforms: ['twoTracks'],
+    reforms: ['twinBoreStandard'],
     evidence: 'fixture',
   },
   {
@@ -184,7 +207,7 @@ const LINES: LineSpec[] = [
     label: 'Procurement',
     m: [310, 480, 0],
     sq: 1.25,
-    reforms: ['stageGates', 'bestValueAward', 'openTenders'],
+    reforms: ['inHouseEngineering', 'bestValueAward'],
     evidence: 'fixture',
   },
   {
@@ -193,7 +216,7 @@ const LINES: LineSpec[] = [
     label: 'Staffing and work rules',
     m: [520, 520, 0],
     sq: 1.35,
-    reforms: ['roundTheClock', 'leanSupervision'],
+    reforms: ['roundTheClock'],
     evidence: 'fixture',
   },
   {
@@ -202,7 +225,7 @@ const LINES: LineSpec[] = [
     label: 'Utilities and third parties',
     m: [240, 240, 0],
     sq: 1.12,
-    reforms: ['utilityStatute', 'potholeFirst'],
+    reforms: ['utilityStatute'],
     evidence: 'fixture',
   },
   {
@@ -211,7 +234,7 @@ const LINES: LineSpec[] = [
     label: 'Bespoke systems and Buy America',
     m: [130, 130, 0],
     sq: 1.08,
-    reforms: ['importSupplyChain'],
+    reforms: ['emergencyAward'],
     evidence: 'fixture',
   },
   {
@@ -220,7 +243,7 @@ const LINES: LineSpec[] = [
     label: 'Consultants and project management',
     m: [760, 760, 31],
     sq: 1.38,
-    reforms: ['inHouseEngineering', 'payBands'],
+    reforms: ['inHouseEngineering'],
     evidence: 'fixture',
   },
   {
@@ -229,7 +252,7 @@ const LINES: LineSpec[] = [
     label: 'Contingency',
     m: [540, 720, 12],
     sq: 1.3,
-    reforms: ['itemizedContracts', 'groundInvestigation'],
+    reforms: ['rightMachine'],
     evidence: 'fixture',
   },
   {
@@ -238,7 +261,7 @@ const LINES: LineSpec[] = [
     label: 'Escalation over the schedule',
     m: [610, 890, 9],
     sq: 1.22,
-    reforms: ['nepaPageLimits', 'megaprojectCertification'],
+    reforms: ['railSpecustawa'],
     evidence: 'fixture',
   },
   {
@@ -247,7 +270,7 @@ const LINES: LineSpec[] = [
     label: 'Standing organisation',
     m: [380, 520, 6],
     sq: 1.1,
-    reforms: ['megaprojectCertification'],
+    reforms: ['railSpecustawa', 'emergencyAward'],
     evidence: 'fixture',
   },
   { id: 'events', group: 'delay', label: 'Event cards', m: [42, 0, 0], sq: 1, reforms: [], evidence: 'fixture' },
@@ -284,7 +307,7 @@ function receipt(final: boolean): Receipt {
     label: l.label,
     factor: { yours: l.m[0] === 0 ? 1 : l.sq, statusQuo: l.sq, poland: 1 },
     cents: cents(l),
-    reforms: l.reforms.map((id) => ({ id, title: REFORMS.find((r) => r.id === id)?.title ?? id, enacted: ENACTED.includes(id) })),
+    reforms: l.reforms.map((id) => ({ id, title: reformTitle(id), enacted: ENACTED.includes(id) })),
     status: l.m[0] === 0 ? 'removed' : l.m[0] < l.m[1] ? 'reduced' : 'paid',
     evidence: l.evidence,
   }));
@@ -381,13 +404,7 @@ function scorecard(r: Receipt, final: boolean): Scorecard {
     ridersPerDay: 41200,
     costPerRiderCents: Math.round(y.costCents / 41200),
     stars: 2,
-    starsReason:
-      'The rating is the weakest of the three: cost and riders. Three stars on an axis means within a quarter of the way from Poland to Official plan (TJPA, 2025).',
-    axes: [
-      { id: 'cost', stars: 2, reason: 'Under the official figure, far above the Polish par.' },
-      { id: 'date', stars: 3, reason: 'Opened 33 months before the official date.' },
-      { id: 'riders', stars: 2, reason: 'Close to the agency forecast.' },
-    ],
+    starsReason: 'Time is inside the target, cost is not.',
     verdict: `You opened The Portal for ${money(y.costCents)}, ${money(g.costCents - y.costCents)} under the official plan and 33 months early. Poland would have paid ${money(p.costCents)}.`,
   };
 }
@@ -447,7 +464,7 @@ function designOptions(tunnel: string, box: string, yoursCents: number): DesignO
       description,
       practice,
       selected,
-      lockedBy: lockedBy.map((reformId) => ({ reformId, title: REFORMS.find((r) => r.id === reformId)?.title ?? reformId })),
+      lockedBy: lockedBy.map((reformId) => ({ reformId, title: reformTitle(reformId) })),
       costCents: cost,
       costPerKmCents: Math.round(cost / LENGTH_KM),
       deltaCents: selected ? 0 : usd(deltaM * 1e6),
@@ -470,7 +487,7 @@ function designOptions(tunnel: string, box: string, yoursCents: number): DesignO
       'polish',
       -610,
       -200,
-      tunnel === 'twinBore' ? [] : ['twinBoreStandard'],
+      tunnel === 'twinBore' ? [] : [TWIN_BORE_REFORM],
     ),
     opt(
       'tunnel',
@@ -492,7 +509,7 @@ function designOptions(tunnel: string, box: string, yoursCents: number): DesignO
       'polish',
       -420,
       -120,
-      ['shallowBoxes', 'noMezzanines'],
+      [COMPACT_BOX_REFORM],
     ),
     opt(
       'station',
@@ -681,17 +698,18 @@ function project(spec: ProjectSpec): ProjectView {
 function reforms(pc: number, projectCents: number): ReformView[] {
   return REFORMS.map((r, i): ReformView => {
     const enacted = ENACTED.includes(r.id);
-    const missing = r.prereqs.filter((p) => !ENACTED.includes(p));
+    const prereqs = FIXTURE_PREREQS[r.id] ?? [];
+    const missing = prereqs.filter((p) => !ENACTED.includes(p));
     const status = enacted ? 'enacted' : missing.length > 0 ? 'locked' : 'available';
     const affordable = status === 'available' && r.cost.pc <= pc;
     const blockedReason =
       status === 'locked'
-        ? `Needs ${missing.map((id) => REFORMS.find((x) => x.id === id)?.title ?? id).join(' and ')} first`
+        ? `Needs ${missing.map(reformTitle).join(' and ')} first`
         : status === 'available' && !affordable
           ? `Costs ${r.cost.pc} political capital, you have ${pc}`
           : null;
     // The machine reforms move nothing on the official design, which has no boring machine: a preview of zero.
-    const quiet = r.id === 'continuousAdvance' || r.id === 'prufrockClass';
+    const quiet = QUIET.includes(r.id);
     const saveM = quiet ? 0 : 40 + ((i * 97) % 380);
     return {
       id: r.id,
@@ -700,7 +718,7 @@ function reforms(pc: number, projectCents: number): ReformView[] {
       description: r.description,
       evidence: r.evidence,
       cost: r.cost,
-      prereqs: r.prereqs,
+      prereqs,
       effects: r.effects,
       beyondPoland: r.beyondPoland,
       status,
@@ -718,7 +736,7 @@ function reforms(pc: number, projectCents: number): ReformView[] {
             exact: true,
           },
       receiptLines: LINES.filter((l) => l.reforms.includes(r.id)).map((l) => l.id),
-      unlocks: r.id === 'twinBoreStandard' ? ['twinBore'] : r.id === 'noMezzanines' ? ['compactBox'] : [],
+      unlocks: r.id === TWIN_BORE_REFORM ? ['twinBore'] : r.id === COMPACT_BOX_REFORM ? ['compactBox'] : [],
     };
   });
 }
@@ -817,18 +835,10 @@ export function snapshot(spec: SnapshotSpec): GameSnapshot {
         detail: '',
       },
       {
-        id: 'official-budget',
-        title: 'Spend no more than the official $6.84B',
-        kind: 'maxCost',
+        id: 'poland-target',
+        title: 'Finish within 2x Poland on cost and time',
+        kind: 'polandTarget',
         stretch: false,
-        status: final ? 'done' : 'pending',
-        detail: p === null ? '' : `Forecast ${money(p.receipt.columns.yours.costCents)}`,
-      },
-      {
-        id: 'under-2b',
-        title: 'Stretch: build it for under $2B',
-        kind: 'maxCost',
-        stretch: true,
         status: final ? 'failed' : 'pending',
         detail: '',
       },
@@ -1015,7 +1025,7 @@ const PILE_ON: SocialPost[] = (
   tick: i < 3 ? 1700 : 1731,
   handle,
   text,
-  cause: i < 3 ? 'reform:twoTracks' : 'housing:saltPonds',
+  cause: i < 3 ? `reform:${TWIN_BORE_REFORM}` : 'housing:saltPonds',
   likes,
   reposts,
   burst: i < 3 ? 1 : 2,
@@ -1247,7 +1257,7 @@ export const SCENES = {
       next: gateNext,
     }),
   }),
-  reforms: scene('Reform tree', {
+  reforms: scene('Reforms sheet', {
     snapshot: snapshot({
       stage: 'approvals',
       tick: 205,

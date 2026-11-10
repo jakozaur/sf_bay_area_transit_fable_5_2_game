@@ -1,6 +1,8 @@
 /** Every button dispatches the right Command or GameServices call, checked on the recording fake. */
 import { expect, test } from '@playwright/test';
-import { calls, cues, lastCall, open, tid } from './helpers.ts';
+import { reformList } from '../src/model.ts';
+import { FIXTURE_REFORMS } from '../src/testing/index.ts';
+import { calls, cues, lastCall, open, tid, title } from './helpers.ts';
 
 test('title: Play and a mission row brief the mission, Continue loads the save, every row is open', async ({ page }) => {
   await open(page, 'title-continue');
@@ -125,7 +127,9 @@ test('design chooser: an open option sends setDesign, a locked one cannot be pic
   await tid(page, 'design-compactBox').click({ force: true });
   await tid(page, 'design-twinBore').click({ force: true });
   expect((await calls(page)).length).toBe(before);
-  await tid(page, 'design-unlock-shallowBoxes').click();
+  await tid(page, `design-unlock-${FIXTURE_REFORMS.compactBox}`).click();
+  // The sheet opens on the reform the link names.
+  await expect(tid(page, `reform-body-${FIXTURE_REFORMS.compactBox}`)).toBeVisible();
   await expect(tid(page, 'panel-reforms')).toBeVisible();
 });
 
@@ -148,27 +152,96 @@ test('project panel: approve, gates, watch and drive a heading', async ({ page }
   await expect(tid(page, 'drive-hud')).toBeVisible();
 });
 
-test('reforms: branches switch, a reform shows its effect and evidence before buying, Enact sends the command', async ({ page }) => {
+test('reforms: one list sorted by saving, each row says what it saves and costs, Enact sends the command from the row', async ({
+  page,
+}) => {
   await open(page, 'reforms');
-  await tid(page, 'reform-head-nepaPageLimits').click();
-  const body = tid(page, 'reform-body-nepaPageLimits');
-  await expect(body).toContainText('The environmental statement must now be shorter than the tunnel.');
-  // No source fragment in the player copy.
+  // No tabs, no call-out: one list.
+  await expect(page.locator('[role="tab"]')).toHaveCount(0);
+  const reforms = await page.evaluate(() => window.__ui?.services.sim.snapshot.get().reforms ?? []);
+  const { list, noEffect } = reformList(reforms);
+  const shown = await tid(page, 'reform-list')
+    .locator('> li')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')));
+  expect(shown).toEqual(list.map((r) => `reform-${r.id}`));
+  // The row itself: title, saving, months sooner, capital, Enact.
+  const top = list[0];
+  if (top === undefined || top.preview === null) throw new Error('the fixture has no open reform with a preview');
+  const row = tid(page, `reform-${top.id}`);
+  await expect(row).toContainText(top.title);
+  await expect(tid(page, `reform-fx-${top.id}`)).toHaveText(/^saves \$[\d.,]+[KMB]?, \d+(\.\d+)? (days?|months|years) sooner$/);
+  await expect(tid(page, `reform-cost-${top.id}`)).toHaveText(`costs ${top.cost.pc} PC`);
+  // Enact is on the row, without opening it.
+  const buy = list.find((r) => r.affordable);
+  if (buy === undefined) throw new Error('the fixture has no affordable reform');
+  await expect(tid(page, `reform-body-${buy.id}`)).toHaveCount(0);
+  await tid(page, `enact-${buy.id}`).click();
+  expect(await lastCall(page)).toEqual({ name: 'sim.command', args: [{ t: 'enactReform', id: buy.id }] });
+  // The row opens to the fine print: description, effects, preview, no source fragment in the player copy.
+  await tid(page, `reform-head-${buy.id}`).click();
+  const body = tid(page, `reform-body-${buy.id}`);
+  await expect(body).toContainText(buy.description);
   await expect(body.locator('.bv-evidence')).toHaveCount(0);
-  await expect(tid(page, 'reform-effects-nepaPageLimits')).toHaveText('Environmental review 50% shorter');
-  await expect(tid(page, 'reform-preview-nepaPageLimits')).toContainText('Cost');
-  await expect(tid(page, 'reform-preview-nepaPageLimits')).toContainText('Opens');
-  await tid(page, 'enact-nepaPageLimits').click();
-  expect(await lastCall(page)).toEqual({ name: 'sim.command', args: [{ t: 'enactReform', id: 'nepaPageLimits' }] });
-  await tid(page, 'reform-head-railSpecustawa').click();
-  await expect(tid(page, 'enact-railSpecustawa')).toBeDisabled();
-  await expect(tid(page, 'reform-blocked-railSpecustawa')).toHaveText('Needs Megaproject certification first');
-  await tid(page, 'branch-procurement').click();
-  await expect(tid(page, 'reform-stageGates')).toContainText('Enacted');
-  await tid(page, 'reform-head-stageGates').click();
-  await expect(tid(page, 'enact-stageGates')).toHaveCount(0);
-  await tid(page, 'branch-tunnelling').click();
-  await expect(tid(page, 'reform-rightMachine')).toBeVisible();
+  await expect(tid(page, `reform-preview-${buy.id}`)).toContainText('Cost');
+  await expect(tid(page, `reform-preview-${buy.id}`)).toContainText('Opens');
+  await expect(tid(page, `enact-${buy.id}`)).toHaveCount(1);
+  // A reform that reports a prerequisite still says so and cannot be enacted.
+  const locked = FIXTURE_REFORMS.locked;
+  await tid(page, `reform-head-${locked}`).click();
+  await expect(tid(page, `enact-${locked}`)).toBeDisabled();
+  await expect(tid(page, `reform-blocked-${locked}`)).toHaveText(`Needs ${title(FIXTURE_REFORMS.lockedNeeds)} first`);
+  await expect(tid(page, `reform-body-${locked}`)).toContainText(`Needs first: ${title(FIXTURE_REFORMS.lockedNeeds)}.`);
+  // One without a prerequisite says nothing about one.
+  await tid(page, `reform-head-${buy.id}`).click();
+  await expect(tid(page, `reform-body-${buy.id}`)).not.toContainText('Needs');
+  // An enacted reform is in the list, marked, with nothing to press.
+  const done = FIXTURE_REFORMS.enacted[0];
+  await expect(tid(page, `reform-${done}`)).toContainText('Enacted');
+  await expect(tid(page, `enact-${done}`)).toHaveCount(0);
+  // The reforms of no effect on this line are folded away at the bottom.
+  expect(noEffect.map((r) => r.id).sort()).toEqual([...FIXTURE_REFORMS.quiet].sort());
+  await expect(tid(page, 'reforms-noeffect')).toHaveText(`No effect on this line (${noEffect.length})`);
+  await expect(tid(page, 'reforms-noeffect')).toHaveAttribute('aria-expanded', 'false');
+  await expect(tid(page, `reform-${noEffect[0]?.id}`)).toHaveCount(0);
+  await tid(page, 'reforms-noeffect').click();
+  for (const r of noEffect) await expect(tid(page, `reform-${r.id}`)).toBeVisible();
+});
+
+test('the twin bore reform says it switches the line itself: no trip to the design chooser', async ({ page }) => {
+  await open(page, 'reforms');
+  const id = FIXTURE_REFORMS.twinBore;
+  await tid(page, `reform-head-${id}`).click();
+  // The fixture line is a twin bore already: nothing to switch, nothing said.
+  await expect(tid(page, `reform-body-${id}`)).toBeVisible();
+  await expect(tid(page, `reform-picks-${id}`)).toHaveCount(0);
+  // The same line drawn as the official cavern, before tender (frozen: false) and after it.
+  const cavern = (frozen: boolean): Promise<void> =>
+    page.evaluate((isFrozen) => {
+      const ui = window.__ui;
+      if (ui === undefined) throw new Error('dev page: window.__ui is missing');
+      const s = ui.services.sim.snapshot.get();
+      ui.services.setSnapshot({
+        ...s,
+        projects: s.projects.map((p) => ({
+          ...p,
+          design: {
+            ...p.design,
+            frozen: isFrozen,
+            tunnel: 'minedCavern',
+            options: p.design.options.map((o) => (o.group === 'tunnel' ? { ...o, selected: o.id === 'minedCavern' } : o)),
+          },
+        })),
+      });
+    }, frozen);
+  await cavern(true);
+  await expect(tid(page, `reform-body-${id}`)).toBeVisible();
+  await expect(tid(page, `reform-picks-${id}`)).toHaveCount(0);
+  await cavern(false);
+  await expect(tid(page, `reform-picks-${id}`)).toHaveText('Enacting it switches this line to: Twin bore, 6.6 m.');
+  await expect(tid(page, `reform-body-${id}`)).not.toContainText('design chooser');
+  // Another design reform still points at the chooser, where its option is picked.
+  await tid(page, `reform-head-${FIXTURE_REFORMS.compactBox}`).click();
+  await expect(tid(page, `reform-body-${FIXTURE_REFORMS.compactBox}`)).toContainText('Unlocks in the design chooser: Compact Polish box.');
 });
 
 test('event card: an affordable option resolves the event, an unaffordable one is disabled', async ({ page }) => {
@@ -190,7 +263,7 @@ test('drive hud: autopilot toggle and release', async ({ page }) => {
 test('receipt: a reform that is not enacted links to the reform tree', async ({ page }) => {
   await open(page, 'receipt');
   await expect(tid(page, 'ratio-yours')).toHaveText('13.4x');
-  await tid(page, 'receipt-reform-bestValueAward').click();
+  await tid(page, `receipt-reform-${FIXTURE_REFORMS.onReceipt}`).click();
   await expect(tid(page, 'panel-reforms')).toBeVisible();
 });
 

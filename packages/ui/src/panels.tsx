@@ -1,7 +1,6 @@
 /** Tool panel (left) and the side sheets (right): design chooser, project, reforms, receipt. */
 import { TOOL_COMMANDS, type ToolId, type ToolOptionSpec } from '@bayvox/core';
 import {
-  BRANCHES,
   type DesignOptionView,
   type Method,
   type PhaseView,
@@ -32,7 +31,17 @@ import {
   percent,
   ratio,
 } from './format.ts';
-import { act, actionButton, command, housingOptions, missionProject, selectTool, visibleLines } from './model.ts';
+import {
+  act,
+  actionButton,
+  command,
+  housingOptions,
+  missionProject,
+  reformIsQuiet,
+  reformList,
+  selectTool,
+  visibleLines,
+} from './model.ts';
 
 // ---------------------------------------------------------------- tool panel
 
@@ -629,8 +638,8 @@ export function Objectives({ store }: StoreProps): JSX.Element | null {
 
 // ---------------------------------------------------------------- reforms
 
-/** The special-purpose infrastructure act (M2 shared contract id). */
-const SPECUSTAWA = 'specustawa';
+/** The tunnel option the Polish baseline builds. The reform that allows it also selects it (owner decision 3). */
+const TWIN_BORE = 'twinBore';
 
 function reformCost(r: ReformView): string {
   const parts: string[] = [];
@@ -639,45 +648,72 @@ function reformCost(r: ReformView): string {
   return parts.length > 0 ? parts.join(' + ') : 'Free';
 }
 
-function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; open: boolean; onToggle: () => void }): JSX.Element {
+/** What a reform is worth on this project, in the words of the row: "saves $1.20B, 7 months sooner". */
+function reformWorth(r: ReformView): string {
+  const p = r.preview;
+  if (p === null) return '';
+  const what = r.effects.length > 0 ? effectText(r.effects[0]) : 'No effect';
+  if (reformIsQuiet(r)) return `${what}: nothing on this project`;
+  const cost =
+    Math.round(p.costDeltaCents / 100) === 0
+      ? null
+      : p.costDeltaCents < 0
+        ? `saves ${money(-p.costDeltaCents)}`
+        : `adds ${money(p.costDeltaCents)}`;
+  const days = Math.round(p.daysDelta) === 0 ? null : durationDelta(p.daysDelta);
+  // A reform that only costs money on the estimate must say what the money buys: the second playtest read
+  // "+$20.0M" on five rows and had no reason to buy any of them.
+  const onlyCosts = p.costDeltaCents > 0 && p.daysDelta >= 0;
+  return `${[cost, days].filter((x) => x !== null).join(', ')}${onlyCosts ? `. Buys: ${what.charAt(0).toLowerCase()}${what.slice(1)}` : ''}`;
+}
+
+/** One reform: a row that says what it saves here, what it costs and enacts it; the row opens to the fine print. */
+function ReformRow({ store, r, open, onToggle }: StoreProps & { r: ReformView; open: boolean; onToggle: () => void }): JSX.Element {
   const s = store.snapshot.value;
   const project = missionProject(s);
   const title = (id: string): string => s.reforms.find((x) => x.id === id)?.title ?? id;
-  const optionLabel = (id: string): string => project?.design.options.find((o) => o.id === id)?.label ?? id;
+  const option = (id: string) => project?.design.options.find((o) => o.id === id);
   const p = r.preview;
-  // A preview of nothing is said as nothing on this project, with what the reform does change.
-  const quiet = p !== null && moneyDelta(p.costDeltaCents) === 'no change' && durationDelta(p.daysDelta) === 'no change';
-  const what = r.effects.length > 0 ? effectText(r.effects[0]) : 'No effect';
-  // A reform that only costs money on the estimate must say what the money buys: the second playtest read
-  // "+$20.0M" on five rows and had no reason to buy any of them.
-  const onlyCosts = p !== null && p.costDeltaCents > 0 && p.daysDelta >= 0;
-  const worth =
-    p === null
-      ? ''
-      : quiet
-        ? `${what}: nothing on this project`
-        : `${[
-            moneyDelta(p.costDeltaCents) === 'no change' ? null : moneyDelta(p.costDeltaCents),
-            durationDelta(p.daysDelta) === 'no change' ? null : `opens ${durationDelta(p.daysDelta)}`,
-          ]
-            .filter((x) => x !== null)
-            .join(', ')}${onlyCosts ? `. Buys: ${what.charAt(0).toLowerCase()}${what.slice(1)}` : ''}`;
+  const quiet = reformIsQuiet(r);
   const notes = p?.notes ?? [];
   // The sim says why (the design note among them); the old design-branch rule stays for snapshots without notes.
   const tooLate = notes.length === 0 && r.status !== 'enacted' && r.branch === 'design' && project?.design.frozen === true;
+  // The twin bore needs no trip to the design chooser: the sim selects it with the reform while the design can change.
+  const twin = r.unlocks.includes(TWIN_BORE) ? option(TWIN_BORE) : undefined;
+  const picksTwin = twin !== undefined && !twin.selected && project?.design.frozen === false && r.status !== 'enacted';
+  const chooser = r.unlocks.filter((id) => id !== TWIN_BORE);
   return (
     <li class={cx('bv-reform', `is-${r.status}`)} data-testid={`reform-${r.id}`}>
       <span class="stop" />
-      <button type="button" class="bv-reform-head" aria-expanded={open} data-testid={`reform-head-${r.id}`} onClick={onToggle}>
-        <span class="title">{r.title}</span>
-        <span class="cost">{r.status === 'enacted' ? <span class="bv-tag is-good">Enacted</span> : reformCost(r)}</span>
-        {!open && p !== null && (
-          <span class="fx" data-testid={`reform-fx-${r.id}`}>
-            {worth}
-          </span>
+      <div class="bv-reform-row">
+        <button type="button" class="bv-reform-head" aria-expanded={open} data-testid={`reform-head-${r.id}`} onClick={onToggle}>
+          <span class="title">{r.title}</span>
+          {p !== null && (
+            <span class={cx('fx', !quiet && p.costDeltaCents < 0 && 'is-saving')} data-testid={`reform-fx-${r.id}`}>
+              {reformWorth(r)}
+            </span>
+          )}
+          {r.status === 'locked' && r.blockedReason !== null && <span class="fx">{r.blockedReason}</span>}
+        </button>
+        {r.status === 'enacted' ? (
+          <span class="bv-tag is-good">Enacted</span>
+        ) : (
+          <>
+            <span class="cost" data-testid={`reform-cost-${r.id}`}>
+              costs {reformCost(r)}
+            </span>
+            <Btn
+              kind="primary"
+              testId={`enact-${r.id}`}
+              label={`Enact ${r.title} for ${reformCost(r)}`}
+              disabledReason={r.affordable ? null : (r.blockedReason ?? 'Not available now')}
+              onClick={() => command(store, { t: 'enactReform', id: r.id })}
+            >
+              Enact
+            </Btn>
+          </>
         )}
-        {!open && r.status === 'locked' && r.blockedReason !== null && <span class="fx">{r.blockedReason}</span>}
-      </button>
+      </div>
       {open && (
         <div class="bv-reform-body" data-testid={`reform-body-${r.id}`}>
           <p>{r.description}</p>
@@ -714,25 +750,20 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
             </div>
           )}
           {p === null && r.status !== 'enacted' && <p class="bv-note">No project to measure the effect against yet.</p>}
-          {r.unlocks.length > 0 && <p class="bv-small">Unlocks in the design chooser: {r.unlocks.map(optionLabel).join(', ')}.</p>}
+          {picksTwin && (
+            <p class="bv-small" data-testid={`reform-picks-${r.id}`}>
+              Enacting it switches this line to: {twin.label}.
+            </p>
+          )}
+          {chooser.length > 0 && (
+            <p class="bv-small">Unlocks in the design chooser: {chooser.map((id) => option(id)?.label ?? id).join(', ')}.</p>
+          )}
           {r.prereqs.length > 0 && <p class="bv-small">Needs first: {r.prereqs.map(title).join(', ')}.</p>}
           {r.beyondPoland && <p class="bv-small bv-soft">Beyond Polish practice.</p>}
-          {r.status !== 'enacted' && (
-            <>
-              <Btn
-                kind="primary"
-                testId={`enact-${r.id}`}
-                disabledReason={r.affordable ? null : (r.blockedReason ?? 'Not available now')}
-                onClick={() => command(store, { t: 'enactReform', id: r.id })}
-              >
-                Enact for {reformCost(r)}
-              </Btn>
-              {!r.affordable && r.blockedReason !== null && (
-                <p class="bv-small bv-bad" data-testid={`reform-blocked-${r.id}`}>
-                  {r.blockedReason}
-                </p>
-              )}
-            </>
+          {r.status !== 'enacted' && !r.affordable && r.blockedReason !== null && (
+            <p class="bv-small bv-bad" data-testid={`reform-blocked-${r.id}`}>
+              {r.blockedReason}
+            </p>
           )}
         </div>
       )}
@@ -742,65 +773,33 @@ function ReformStop({ store, r, open, onToggle }: StoreProps & { r: ReformView; 
 
 export function ReformsPanel({ store }: StoreProps): JSX.Element {
   const s = store.snapshot.value;
+  const { list, noEffect } = reformList(s.reforms);
   // Opened from a link that names a reform (a locked design option, a receipt line): start on it.
   const focus = s.reforms.find((r) => r.id === store.reformFocus.peek());
-  const [branch, setBranch] = useState<string>(focus?.branch ?? BRANCHES[0].id);
   const [open, setOpen] = useState<string | null>(focus?.id ?? null);
-  const inBranch = s.reforms.filter((r) => r.branch === branch);
-  const spec = s.reforms.find((r) => r.id === SPECUSTAWA);
-  // A branch the sim lists and this build has no tab title for still gets a tab: no reform may be unreachable.
-  const branches = [
-    ...BRANCHES.map((b) => ({ id: b.id as string, title: b.title as string })),
-    ...[...new Set(s.reforms.map((r) => r.branch))]
-      .filter((id) => !BRANCHES.some((b) => b.id === id))
-      .map((id) => ({ id, title: id.charAt(0).toUpperCase() + id.slice(1) })),
-  ];
+  const [folded, setFolded] = useState(focus === undefined || !noEffect.some((r) => r.id === focus.id));
+  const row = (r: ReformView): JSX.Element => (
+    <ReformRow key={r.id} store={store} r={r} open={open === r.id} onToggle={() => setOpen(open === r.id ? null : r.id)} />
+  );
   return (
     <Sheet store={store} id="reforms" title="Reforms" sub={`${capital(s.politicalCapital)} to spend, time waits`}>
-      {spec !== undefined && spec.status !== 'enacted' && open !== SPECUSTAWA && (
-        <button
-          type="button"
-          class="bv-spec-call"
-          data-testid="specustawa-call"
-          onClick={() => {
-            setBranch(spec.branch);
-            setOpen(SPECUSTAWA);
-          }}
-        >
-          <b>{spec.title}:</b> skip all permitting in a special zone. {reformCost(spec)}.
-        </button>
-      )}
-      <div class="bv-branches" role="tablist" aria-label="Reform branches">
-        {branches.map((b) => {
-          const all = s.reforms.filter((r) => r.branch === b.id);
-          const done = all.filter((r) => r.status === 'enacted').length;
-          return (
-            <button
-              key={b.id}
-              type="button"
-              role="tab"
-              class="bv-branch"
-              aria-selected={branch === b.id}
-              data-testid={`branch-${b.id}`}
-              onClick={() => {
-                setBranch(b.id);
-                setOpen(null);
-              }}
-            >
-              <span>{b.title}</span>
-              <span class="n">
-                {done} of {all.length}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {missionProject(s) !== null && <p class="bv-note">Biggest saving on this line first.</p>}
       <ol class="bv-reforms" data-testid="reform-list">
-        {inBranch.map((r) => (
-          <ReformStop key={r.id} store={store} r={r} open={open === r.id} onToggle={() => setOpen(open === r.id ? null : r.id)} />
-        ))}
+        {list.map(row)}
       </ol>
-      {inBranch.length === 0 && <p class="bv-note">No reforms in this branch.</p>}
+      {s.reforms.length === 0 && <p class="bv-note">No reforms in this mission.</p>}
+      {noEffect.length > 0 && (
+        <div class="bv-sec">
+          <button type="button" class="bv-fold" aria-expanded={!folded} data-testid="reforms-noeffect" onClick={() => setFolded(!folded)}>
+            No effect on this line ({noEffect.length})
+          </button>
+          {!folded && (
+            <ol class="bv-reforms" data-testid="reform-list-noeffect">
+              {noEffect.map(row)}
+            </ol>
+          )}
+        </div>
+      )}
     </Sheet>
   );
 }

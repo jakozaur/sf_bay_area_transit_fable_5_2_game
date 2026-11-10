@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import {
   capital,
   count,
+  dateFixed,
   dateLong,
   dateMonth,
   duration,
@@ -45,6 +46,8 @@ test('per km, deltas and ratios', () => {
 
 test('dates, durations and counts', () => {
   expect(dateLong('2026-11-09')).toBe('9 Nov 2026');
+  expect(dateFixed('2031-10-06')).toBe('06 Oct 2031');
+  expect(dateFixed('2031-10-17')).toBe('17 Oct 2031');
   expect(dateMonth('2036-03-31')).toBe('Mar 2036');
   expect(duration(1)).toBe('1 day');
   expect(duration(30)).toBe('30 days');

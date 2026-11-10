@@ -8,6 +8,8 @@ import {
   polandTarget,
   postKey,
   postStats,
+  reformIsQuiet,
+  reformList,
   type SocialPost,
   safeRatio,
   selectTool,
@@ -119,7 +121,7 @@ test('time waits while the reform tree or the design chooser is open, and comes 
     ['time.setSpeed', 10],
   ]);
   // A speed the player sets while the panel is open is theirs: closing does not touch it.
-  store.openReform('stageGates');
+  store.openReform('specustawa');
   services.time.setSpeed(1);
   store.openPanel(null);
   expect(services.time.speed.get()).toBe(1);
@@ -273,4 +275,39 @@ test('fixture receipts obey the contract: base plus lines equals the column tota
     expect(sum).toBe(r.columns[id].costCents);
   }
   expect(r.ratios.yoursToPoland).toBe(r.columns.yours.costCents / r.columns.poland.costCents);
+});
+
+test('the reforms sheet is one list, biggest saving on this project first, with the reforms of no effect apart', () => {
+  const reforms = SCENES.reforms.snapshot.reforms;
+  const { list, noEffect } = reformList(reforms);
+  // Every reform is in exactly one of the two groups.
+  expect([...list, ...noEffect].map((r) => r.id).sort()).toEqual(reforms.map((r) => r.id).sort());
+  expect(noEffect.length).toBeGreaterThan(0);
+  for (const r of noEffect) expect(reformIsQuiet(r), r.id).toBe(true);
+  const open = list.filter((r) => r.status !== 'enacted');
+  expect(open.length).toBeGreaterThan(2);
+  for (const r of open) expect(reformIsQuiet(r), r.id).toBe(false);
+  for (let i = 1; i < open.length; i++) {
+    const a = open[i - 1]?.preview;
+    const b = open[i]?.preview;
+    if (a === null || a === undefined || b === null || b === undefined) throw new Error('an open reform of the fixture has no preview');
+    expect(a.costDeltaCents, `${open[i - 1]?.id} before ${open[i]?.id}`).toBeLessThanOrEqual(b.costDeltaCents);
+    if (a.costDeltaCents === b.costDeltaCents) expect(a.daysDelta).toBeLessThanOrEqual(b.daysDelta);
+  }
+  // The enacted ones close the list.
+  expect(list.slice(open.length).every((r) => r.status === 'enacted')).toBe(true);
+  // A tie on cost goes to the one that opens the line sooner; a full tie keeps the sim's order.
+  const base = open[0];
+  const preview = base?.preview;
+  if (base === undefined || preview === null || preview === undefined) throw new Error('the fixture has no open reform');
+  const tie = (id: string, daysDelta: number) => ({ ...base, id, preview: { ...preview, costDeltaCents: -500, daysDelta } });
+  expect(reformList([tie('a', -10), tie('b', -90), tie('c', -10)]).list.map((r) => r.id)).toEqual(['b', 'a', 'c']);
+  // No project, no preview: nothing can be sorted or set apart.
+  const blind = reforms.map((r) => ({ ...r, preview: null }));
+  expect(reformList(blind).noEffect).toEqual([]);
+  expect(
+    reformList(blind)
+      .list.filter((r) => r.status !== 'enacted')
+      .map((r) => r.id),
+  ).toEqual(reforms.filter((r) => r.status !== 'enacted').map((r) => r.id));
 });

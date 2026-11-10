@@ -61,6 +61,12 @@ export function dateLong(iso: string): string {
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
+/** 09 Nov 2026: the day zero-padded, so the text has one length whatever the date (the top bar's clock). */
+export function dateFixed(iso: string): string {
+  const { y, m, d } = parseIso(iso);
+  return `${String(d).padStart(2, '0')} ${MONTHS[m - 1]} ${y}`;
+}
+
 /** Nov 2026. */
 export function dateMonth(iso: string): string {
   const { y, m } = parseIso(iso);

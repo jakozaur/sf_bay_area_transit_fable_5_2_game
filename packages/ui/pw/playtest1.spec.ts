@@ -1,5 +1,7 @@
 /** Regressions from the first playtest of round 2 (2026-11-10), against the fixture scenes. */
+import { REFORMS } from '@bayvox/sim';
 import { expect, test } from '@playwright/test';
+import { effectText } from '../src/format.ts';
 import { calls, open, tid } from './helpers.ts';
 
 test('a sponsor figure without an opening date draws the receipt and the scorecard: no crash, "no opening date"', async ({ page }) => {
@@ -12,7 +14,7 @@ test('a sponsor figure without an opening date draws the receipt and the scoreca
   await expect(tid(page, 'topbar')).toBeVisible();
   await open(page, 'scorecard-no-date');
   await expect(tid(page, 'ui-fatal')).toHaveCount(0);
-  await expect(tid(page, 'score-date-sponsor')).toHaveText('No opening date');
+  await expect(tid(page, 'score-official')).toContainText('Corridor study (2017): $');
   await expect(tid(page, 'score-date-yours')).toContainText('Opens Jun 2033');
 });
 
@@ -57,7 +59,7 @@ test('a pressed button under the pointer stays readable', async ({ page }) => {
   expect(await contrast('view-xray')).toBeGreaterThan(7);
 });
 
-test('the reform tree stops the clock while it is read and names the reforms the player can afford', async ({ page }) => {
+test('the reforms sheet stops the clock while it is read and names the reforms the player can afford', async ({ page }) => {
   await open(page, 'approvals');
   await expect(tid(page, 'strip-reforms')).toContainText('you can afford');
   await tid(page, 'strip-reforms').click();
@@ -70,13 +72,17 @@ test('the reform tree stops the clock while it is read and names the reforms the
 
 test('a reform says what it does in words, and one that changes nothing on this project says so', async ({ page }) => {
   await open(page, 'reforms');
-  await tid(page, 'branch-tunnelling').click();
-  // A machine reform on a project whose estimate it does not move.
-  await expect(tid(page, 'reform-fx-continuousAdvance')).toHaveText('Machine advance x1.60: nothing on this project');
-  await tid(page, 'reform-head-continuousAdvance').click();
-  await expect(tid(page, 'reform-effects-continuousAdvance')).toHaveText('Machine advance x1.60');
-  await expect(tid(page, 'reform-body-continuousAdvance')).not.toContainText('no change');
-  await expect(tid(page, 'reform-body-continuousAdvance')).not.toContainText('doc 0');
+  // A machine reform on a project whose estimate it does not move: in the folded group at the bottom.
+  const id = 'prufrockClass';
+  const def = REFORMS.find((r) => r.id === id);
+  const first = def?.effects[0];
+  if (first === undefined) throw new Error(`the sim has no reform "${id}" with an effect`);
+  await tid(page, 'reforms-noeffect').click();
+  await expect(tid(page, `reform-fx-${id}`)).toHaveText(`${effectText(first)}: nothing on this project`);
+  await tid(page, `reform-head-${id}`).click();
+  await expect(tid(page, `reform-effects-${id}`)).toContainText(effectText(first));
+  await expect(tid(page, `reform-body-${id}`)).not.toContainText('no change');
+  await expect(tid(page, `reform-body-${id}`)).not.toContainText('doc 0');
 });
 
 test('the mission targets are named on the map and the hint is not cut off', async ({ page }) => {

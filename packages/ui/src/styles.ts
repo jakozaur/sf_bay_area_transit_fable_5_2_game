@@ -92,18 +92,22 @@ export const CSS = `
 }
 .bv-top-cell { display: flex; flex-direction: column; justify-content: center; padding: 0 14px; border-right: 1px solid var(--ink-3); white-space: nowrap; }
 .bv-top-cell .k { font-size: 11px; line-height: 1.1; color: var(--fog); }
-.bv-top-cell .v { font: 700 22px/1 var(--f-sign); padding-top: 4px; }
+.bv-top-cell .v { font: 700 22px/1 var(--f-sign); font-variant-numeric: tabular-nums; padding-top: 4px; }
 .bv-top-cell .v.bv-bad { color: var(--bad-on-ink); }
+/* Fixed cells, wide enough for the longest text each can hold ("28 May 2031", "-$99.9M", "999 PC"): a value that
+   changes never changes the width of its cell, so nothing to the right of it moves. */
+.bv-top-cell.is-date .v { width: 11.5ch; }
+.bv-top-cell.is-funds .v { width: 7.5ch; }
+.bv-top-cell.is-pc .v { width: 6.5ch; }
 .bv-speed { display: flex; align-items: center; gap: 4px; padding: 0 12px; border-right: 1px solid var(--ink-3); }
 .bv .bv-speed .bv-btn { min-width: 40px; min-height: 30px; padding: 4px 8px 2px; font: 700 17px/1 var(--f-sign); }
-.bv-hold { margin-left: 6px; font-size: 12px; color: var(--hi); white-space: nowrap; }
-.bv-headline { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; padding: 0 14px; }
+.bv-hold-slot { flex: none; width: 96px; margin-left: 6px; }
+.bv-hold { font-size: 12px; color: var(--hi); white-space: nowrap; }
+.bv-headline { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 0 14px; }
 .bv-headline .pair { display: flex; flex-direction: column; justify-content: center; }
-.bv-headline .k { font-size: 11px; line-height: 1.1; color: var(--fog); }
-.bv-headline .v { font: 700 22px/1 var(--f-sign); padding-top: 4px; white-space: nowrap; }
-.bv-headline .v.is-you { color: var(--hi); }
-.bv-headline .vs { color: var(--fog); font-size: 12px; }
-.bv-headline .gap { font: 700 30px/1 var(--f-sign); padding: 6px 10px 2px; border: 2px solid #fff; border-radius: 3px; white-space: nowrap; }
+.bv-headline .k { font-size: 11px; line-height: 1.1; color: var(--fog); white-space: nowrap; }
+.bv-headline .v { font: 700 17px/1 var(--f-sign); font-variant-numeric: tabular-nums; padding-top: 4px; white-space: nowrap; min-height: 21px; }
+.bv-headline .gap { flex: none; box-sizing: content-box; width: 5.4ch; text-align: center; font: 700 30px/1 var(--f-sign); font-variant-numeric: tabular-nums; padding: 6px 8px 2px; border: 2px solid #fff; border-radius: 3px; white-space: nowrap; }
 .bv-headline .gap.is-met { color: var(--good-on-ink); border-color: var(--good-on-ink); }
 .bv-headline .gap.is-missed { color: var(--bad-on-ink); border-color: var(--bad-on-ink); }
 .bv-headline .none { color: var(--fog); }
@@ -240,10 +244,6 @@ export const CSS = `
 .bv-item .bv-bar { grid-column: 1 / -1; }
 
 /* ---------------------------------------------------------------- reforms: four lines, reforms are the stops */
-.bv-branches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
-.bv .bv-branch { display: flex; flex-direction: column; gap: 2px; padding: 5px 6px 4px; border: 1.5px solid var(--rule); border-radius: 3px; font-size: 12px; line-height: 1.15; min-height: 54px; }
-.bv .bv-branch[aria-selected='true'] { border-color: var(--ink); background: var(--ink); color: #fff; }
-.bv .bv-branch .n { font: 700 17px/1 var(--f-sign); padding-top: 2px; }
 .bv-reforms { display: flex; flex-direction: column; }
 .bv-reform { position: relative; padding: 0 0 8px 26px; }
 .bv-reform::before { content: ''; position: absolute; left: 7.5px; top: 12px; bottom: -4px; width: 3px; background: var(--ink); }
@@ -251,12 +251,20 @@ export const CSS = `
 .bv-reform .stop { position: absolute; left: 1px; top: 5px; width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); z-index: 1; }
 .bv-reform.is-enacted .stop { background: var(--good); border-color: var(--good); }
 .bv-reform.is-locked .stop { border-color: var(--rule); }
-.bv .bv-reform-head { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; width: 100%; padding: 3px 6px 2px; border-radius: 3px; align-items: baseline; }
+.bv-reform-row { display: flex; align-items: flex-start; gap: 8px; }
+.bv-reform-row > .bv-tag { margin-top: 4px; }
+.bv-reform-row > .cost { flex: none; padding-top: 6px; font: 700 15px/1 var(--f-sign); white-space: nowrap; color: var(--soft); }
+.bv .bv-reform-row > .bv-btn { flex: none; min-height: 28px; padding: 4px 10px 3px; }
+.bv .bv-reform-head { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 3px 6px 2px; border-radius: 3px; }
+.bv .bv-fold { align-self: flex-start; padding: 3px 6px 2px; border-radius: 3px; font-weight: 700; color: var(--soft); }
+.bv .bv-fold::before { content: '+ '; }
+.bv .bv-fold[aria-expanded='true']::before { content: '- '; }
+.bv .bv-fold:hover { background: var(--paper-2); }
 .bv .bv-reform-head:hover { background: var(--paper-2); }
 .bv-reform-head .title { font-weight: 700; }
 .bv-reform.is-locked .title { color: var(--soft); font-weight: 400; }
-.bv-reform-head .cost { font: 700 17px/1 var(--f-sign); white-space: nowrap; }
-.bv-reform-head .fx { grid-column: 1 / -1; font-size: 12px; color: var(--soft); }
+.bv-reform-head .fx { font-size: 12px; color: var(--soft); }
+.bv-reform-head .fx.is-saving { color: var(--good); font-weight: 700; }
 .bv-reform-body { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 4px 6px; padding: 8px 10px; background: #fff; border: 1.5px solid var(--ink); border-radius: 3px; }
 .bv-effect { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .bv-effect > div { padding: 5px 8px 3px; background: var(--paper); border-radius: 2px; }
@@ -427,12 +435,12 @@ export const CSS = `
 .bv-cb thead th { font-size: 11.5px; border-bottom: 1.5px solid var(--ink); vertical-align: bottom; }
 .bv-cb tbody tr:last-child td { border-bottom: 0; }
 /* The 2x Poland target: live in the top band, a pass or fail line on the scorecard. */
-.bv-headline .bv-target .v { font-size: 17px; display: flex; gap: 10px; }
+/* The time line is the same width at 0.94x and at 183x. */
+.bv-headline .bv-target .v > span { display: inline-block; width: 9.5ch; }
 .bv-target .is-met { color: var(--good-on-ink); }
 .bv-target .is-missed { color: var(--bad-on-ink); }
 .bv-target-line { margin: 8px 0 2px; padding: 6px 10px 5px; font-size: 14px; border-left: 5px solid var(--bad); background: #fff; }
 .bv-target-line.is-met { border-left-color: var(--good); }
-.bv .bv-spec-call { display: block; width: 100%; text-align: left; margin-bottom: 8px; padding: 7px 10px 6px; font-size: 13px; line-height: 1.35; border: 1.5px solid var(--ink); border-radius: 3px; background: #fff; box-shadow: inset 4px 0 0 var(--hi); }
 /* Social media backlash: wide, bottom centre, above the toolbar; centred in what the open sheet and tool panel leave free. */
 .bv-backlash { --l: 0px; --r: 0px; position: absolute; left: calc(var(--l) + (100% - var(--l) - var(--r)) / 2); bottom: 76px; transform: translateX(-50%); width: min(600px, calc(100% - var(--l) - var(--r) - 24px)); background: var(--ink); color: #fff; border-radius: 3px; border-top: 4px solid var(--bad); box-shadow: 0 0 0 1.5px var(--bad), 0 14px 34px rgba(6, 14, 24, 0.6); font-size: 13px; }
 .bv-backlash.is-beside-sheet { --r: 424px; }
@@ -522,16 +530,13 @@ export const CSS = `
 .bv-score-top .verdict { font: 700 30px/1.05 var(--f-sign); padding-top: 4px; }
 .bv-score-top .bv-stars { font-size: 44px; letter-spacing: 4px; line-height: 1; }
 .bv-score-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 20px; align-items: start; }
-.bv-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.bv-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bv-col { padding: 9px 10px 8px; border: 1.5px solid var(--ink); border-radius: 3px; background: #fff; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .bv-col.is-you { box-shadow: inset 0 5px 0 var(--hi); padding-top: 13px; }
 .bv-col .who { font-weight: 700; line-height: 1.2; }
 .bv-col .cost { font: 700 34px/1 var(--f-sign); padding-top: 6px; }
 .bv-col .km { font: 700 19px/1 var(--f-sign); padding-top: 2px; }
 .bv-col .date { margin-top: 5px; font-weight: 700; }
-.bv-axes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.bv-axes > div { padding: 6px 8px; background: var(--paper-2); border-radius: 3px; font-size: 12px; line-height: 1.3; }
-.bv-axes .ax { font-weight: 700; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; font-size: 13px; }
 .bv-score-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 /* The receipt on the right is the longer column: the three figures stay in view while it scrolls. */
 .bv-score-side:first-child { position: sticky; top: 0; }
@@ -559,14 +564,19 @@ export const CSS = `
   .bv .bv-mission .name { font-size: 20px; }
   .bv-title-foot { padding: 7px 26px 9px; }
 }
-/* Narrow windows keep the buttons: labels and the two per-km figures go first, the ratio and the panels stay. */
+/* Narrow windows keep the buttons: labels and the time line go first, the cost ratio and the panels stay. */
+@media (max-width: 1200px) {
+  .bv-headline .bv-target .k { display: none; }
+}
 @media (max-width: 1100px) {
-  .bv-hold, .bv-stops, .bv-lapse { display: none; }
+  .bv-hold-slot, .bv-stops, .bv-lapse { display: none; }
   .bv-top-cell { padding: 0 9px; }
   .bv-headline { gap: 8px; padding: 0 8px; }
 }
+@media (max-width: 960px) {
+  .bv-headline .pair, .bv-headline .none { display: none; }
+}
 @media (max-width: 900px) {
-  .bv-headline .pair, .bv-headline .vs, .bv-headline .none { display: none; }
   .bv-cb { display: none; }
   .bv-backlash.is-beside-sheet, .bv-backlash.is-beside-tool { --l: 0px; --r: 0px; }
   .bv-headline { flex: 1 1 0; justify-content: center; }

@@ -181,20 +181,13 @@ export function BriefingScreen({ store }: StoreProps): JSX.Element {
           <dl class="bv-brief-facts">
             <dt>The project</dt>
             <dd data-testid="brief-what">{b.what}</dd>
-            <dt>Official cost</dt>
+            <dt>Official plan</dt>
             <dd class="ghost" data-testid="brief-cost">
               {b.officialCost}
-            </dd>
-            <dt>Official date</dt>
-            <dd class="ghost" data-testid="brief-date">
-              {b.officialDate}
             </dd>
             <dt>Why it matters</dt>
             <dd data-testid="brief-why">{b.why}</dd>
           </dl>
-          <p class="bv-note" data-testid="brief-target">
-            Get within {POLAND_TARGET_LIMIT}x of Poland on cost and time.
-          </p>
           <div class="bv-sec">
             <h3>Objectives</h3>
             <ul class="bv-objectives" data-testid="brief-objectives">
@@ -257,7 +250,8 @@ function Column({ c, you }: { c: ScoreColumn; you: boolean }): JSX.Element {
   );
 }
 
-const AXIS_LABEL = { cost: 'Cost', date: 'Date', riders: 'Riders' } as const;
+/** How the stars follow from the target, in one line. The number of stars is the sim's. */
+export const STARS_RULE = 'Stars: 1 open, 2 one half of the target, 3 both.';
 
 /** Confetti pieces for a line that opened inside the Poland target. A line that missed it gets none. */
 const CONFETTI_WIN = 120;
@@ -297,8 +291,7 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
   const project = missionProject(s);
   if (project === null) throw new Error('ui scorecard: the snapshot has no mission project');
   const sc = project.scorecard;
-  const cols = [sc.yours, sc.ghost, sc.poland];
-  const max = Math.max(...cols.map((c) => c.costPerKmCents), 1);
+  const max = Math.max(sc.yours.costPerKmCents, sc.poland.costPerKmCents, 1);
   const yoursToPoland = safeRatio(sc.yours.costPerKmCents, sc.poland.costPerKmCents);
   // The sponsor's figure is measured against Poland on the sponsor's route (the receipt computes it); a model
   // ghost has no route of its own and is measured on this one.
@@ -326,11 +319,10 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
               <Stars n={sc.stars} />
             </span>
           </div>
-          {sc.starsReason !== undefined && (
-            <p class="bv-note" data-testid="score-stars-reason">
-              {sc.starsReason}
-            </p>
-          )}
+          <p class="bv-note">
+            <span data-testid="score-stars-rule">{STARS_RULE}</span>
+            {sc.starsReason !== undefined && <span data-testid="score-stars-reason"> {sc.starsReason}</span>}
+          </p>
           {target !== null && (
             <p class={cx('bv-target-line', target.met ? 'is-met' : 'is-missed')} data-testid="score-target">
               <b>
@@ -343,7 +335,6 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
             <div class="bv-score-side">
               <div class="bv-cols">
                 <Column c={sc.yours} you />
-                <Column c={sc.ghost} you={false} />
                 <Column c={sc.poland} you={false} />
               </div>
               <div class="bv-sec">
@@ -357,13 +348,6 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
                     note={yoursToPoland === null ? undefined : `${ratio(yoursToPoland)} Poland`}
                   />
                   <Dim
-                    who={sc.ghost.label}
-                    value={moneyPerKm(sc.ghost.costPerKmCents)}
-                    share={sc.ghost.costPerKmCents / max}
-                    tone="ghost"
-                    note={ghostToPoland === null ? undefined : `${ratio(ghostToPoland)} Poland`}
-                  />
-                  <Dim
                     who={sc.poland.label}
                     value={moneyPerKm(sc.poland.costPerKmCents)}
                     share={sc.poland.costPerKmCents / max}
@@ -371,16 +355,12 @@ export function ScorecardScreen({ store }: StoreProps): JSX.Element {
                   />
                 </div>
               </div>
-              <div class="bv-axes" data-testid="score-axes">
-                {sc.axes.map((a) => (
-                  <div key={a.id}>
-                    <div class="ax">
-                      {AXIS_LABEL[a.id]} <Stars n={a.stars} />
-                    </div>
-                    {a.reason}
-                  </div>
-                ))}
-              </div>
+              {sc.ghost.costCents > 0 && (
+                <p class="bv-small" data-testid="score-official">
+                  {sc.ghost.label}: {money(sc.ghost.costCents)}
+                  {ghostToPoland !== null && `, ${ratio(ghostToPoland)} Poland`}.
+                </p>
+              )}
               <p class="bv-small" data-testid="score-riders">
                 <b>{count(sc.ridersPerDay)} riders a day.</b>
                 {sc.costPerRiderCents > 0 && ` ${money(sc.costPerRiderCents)} of construction per daily rider.`}

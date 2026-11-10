@@ -5,12 +5,13 @@ import type { JSX } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Bar, Btn, Bullet, cx, type StoreProps } from './bits.tsx';
 import type { PanelId } from './contract.ts';
-import { capital, compact, count, dateLong, duration, money, moneyPerKm, ratio } from './format.ts';
+import { capital, compact, count, dateFixed, duration, money, ratio } from './format.ts';
 import {
   act,
   actionButton,
   angryCount,
   missionProject,
+  POLAND_TARGET_LIMIT,
   polandTarget,
   postKey,
   postStats,
@@ -37,20 +38,21 @@ export function TopBar({ store }: StoreProps): JSX.Element {
   ];
   return (
     <header class="bv-top bv-live" data-testid="topbar">
-      <div class="bv-top-cell">
+      {/* Every number sits in a cell of fixed width: a date, a balance or a ratio that changes moves nothing beside it. */}
+      <div class="bv-top-cell is-date">
         <span class="k">Date</span>
         <span class="v" data-testid="hud-date">
-          {dateLong(s.date)}
+          {dateFixed(s.date)}
         </span>
       </div>
-      <div class="bv-top-cell">
+      <div class="bv-top-cell is-funds">
         <span class="k">Funds</span>
         <span class={cx('v', s.moneyCents < 0 && 'bv-bad')} data-testid="hud-funds">
           {money(s.moneyCents)}
         </span>
       </div>
       <div
-        class="bv-top-cell"
+        class="bv-top-cell is-pc"
         title={`Political capital pays for reforms. +${PC_PER_MONTH} a month, +${PC_PHASE_DONE} per finished phase.`}
       >
         <span class="k">Political capital</span>
@@ -72,54 +74,43 @@ export function TopBar({ store }: StoreProps): JSX.Element {
             {sp === 0 ? <PauseIcon /> : SPEED_LABEL[sp]}
           </Btn>
         ))}
-        {s.clock.hold !== null && (
-          <span class="bv-hold" data-testid="hud-hold">
-            {HOLD_TEXT[s.clock.hold]}
-          </span>
-        )}
+        {/* The slot is always there: the hold text comes and goes inside it. */}
+        <span class="bv-hold-slot">
+          {s.clock.hold !== null && (
+            <span class="bv-hold" data-testid="hud-hold">
+              {HOLD_TEXT[s.clock.hold]}
+            </span>
+          )}
+        </span>
       </fieldset>
       <div class="bv-headline" data-testid="headline">
         {h === null || h.polandPerKmCents <= 0 ? (
-          <span class="none">Cost per km appears once a line is drawn.</span>
+          <span class="none">Cost against Poland appears once a line is drawn.</span>
         ) : (
           <>
-            <div class="pair">
-              <span class="k">{h.final ? 'You paid' : 'You'}</span>
-              <span class="v is-you" data-testid="headline-yours">
-                {moneyPerKm(h.yoursPerKmCents)}
-              </span>
-            </div>
-            <span class="vs">vs</span>
-            <div
-              class="pair"
-              title="This route and these stations built the Polish way (twin 6.6 m bores, compact boxes) at Polish prices. It changes with the route and the stations, never with your design or your reforms."
-            >
-              <span class="k">Poland</span>
-              <span class="v" data-testid="headline-poland">
-                {moneyPerKm(h.polandPerKmCents)}
-              </span>
-            </div>
             <span
-              class={cx('gap', target !== null && (target.costRatio <= target.limit ? 'is-met' : 'is-missed'))}
+              class={cx('gap', (target?.costRatio ?? h.ratio) <= POLAND_TARGET_LIMIT ? 'is-met' : 'is-missed')}
               data-testid="headline-ratio"
-              title="Your cost per route-km divided by Poland's, computed by the model"
+              title={`Your cost divided by Poland's: this route and these stations built the Polish way at Polish prices. The target is ${POLAND_TARGET_LIMIT}x or less.`}
             >
               {ratio(h.ratio)}
             </span>
-            {target !== null && (
-              <div
-                class="pair bv-target"
-                data-testid="hud-target"
-                title={`The target: finish at no more than ${target.limit}x Poland's cost and ${target.limit}x Poland's timeline, on this route.`}
-              >
-                <span class="k">Target {target.limit}x</span>
-                <span class="v">
+            <div
+              class="pair bv-target"
+              data-testid="hud-target"
+              title={`The target: finish at no more than ${POLAND_TARGET_LIMIT}x Poland's cost and ${POLAND_TARGET_LIMIT}x Poland's timeline, on this route.`}
+            >
+              <span class="k">
+                {h.final ? 'Cost' : 'Cost, estimate'} vs Poland, target {POLAND_TARGET_LIMIT}x
+              </span>
+              <span class="v">
+                {target !== null && (
                   <span class={target.timeRatio <= target.limit ? 'is-met' : 'is-missed'} data-testid="hud-target-time">
                     time {ratio(target.timeRatio)}
                   </span>
-                </span>
-              </div>
-            )}
+                )}
+              </span>
+            </div>
           </>
         )}
       </div>
@@ -208,7 +199,7 @@ export function ObjectiveStrip({ store }: StoreProps): JSX.Element {
         )}
       </div>
       {offerReforms && (
-        <Btn testId="strip-reforms" title="Time waits while the reform tree is open" onClick={() => store.openPanel('reforms')}>
+        <Btn testId="strip-reforms" title="Time waits while the reforms sheet is open" onClick={() => store.openPanel('reforms')}>
           Reforms: {affordable} you can afford
         </Btn>
       )}
