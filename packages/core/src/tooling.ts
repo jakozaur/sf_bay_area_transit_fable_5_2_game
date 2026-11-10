@@ -47,7 +47,13 @@ export type ToolOptionValues = Readonly<Record<string, ToolOptionValue>>;
 /** One editable option of the active tool, rendered generically by the UI (slider, choice row, toggle). */
 export type ToolOptionSpec =
   | { key: string; label: string; kind: 'range'; min: number; max: number; step: number; unit: string }
-  | { key: string; label: string; kind: 'choice'; choices: { value: string; label: string; disabledReason?: string }[] }
+  | {
+      key: string;
+      label: string;
+      kind: 'choice';
+      /** `detail` is a short second line under the label: a price tag, a build time. `note` says what the choice is. */
+      choices: { value: string; label: string; disabledReason?: string; detail?: string; note?: string }[];
+    }
   | { key: string; label: string; kind: 'toggle' };
 
 /** One live number of the active tool. `bad` is drawn in red (a violated radius or grade, an unaffordable price). */

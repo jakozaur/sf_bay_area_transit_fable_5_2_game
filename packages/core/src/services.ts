@@ -235,6 +235,12 @@ export interface WorldPort {
    * Does not charge; the dig tool sends the sim's chargeDig command with `removedM3`.
    */
   dig(center: WorldPos, radiusM: number): DigResult;
+  /**
+   * Why the hand brush may not dig at `center` right now, one line for the player, or null when it may. The app
+   * refuses where a hole would not be drawn: beyond the 1 m voxel near field, or from a camera so far out that
+   * the hole is under a few pixels. Absent: digging is allowed wherever `dig` is (test fakes).
+   */
+  digBlocked?(center: WorldPos, radiusM: number): string | null;
 }
 
 // ---------------------------------------------------------------- overlay, tools, audio

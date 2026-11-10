@@ -136,6 +136,12 @@ export interface GuidanceEntity {
   /** Metres between the cutterhead and `nearest`. Drawn in the error colour once it exceeds `limitM`. */
   deviationM: number;
   limitM: number;
+  /**
+   * Chainage marks across the plan near the machine, as pairs of end points (an even number of points): one
+   * every ten metres at fixed chainages, so they stand still in the ground and slide past the machine as it
+   * bores. Without them nothing in the cutaway says the machine is moving.
+   */
+  ticks?: WorldPos[];
 }
 
 /** What a tool wants drawn while it is active. Not sim state. */
