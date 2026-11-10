@@ -1,6 +1,7 @@
 /** Menu, controls help and credits. */
 import { Fragment, type JSX } from 'preact';
 import { useState } from 'preact/hooks';
+import { BUILD_COST_DETAIL, GITHUB_URL } from './about.ts';
 import { Btn, Sheet, type StoreProps } from './bits.tsx';
 import { dateLong } from './format.ts';
 import { act } from './model.ts';
@@ -168,6 +169,16 @@ export function CreditsPanel({ store }: StoreProps): JSX.Element {
         <p>
           Costs, dates and reform effects come from public sources: sponsor documents for the Bay Area projects, Polish road and rail
           tenders for the unit rates. Each card, reform and receipt line names its source. Figures marked unverified are tuning.
+        </p>
+      </div>
+      <div class="bv-sec bv-credits" data-testid="credits-build">
+        <h3>How it was built</h3>
+        <p>{BUILD_COST_DETAIL}</p>
+        <p>
+          Source:{' '}
+          <a class="bv-link" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
+            {GITHUB_URL.replace('https://', '')}
+          </a>
         </p>
       </div>
     </Sheet>

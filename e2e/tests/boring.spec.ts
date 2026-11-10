@@ -82,6 +82,12 @@ test('the title screen says Boring Game and where the railway goes', async ({ pa
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Boring Game');
   await expect(page.getByTestId('tagline')).toHaveText('Polish SF Bay transit rail to reach the HQ of the authors of Fable 5.2');
   await expect(page.getByTestId('screen-title')).not.toContainText('Polish the Public Transport');
+  // The footer links to the source and says what the build cost at API prices.
+  await expect(page.getByTestId('title-github')).toHaveAttribute('href', 'https://github.com/jakozaur/sf_bay_area_transit_fable_5_2_game');
+  await expect(page.getByTestId('title-build-cost')).toHaveText(/Built by Claude Fable 5\.2 for about \$\d+ at API prices\./);
+  const foot = await page.getByTestId('title-github').boundingBox();
+  if (foot === null) throw new Error('no layout box for the GitHub link');
+  expect(foot.y + foot.height).toBeLessThanOrEqual(720);
   // The title and its line fit the sign: neither is cut off or runs under the buttons.
   const h1 = await page.getByRole('heading', { level: 1 }).boundingBox();
   const line = await page.getByTestId('tagline').boundingBox();

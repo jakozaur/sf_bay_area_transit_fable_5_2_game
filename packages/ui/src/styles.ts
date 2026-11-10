@@ -494,6 +494,7 @@ export const CSS = `
 .bv-stars { font-size: 15px; letter-spacing: 2px; white-space: nowrap; color: var(--hi); }
 .bv-stars .off { color: var(--ink-3); }
 .bv-sheet .bv-stars .off { color: var(--rule); }
+.bv-title-links { display: flex; gap: 12px; flex: none; align-items: flex-start; }
 .bv-title-foot { padding: 10px 26px 14px; font-size: 12px; color: var(--fog); border-top: 1px solid var(--ink-3); display: flex; justify-content: space-between; gap: 12px; }
 .bv-title-error { margin: 10px 26px 0; padding: 6px 10px; background: var(--bad); color: #fff; font-size: 13px; border-radius: 3px; }
 .bv-brief { position: absolute; top: 16px; left: 16px; bottom: 16px; width: 404px; display: flex; flex-direction: column; justify-content: center; }
