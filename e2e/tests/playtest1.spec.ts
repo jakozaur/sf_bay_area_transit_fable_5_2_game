@@ -117,20 +117,23 @@ test('The Portal: the plan panel, the headline, the design tag and the receipt s
     return { poland: r.columns.poland.costCents, ratio: (await page.getByTestId('headline-ratio').textContent()) ?? '' };
   };
   const official = await agree();
-  // The Polish design: two reforms, then twin bore and the compact box in the chooser, by mouse.
+  // The Polish design: three reforms (the third track goes, the standard allows twin tubes, the mezzanine goes),
+  // then twin bore and the compact box in the chooser, by mouse.
   await page.getByTestId('nav-reforms').click();
   await page.getByTestId('branch-design').click();
-  for (const id of ['twoTracks', 'noMezzanines']) {
+  for (const id of ['twoTracks', 'twinBoreStandard', 'noMezzanines']) {
     await page.getByTestId(`reform-head-${id}`).click();
     // A double click on Enact: charged once, no error toast with an internal id.
     await page.getByTestId(`enact-${id}`).dblclick();
     await expect(page.getByTestId(`reform-${id}`)).toContainText('Enacted');
   }
   await expect(page.getByTestId('toasts')).not.toContainText('already enacted');
-  expect((await game.snapshot()).politicalCapital).toBe(40 - 15 - 15);
+  expect((await game.snapshot()).politicalCapital).toBe(40 - 15 - 10 - 15);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('open-design').click();
-  await expect(page.getByTestId('design-now')).toContainText('mined cavern');
+  // The twin-bore standard has redrawn the mined cavern nobody chose as twin tubes; the trenches are still trenches.
+  await expect(page.getByTestId('design-now')).toContainText('twin bore');
+  await expect(page.getByTestId('design-now')).toContainText('cut-and-cover');
   await page.getByTestId('design-twinBore').click();
   await page.getByTestId('design-compactBox').click();
   await expect(page.getByTestId('design-twinBore')).toContainText('Chosen');

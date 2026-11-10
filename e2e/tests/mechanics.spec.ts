@@ -133,10 +133,15 @@ test('x-ray shows the tunnel through the terrain', async ({ page }, testInfo) =>
  * Counter budgets per project for the fixed path below on the synthetic world: measured once, with headroom
  * of about 5 percent. chunksLoaded is exact: every near-field slot inside the world, since the chunk store
  * can generate any chunk.
+ * Re-measured 2026-11-10, when chunk meshes went from one draw each to batches of 4 x 16 x 4 chunks
+ * (packages/render chunk-scene.ts; the second playtest measured 2,398 draw calls in the game against the 500
+ * of docs/PLAN.md section 4.6). On this path the gpu project went from 420 budgeted draw calls to 31 measured,
+ * and from 116,000 budgeted triangles to 140,275 measured: a batch is culled as a whole, so some of its
+ * triangles are off screen. The draw-call budget came down with it; the triangle budget is the new measurement.
  */
 const BUDGET: Record<string, { drawCalls: number; triangles: number; chunksLoaded: number; quads: number; gpuBytes: number }> = {
-  gpu: { drawCalls: 420, triangles: 116_000, chunksLoaded: 1260, quads: 78_500, gpuBytes: 632_000 },
-  swgl: { drawCalls: 48, triangles: 13_800, chunksLoaded: 96, quads: 6_900, gpuBytes: 59_500 },
+  gpu: { drawCalls: 34, triangles: 147_300, chunksLoaded: 1260, quads: 78_500, gpuBytes: 632_000 },
+  swgl: { drawCalls: 17, triangles: 13_800, chunksLoaded: 96, quads: 6_900, gpuBytes: 59_500 },
 };
 
 test('a fixed camera path stays within counter budgets and is repeatable', async ({ page }, testInfo) => {
@@ -187,7 +192,7 @@ test('a fixed camera path stays within counter budgets and is repeatable', async
   expect(peak.quads).toBeLessThanOrEqual(budget.quads);
   expect(peak.gpuBytes).toBeLessThanOrEqual(budget.gpuBytes);
 
-  // Frustum culling per chunk: views that see less of the near field draw less (the overlay and sky draws stay).
+  // Frustum culling per batch of chunks: views that see less of the near field draw less (the overlay and sky draws stay).
   const draws = first.map((s) => s.drawCalls);
   expect(Math.min(...draws)).toBeLessThan(peak.drawCalls);
   expect(Math.min(...draws)).toBeGreaterThan(1);

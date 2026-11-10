@@ -139,10 +139,28 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   await page.getByTestId('enact-twoTracks').click();
   await expect.poll(async () => (await game.snapshot()).reforms.find((r) => r.id === 'twoTracks')?.status).toBe('enacted');
   expect((await game.snapshot()).politicalCapital).toBeLessThan(pcBefore);
+  // The third track is gone, the twin bore is still locked: the standard must allow two small tubes. That reform
+  // is the one that buys the Polish tunnel (it was a trap: a free click in the chooser did what it sold for 20).
+  await page.getByTestId('reform-head-twinBoreStandard').click();
+  await expect(page.getByTestId('reform-preview-twinBoreStandard')).toBeVisible();
+  const offered = (await game.snapshot()).reforms.find((r) => r.id === 'twinBoreStandard')?.preview;
+  if (offered === null || offered === undefined) throw new Error('the twin-bore standard has no preview');
+  // The reform screen holds time, so the preview is a forecast run: what it promises is what enacting does.
+  expect(offered.exact).toBe(true);
+  expect(offered.costDeltaCents).toBeLessThan(-1e10);
+  await page.getByTestId('enact-twinBoreStandard').click();
+  await expect.poll(async () => (await game.snapshot()).reforms.find((r) => r.id === 'twinBoreStandard')?.status).toBe('enacted');
+  expect((await game.snapshot()).headline?.yoursPerKmCents).toBe(offered.costPerKmAfterCents);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('open-design').click();
+  await expect(page.getByTestId('design-lock-twinBore')).toHaveCount(0);
+  // Four tunnel methods, one opening date: the chooser says the stations set it.
+  await expect(page.getByTestId('design-time-twinBore')).toContainText('they set the date');
+  const tag = (await game.snapshot()).projects[0]?.design.options.find((o) => o.id === 'twinBore')?.costCents;
   await page.getByTestId('design-twinBore').click();
   await expect.poll(async () => (await game.snapshot()).projects[0]?.design.tunnel).toBe('twinBore');
+  // The price tag of the option was the estimate with it chosen, to the cent.
+  expect((await game.snapshot()).projects[0]?.receipt.columns.yours.costCents).toBe(tag);
   // The reform and the Polish design moved the headline: the ratio is computed, not a constant.
   const designedRatio = (await game.snapshot()).headline?.ratio ?? 0;
   expect(designedRatio).toBeLessThan(statusQuoRatio - 1);
@@ -160,19 +178,36 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   events.push(...(await playUntil(page, game, (s) => s.clock.hold === 'gate', 30_000)));
   await expect(page.getByTestId('hud-hold')).toBeVisible();
   await expect(next).toHaveText('Go to tender');
+  // The gate is a decision with a card: what tender fixes, where the project stands, what the capital in hand buys.
+  await expect(page.getByTestId('gate-card')).toBeVisible();
+  await expect(page.getByTestId('gate-what')).toContainText('contract prices');
+  await expect(page.getByTestId('gate-estimate')).toContainText('$');
   await shot('gate-tender');
+  // "Look around first" puts the card away; the button in the strip still goes through the gate.
+  await page.getByTestId('gate-later').click();
+  await expect(page.getByTestId('gate-card')).toHaveCount(0);
   await next.click();
   await setSpeed(page, game, 10, events);
   events.push(...(await playUntil(page, game, (s) => s.nextAction.kind === 'launchTBM', 60_000)));
-  await setSpeed(page, game, 1, events);
+  // A gate is not arrived at in fast forward: the game is back at 1x by itself.
+  await expect(page.getByTestId('speed-1')).toHaveAttribute('aria-pressed', 'true');
   await expect(next).toHaveText('Launch the TBM');
+  await expect(page.getByTestId('gate-card')).toBeVisible();
+  // The contracts were let at tender: a procurement reform now changes nothing here, and the screen says why
+  // before the capital is spent. (The second playtest halved the price at this gate with banked capital.)
+  await page.getByTestId('gate-reforms').click();
+  await page.getByTestId('branch-procurement').click();
+  await page.getByTestId('reform-head-bestValueAward').click();
+  await expect(page.getByTestId('reform-notes-bestValueAward')).toContainText('let at tender');
+  expect((await game.snapshot()).reforms.find((r) => r.id === 'bestValueAward')?.preview?.costDeltaCents).toBe(0);
+  await page.getByTestId('panel-close').click();
   await page.getByTestId('nav-project').click();
   await expect(page.getByTestId('phase-utilities')).toBeVisible();
   await shot('gate-launch');
   await page.getByTestId('panel-close').click();
 
-  // ---- build: launch, the camera goes to the machine
-  await next.click();
+  // ---- build: launch from the card, the camera goes to the machine
+  await page.getByTestId('gate-go').click();
   await expect.poll(async () => (await game.snapshot()).mission.stage).toBe('build');
   await expect.poll(async () => (await entities(page)).possessedTbmId, { timeout: 10_000 }).not.toBeNull();
   await page.waitForTimeout(2500);
@@ -189,6 +224,7 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   const start = await machine(game);
   expect(start.driven).toBe(true);
   expect(start.autopilot).toBe(false);
+  const stripAtStart = await page.getByTestId('drive-hud').boundingBox();
   const drawnStart = (await entities(page)).tbms[0];
   for (let i = 0; i < 4; i++) await page.keyboard.press('KeyW');
   await page.keyboard.down('KeyD');
@@ -204,6 +240,12 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   if (drawnStart === undefined || drawnSteered === undefined) throw new Error('no machine is drawn');
   expect(Math.hypot(drawnSteered.x - drawnStart.x, drawnSteered.z - drawnStart.z)).toBeGreaterThan(5);
   await expect(page.getByTestId('drive-deviation')).not.toHaveText('0.0');
+  // The instrument strip does not change width or slide sideways as its numbers change.
+  const stripNow = await page.getByTestId('drive-hud').boundingBox();
+  expect(stripNow?.x).toBe(stripAtStart?.x);
+  expect(stripNow?.width).toBe(stripAtStart?.width);
+  // Off the plan the strip says what a metre costs here.
+  if ((await machine(game)).deviation.offPlan) await expect(page.getByTestId('drive-price')).toContainText('% per metre');
   // Pitch up with R: the grade rises towards its limit.
   await page.keyboard.down('KeyR');
   await page.waitForTimeout(1500);
@@ -233,6 +275,9 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   await expect(page.getByTestId('banner')).toContainText('Breakthrough');
   await expect(page.getByTestId('speed-1')).toHaveAttribute('aria-pressed', 'true');
   expect((await page.evaluate(() => window.__game.view?.()))?.xray).toBe(true);
+  // Three terrain passes under x-ray, and still inside the draw-call budget (2,398 were measured here before).
+  await game.settled();
+  expect((await game.stats()).drawCalls).toBeLessThanOrEqual(500);
   const through = await game.snapshot();
   expect(through.feed.some((f) => f.kind === 'breakthrough')).toBe(true);
   expect(through.projects[0]?.tbms[0]?.breakthroughTick).toBeGreaterThan(0);
@@ -244,11 +289,17 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   // ---- fit-out as a time-lapse, then open the line
   await setSpeed(page, game, 100, events);
   events.push(...(await playUntil(page, game, (s) => s.nextAction.kind === 'openLine', 120_000)));
-  await setSpeed(page, game, 1, events);
   await expect(next).toHaveText('Open the line');
+  // The x-ray of the breakthrough goes off again by itself, a few real seconds after the banner.
+  await expect.poll(async () => (await page.evaluate(() => window.__game.view?.()))?.xray, { timeout: 15_000 }).toBe(false);
   await shot('ready-to-open');
   await next.click();
   await expect(page.getByTestId('banner')).toContainText('Line open');
+  // Notices stand below the banner, not over it.
+  const bannerBox = await page.getByTestId('banner').boundingBox();
+  const toastBox = await page.getByTestId('toasts').boundingBox();
+  if (bannerBox !== null && toastBox !== null && toastBox.height > 0)
+    expect(toastBox.y).toBeGreaterThanOrEqual(bannerBox.y + bannerBox.height - 1);
   await expect.poll(async () => (await entities(page)).trains.length, { timeout: 10_000 }).toBeGreaterThan(0);
   await page.waitForTimeout(2500);
   await shot('line-open-train');
@@ -259,6 +310,7 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   if (t1 === undefined || t2 === undefined) throw new Error('no train is drawn');
   expect(Math.hypot(t2.x - t1.x, t2.z - t1.z)).toBeGreaterThan(10);
   expect((await game.snapshot()).ridersPerDay).toBeGreaterThan(1000);
+  expect((await game.stats()).drawCalls).toBeLessThanOrEqual(500);
 
   // ---- scorecard
   await expect(page.getByTestId('screen-scorecard')).toBeVisible({ timeout: 20_000 });
@@ -289,10 +341,14 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   expect(events.length).toBeGreaterThan(0);
 
   // ---- next mission is unlocked; keep playing returns to the open line
+  // The rating says which axis holds it down.
+  if (p.scorecard.stars < 3) await expect(page.getByTestId('score-stars-reason')).toContainText('weakest of the three');
   await expect(page.getByTestId('score-next')).toBeEnabled();
   await page.getByTestId('score-keep').click();
   await expect(page.getByTestId('topbar')).toBeVisible();
-  await page.waitForTimeout(4000);
+  // The x-ray of the train ride is the game's, not the player's for good: it goes off by itself.
+  await expect.poll(async () => (await page.evaluate(() => window.__game.view?.()))?.xray, { timeout: 15_000 }).toBe(false);
+  await page.waitForTimeout(1000);
   await shot('keep-playing');
   await page.getByTestId('nav-receipt').click();
   await expect(page.getByTestId('receipt-table')).toBeVisible();
@@ -381,15 +437,44 @@ test('save, reload the page, continue: the same game comes back', async ({ page 
   await page.getByTestId('cmd-plan.useOfficial').click();
   await page.getByTestId('tool-close').click();
   await page.getByTestId('next-action').click();
-  // Dig a hole by hand while the approvals run: key 3 is the dig brush, a click on the map carves and charges.
+  // Dig a hole by hand while the approvals run: key 3 is the dig brush.
   await page.keyboard.press('Digit3');
   await expect(page.getByTestId('toolpanel-dig')).toBeVisible();
   await game.settled();
-  const ground = await page.evaluate(() => window.__game.pick?.(760, 400) ?? null);
-  if (ground === null) throw new Error('nothing to dig at (760, 400)');
+  // From the mission overview a 3 m brush is a few pixels, and most of the map is drawn as 4 m columns that show
+  // no hole: the brush refuses, says why, and bills nothing. (The second playtest paid $40M for holes nobody saw.)
+  await page.mouse.move(470, 500);
+  for (let i = 0; i < 3; i++) await page.mouse.click(470, 500);
+  await page.mouse.move(640, 380);
+  for (let i = 0; i < 3; i++) await page.mouse.click(640, 380);
+  await expect(page.getByTestId('tool-hint')).toContainText(/Zoom in to dig|Too far from the middle of the view/);
+  expect((await game.snapshot()).handDig.volumeM3).toBe(0);
+  // Zoom in on the spot with the wheel, then dig: the voxels go, the money goes, and the hole is on screen.
+  for (let i = 0; i < 6; i++) {
+    await page.mouse.wheel(0, -240);
+    await page.waitForTimeout(80);
+  }
+  await page.waitForTimeout(1200);
+  await game.settled();
+  const ground = await page.evaluate(() => window.__game.pick?.(640, 380) ?? null);
+  if (ground === null) throw new Error('nothing to dig at (640, 380)');
   expect(ground.material).toBeGreaterThan(1);
-  await page.mouse.click(760, 400);
+  const clip = { x: 540, y: 300, width: 200, height: 160 };
+  await page.mouse.move(900, 600);
+  await game.settled();
+  const intact = await page.screenshot({ clip });
+  await page.mouse.move(640, 380);
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.click(640, 380);
+    await page.waitForTimeout(150);
+  }
   await expect.poll(async () => (await game.snapshot()).handDig.volumeM3).toBeGreaterThan(0);
+  await page.mouse.move(900, 600);
+  await game.settled();
+  await page.waitForTimeout(300);
+  const dug = await page.screenshot({ clip });
+  expect(dug.equals(intact)).toBe(false);
+  await shot('dug');
   const [hx, hy, hz] = ground.voxel;
   const voxelAt = (): Promise<number | undefined> =>
     page.evaluate(([x, y, z]) => window.__game.getVoxel?.(x as number, y as number, z as number), [hx, hy, hz]);
@@ -408,6 +493,11 @@ test('save, reload the page, continue: the same game comes back', async ({ page 
   await page.evaluate(() => window.__game.ready);
   await expect(page.getByTestId('screen-title')).toBeVisible();
   await expect(page.getByTestId('title-save')).toContainText('The Portal');
+  // With the Continue button and the save line in the sheet, the last mission of the list is still above the footer.
+  const lastMission = await page.getByTestId('mission-sandbox').boundingBox();
+  const footer = await page.locator('.bv-title-foot').boundingBox();
+  if (lastMission === null || footer === null) throw new Error('the title sheet has no mission list or no footer');
+  expect(lastMission.y + lastMission.height).toBeLessThanOrEqual(footer.y + 1);
   await shot('title-continue');
   await page.getByTestId('title-continue').click();
   await expect(page.getByTestId('topbar')).toBeVisible();
@@ -433,6 +523,14 @@ test('save, reload the page, continue: the same game comes back', async ({ page 
   expect(fresh.handDig.volumeM3).toBe(0);
   // A restart discards the hand digs: the ground is whole again.
   expect(await voxelAt()).toBe(ground.material);
+  // And looks at the mission again, not at wherever the camera had been taken (300 m over a hole, or 20 m down beside a machine).
+  await expect
+    .poll(async () => {
+      const cam = await page.evaluate(() => window.__game.camera?.());
+      if (cam === undefined) return 0;
+      return Math.hypot(cam.position.x - cam.target.x, cam.position.y - cam.target.y, cam.position.z - cam.target.z);
+    })
+    .toBeGreaterThan(1200);
   expectNoErrors(game);
 });
 
