@@ -89,15 +89,22 @@ export function designOption(id: DesignOptionId): DesignOptionDef {
 
 /** Reforms that must be enacted before an option may be chosen under profile `p`. Empty: available now. */
 export function optionLocks(id: DesignOptionId, p: Profile): string[] {
-  // A 6.6 m tube holds one track: two of them cannot carry the three-track mandate.
-  if (id === 'twinBore' && p['design.threeTrack'] > 0) return ['twoTracks'];
+  if (id === 'twinBore') {
+    const locks: string[] = [];
+    // A 6.6 m tube holds one track: two of them cannot carry the three-track mandate.
+    if (p['design.threeTrack'] > 0) locks.push('twoTracks');
+    // And the agency's standard must allow two small tubes at all. The second playtest could pick the twin bore
+    // for free once the third track was gone, which left "Twin-bore standard" a reform that bought nothing.
+    if (p['design.twinBoreDefault'] <= 0) locks.push('twinBoreStandard');
+    return locks;
+  }
   if (id === 'compactBox' && p['design.oversizeStations'] > 0) return ['noMezzanines'];
   return [];
 }
 
 /** Design options a reform unlocks (static: the inverse of optionLocks). */
 export function reformUnlocks(reformId: string): DesignOptionId[] {
-  if (reformId === 'twoTracks') return ['twinBore'];
+  if (reformId === 'twinBoreStandard') return ['twinBore'];
   if (reformId === 'noMezzanines') return ['compactBox'];
   return [];
 }
@@ -106,9 +113,9 @@ export function lockTitles(ids: readonly string[]): { reformId: string; title: s
   return ids.map((reformId) => ({ reformId, title: reformById(reformId)?.title ?? reformId }));
 }
 
-/** Method a new underground segment gets when nobody chose one: the cavern while three tracks are mandated, else twin bore. */
+/** Method a new underground segment gets when nobody chose one: twin bore once the standard allows it, else the mined cavern. */
 export function defaultMethod(p: Profile): Method {
-  return p['design.threeTrack'] > 0 ? 'mined' : 'boredTwin';
+  return p['design.threeTrack'] <= 0 && p['design.twinBoreDefault'] > 0 ? 'boredTwin' : 'mined';
 }
 
 /** The tunnel option a project is built to, or 'mixed' when its underground segments differ. Surface segments are ignored. */

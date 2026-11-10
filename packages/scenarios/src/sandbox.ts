@@ -21,7 +21,7 @@ export const SANDBOX: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(1e12),
     // The three mainline-terminal mandates are The Portal's; a line drawn from nothing starts as a two-track metro.
-    policies: ['narrowRecord', 'twoTracks', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
     tech: [],
     politicalCapital: 1000,
     funding: [],

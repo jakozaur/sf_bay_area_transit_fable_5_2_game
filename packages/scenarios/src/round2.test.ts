@@ -369,6 +369,7 @@ describe('every mission plays start to finish on autopilot through the clock con
 // A first-time player who reforms as political capital allows, builds the Polish design and drives the machine by hand.
 const WISH = [
   'twoTracks',
+  'twinBoreStandard',
   'noMezzanines',
   'shallowBoxes',
   'potholeFirst',
@@ -389,13 +390,20 @@ function player(log: { reform: string; tick: number; pc: number }[] = []): NonNu
   let phase = 0;
   return (snap) => {
     const out: GameCommand[] = [];
+    // Everything on the list that the capital in hand buys, in order, before any gate is pressed: tender fixes
+    // the design and the contract prices, so a reform bought one frame later would be a reform bought too late.
+    let pc = snap.politicalCapital;
+    let cash = snap.moneyCents;
+    const have = new Set(snap.reforms.filter((x) => x.status === 'enacted').map((x) => x.id));
     for (const id of WISH) {
       const r = snap.reforms.find((x) => x.id === id);
-      if (r?.affordable) {
-        out.push({ t: 'enactReform', id });
-        log.push({ reform: id, tick: snap.tick, pc: snap.politicalCapital });
-        break;
-      }
+      if (!r || have.has(id) || !r.prereqs.every((x) => have.has(x)) || r.cost.pc > pc || (r.cost.cents > 0 && r.cost.cents > cash))
+        continue;
+      out.push({ t: 'enactReform', id });
+      log.push({ reform: id, tick: snap.tick, pc });
+      pc -= r.cost.pc;
+      cash -= r.cost.cents;
+      have.add(id);
     }
     const p = snap.projects[0];
     if (!p) return out;

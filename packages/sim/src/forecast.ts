@@ -8,8 +8,16 @@
  */
 import { DAYS_PER_YEAR } from './constants.ts';
 import { dateAtTick } from './dates.ts';
-import { advanceDay, applyCommand, autopilotCommands, projectLengthM, projectSpentCents, type StepContext } from './engine.ts';
-import { designFlags, hardCost, polishGeometry, polishMethods, polishTemplate, projectFlags } from './model.ts';
+import {
+  advanceDay,
+  applyCommand,
+  autopilotCommands,
+  projectLengthM,
+  projectSpentCents,
+  refreshEstimate,
+  type StepContext,
+} from './engine.ts';
+import { contractProfile, designFlags, hardCost, polishGeometry, polishMethods, polishTemplate, projectFlags } from './model.ts';
 import { POLAND_PROFILE, type Profile, profileFor } from './reforms.ts';
 import {
   type ComparisonView,
@@ -95,6 +103,24 @@ export function forecastProject(state: SimState, project: ProjectState): Forecas
     };
   const copy = JSON.parse(JSON.stringify(project)) as ProjectState;
   return runToOpen(shell(state, [copy], state.reforms, state.tick, state.escalation), project.id);
+}
+
+/**
+ * Estimate at completion of a project after a hypothetical change, by the engine itself: the project is copied
+ * into a private state under `reforms`, `commands` are applied to it (a design pick), and it is run to opening.
+ * This is what enacting the reforms or sending the commands would do to the forecast of record, to the cent.
+ */
+export function forecastWhatIf(
+  state: SimState,
+  project: ProjectState,
+  reforms: readonly string[],
+  commands: readonly GameCommand[] = [],
+): Forecast {
+  const copy = JSON.parse(JSON.stringify(project)) as ProjectState;
+  const sim = shell(state, [copy], reforms, state.tick, state.escalation);
+  refreshEstimate(copy, profileFor(reforms));
+  for (const cmd of commands) _applyCommand(sim, cmd, FORECAST);
+  return runToOpen(sim, project.id);
 }
 
 /** A counterfactual run of a design from a blank project to opening. */
@@ -201,7 +227,7 @@ export function comparison(
   poland: { costCents: number; days: number },
   ridersPerDay: number,
 ): ComparisonView {
-  const cur = profileFor(state.reforms);
+  const cur = contractProfile(project, profileFor(state.reforms));
   const pl = profileFor(POLAND_PROFILE);
   const lengthKm = projectLengthM(project) / 1000;
   const tick0 = project.approvedTick >= 0 ? project.approvedTick : state.tick;

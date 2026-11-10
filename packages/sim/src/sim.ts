@@ -30,7 +30,15 @@ import {
   replayCarves,
   type StepContext,
 } from './engine.ts';
-import { estimateAlignment, plannedConstructionDays, quickOption, quickProject } from './estimate.ts';
+import {
+  estimateAlignment,
+  plannedConstructionDays,
+  plannedHeadingDays,
+  plannedStationDays,
+  quickOption,
+  quickProject,
+  stationAdds,
+} from './estimate.ts';
 import { EVENTS, eventById, eventTitle } from './events.ts';
 import {
   comparison,
@@ -38,13 +46,15 @@ import {
   designRun,
   type Forecast,
   forecastProject,
+  forecastWhatIf,
   polandBenchmark,
   polandRun,
+  polishRedrawCommands,
   runDesign,
 } from './forecast.ts';
 import { pointAt } from './geometry.ts';
 import type { GroundQuery } from './ground.ts';
-import { carveShape, effectiveMethod, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
+import { carveShape, contractProfile, effectiveMethod, isUnderground, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
 import {
   buildReceipt,
   buildScorecard,
@@ -55,7 +65,7 @@ import {
   runColumn,
   yoursColumn,
 } from './receipt.ts';
-import { type Profile, profileFor, profileReforms, REFORMS } from './reforms.ts';
+import { POLAND_PROFILE, type Profile, profileFor, profileReforms, REFORMS } from './reforms.ts';
 import { evaluateObjectives, validateScenario } from './scenario.ts';
 import {
   type AlignmentEstimate,
@@ -86,7 +96,11 @@ import {
   type SimQueries,
   type SimState,
   STATION_BOXES,
+  STATION_TEMPLATES,
+  type StationOptionView,
+  TUNNEL_OPTION_METHOD,
   TUNNEL_OPTIONS,
+  type TunnelOptionId,
 } from './types.ts';
 import {
   alignmentView,
@@ -100,6 +114,9 @@ import {
   pitViews,
   planProjectId,
   projectNextAction,
+  reformNotes,
+  STATION_TEMPLATE_LABELS,
+  STATION_TEMPLATE_NOTES,
   serviceView,
   stationView,
   tbmView,
@@ -193,6 +210,9 @@ interface ProjectCache {
   receipt: Receipt;
   scorecard: Scorecard;
   design: DesignView;
+  stationOptions: StationOptionView[];
+  /** The design tags came from forecast runs (time stood when this was built). */
+  exact: boolean;
 }
 
 interface TunnelCache {
@@ -230,7 +250,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
   const cache = new Map<string, ProjectCache>();
   const tunnels = new Map<string, TunnelCache>();
   const services = new Map<string, ServiceView>();
-  let referenceRun: { run: DesignRun; riders: number } | null = null;
+  let referenceRun: { run: DesignRun; riders: number; polandPerKmCents: number } | null = null;
   let previews: { key: string; byId: Map<string, ReformPreview> } | null = null;
   // Tunnel paths are append-only within one life of the sim; a load or a restart starts a new revision.
   let rev = loaded ? 1_000_000 + state.tick : 1;
@@ -241,39 +261,107 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     services.clear();
     referenceRun = null;
     previews = null;
+    clockMemo = null;
     rev++;
   }
 
   /** The scenario's reference plan under the rules of day one, run once. */
-  function reference(): { run: DesignRun; riders: number } | null {
+  function reference(): { run: DesignRun; riders: number; polandPerKmCents: number } | null {
     const ref = state.scenario.reference;
     if (!ref) return null;
     if (!referenceRun) {
       const run = runDesign(state, ref.commands, ref.projectId, startReforms(state), 0, 1);
-      referenceRun = { run, riders: ridership(run.project, state.scenario.feeders).ridersPerDay };
+      // What Poland would pay for the sponsor's own route: the yardstick of the sponsor's figure, whatever the player draws.
+      const poland = runDesign(state, polishRedrawCommands(run.project), ref.projectId, POLAND_PROFILE, 0, 1);
+      const lengthKm = projectLengthM(run.project) / 1000;
+      referenceRun = {
+        run,
+        riders: ridership(run.project, state.scenario.feeders).ridersPerDay,
+        polandPerKmCents: lengthKm > 0 ? Math.round(poland.costCents / lengthKm) : 0,
+      };
     }
     return referenceRun;
   }
 
-  function designView(project: ProjectState, p: Profile, eac: Forecast): DesignView {
+  /** True when a project stands on the route and station sites of the scenario's reference plan. */
+  function onReferenceRoute(project: ProjectState, ref: ProjectState): boolean {
+    if (project.waypoints.length !== ref.waypoints.length || project.stations.length !== ref.stations.length) return false;
+    for (let i = 0; i < ref.waypoints.length; i++) {
+      const a = project.waypoints[i];
+      const b = ref.waypoints[i];
+      if (Math.abs(a.x - b.x) > 0.01 || Math.abs(a.y - b.y) > 0.01 || Math.abs(a.z - b.z) > 0.01) return false;
+    }
+    for (let i = 0; i < ref.stations.length; i++) {
+      const a = project.stations[i];
+      const b = ref.stations[i];
+      if (a.template !== b.template || Math.abs(a.chainageM - b.chainageM) > 1) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Time stands where price tags are read: at a gate (its card lists what the capital in hand buys) and under the
+   * pause a reading panel sets (the reform screen, the design chooser). There the tags are forecast runs. Not
+   * under an event card: it covers the screen, and a few dozen forecasts per card would be work nobody sees.
+   */
+  function timeStands(p: Profile): boolean {
+    return state.speed === 0 || clockNow(p).hold === 'gate';
+  }
+
+  /** The clock of this instant, computed once however many views of one snapshot ask for it. */
+  let clockMemo: { key: string; clock: ClockView } | null = null;
+  function clockNow(p: Profile): ClockView {
+    const key = `${state.version}|${state.tick}|${state.subTick}|${state.pendingEvents.length}|${state.reforms.length}`;
+    if (clockMemo === null || clockMemo.key !== key) clockMemo = { key, clock: clockView(state, p) };
+    return clockMemo.clock;
+  }
+
+  function designView(project: ProjectState, p: Profile, eac: Forecast, exact: boolean): DesignView {
     const flags = projectFlags(project, p);
     const tunnel = tunnelOf(project, flags);
     const box = stationBoxOf(flags);
     const lengthKm = projectLengthM(project) / 1000;
     const daysNow = eac.openTick - state.tick;
     const current = quickProject(state, project, state.reforms);
+    const stationDays = Math.round(plannedStationDays(project, p, flags));
+    const hasBoxStation = project.stations.some((s) => s.template === 'undergroundStandard');
     const options: DesignOptionView[] = [];
     for (const id of [...TUNNEL_OPTIONS, ...STATION_BOXES]) {
       const def = DESIGN_OPTIONS.find((o) => o.id === id);
       if (!def) throw new Error(`sim: design option "${id}" has no definition`);
       const selected = def.group === 'tunnel' ? tunnel === id : box === id;
-      // The selected option is the current design: its tag is the estimate itself.
-      const q = selected || project.status === 'open' ? current : quickOption(state, project, id);
-      // The closed-form estimates give the ratio between two designs; the price tag is that ratio on the forecast
-      // of record, so the tag of the current design is the number in the headline and on the receipt.
-      const costCents = current.costCents > 0 ? Math.round((eac.costCents * q.costCents) / current.costCents) : eac.costCents;
+      const locks = optionLocks(id, p);
+      let costCents = eac.costCents;
+      let deltaDays = 0;
+      if (!selected && project.status !== 'open') {
+        if (exact && project.frozen === null) {
+          // Time stands and the player is reading the tags: each is the forecast of the project with that pick
+          // made, under the reforms that unlock it. Choosing the option lands on the tag to the cent.
+          const reforms = locks.length > 0 ? [...state.reforms, ...locks.filter((x) => !state.reforms.includes(x))] : state.reforms;
+          const pick = def.group === 'tunnel' ? { tunnel: id as TunnelOptionId } : { stationBox: id as (typeof STATION_BOXES)[number] };
+          const f = forecastWhatIf(state, project, reforms, [{ t: 'setDesign', projectId: project.id, ...pick }]);
+          costCents = f.costCents;
+          deltaDays = f.openTick - eac.openTick;
+        } else {
+          // The closed-form estimates give the ratio between two designs; the price tag is that ratio on the forecast
+          // of record, so the tag of the current design is the number in the headline and on the receipt.
+          const q = quickOption(state, project, id);
+          costCents = current.costCents > 0 ? Math.round((eac.costCents * q.costCents) / current.costCents) : eac.costCents;
+          deltaDays = Math.round(q.days - current.days);
+        }
+      }
       const deltaCents = costCents - eac.costCents;
-      const deltaDays = Math.round(q.days - current.days);
+      let headingDays: number | undefined;
+      if (def.group === 'tunnel') {
+        const method = TUNNEL_OPTION_METHOD[id as TunnelOptionId];
+        const lockProfile = locks.length > 0 ? profileFor([...state.reforms, ...locks]) : p;
+        const variant = {
+          ...project,
+          methods: project.methods.map((m) => (isUnderground(m) ? method : m)),
+          tunnelChoice: id as TunnelOptionId,
+        };
+        headingDays = Math.round(plannedHeadingDays(variant, lockProfile, project.frozen ?? projectFlags(variant, lockProfile)));
+      }
       options.push({
         group: def.group,
         id,
@@ -281,13 +369,14 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         description: def.description,
         practice: def.practice,
         selected,
-        lockedBy: lockTitles(optionLocks(id, p)),
+        lockedBy: lockTitles(locks),
         costCents,
         costPerKmCents: lengthKm > 0 ? Math.round(costCents / lengthKm) : 0,
         deltaCents,
         daysToOpen: daysNow + deltaDays,
         deltaDays,
         evidence: def.evidence,
+        ...(headingDays === undefined ? { applies: hasBoxStation } : { headingDays, stationDays }),
       });
     }
     return { tunnel, stationBox: box, frozen: project.frozen !== null || project.status === 'open', options };
@@ -295,7 +384,14 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
 
   function forecasts(project: ProjectState, p: Profile): ProjectCache {
     const hit = cache.get(project.id);
-    if (hit && hit.version === state.version && (project.status === 'open' || state.tick - hit.tick < FORECAST_REFRESH_TICKS)) return hit;
+    const exact = project.status !== 'open' && project.frozen === null && timeStands(p);
+    if (
+      hit &&
+      hit.version === state.version &&
+      (project.status === 'open' ||
+        (state.tick - hit.tick < FORECAST_REFRESH_TICKS && (hit.exact || !exact) && (!exact || hit.tick === state.tick)))
+    )
+      return hit;
     const eac = forecastProject(state, project);
     const start = state.scenario.start.date;
     const year = start.slice(0, 4);
@@ -307,9 +403,13 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     let statusQuo: DesignRun;
     let statusQuoTick0 = 0;
     let statusQuoBasis: string;
-    if (ref && state.scenario.reference?.projectId === project.id) {
+    // The official plan is the status quo only on its own route. On a line the player drew, a column for another
+    // route would put two lengths side by side in dollars (second playtest): there it is the player's route under
+    // the rules of day one.
+    const isMission = ref !== null && state.scenario.reference?.projectId === project.id;
+    if (ref && isMission && onReferenceRoute(project, ref.run.project)) {
       statusQuo = ref.run;
-      statusQuoBasis = `${state.scenario.reference.title}, under the rules of ${year}`;
+      statusQuoBasis = `${state.scenario.reference?.title ?? 'The official plan'}, under the rules of ${year}`;
     } else {
       statusQuo = keep ? keep.statusQuo : designRun(state, project, sqReforms);
       statusQuoTick0 = project.approvedTick >= 0 ? project.approvedTick : state.tick;
@@ -320,13 +420,17 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     const flags = projectFlags(project, p);
     const tunnel = tunnelOf(project, flags);
     const tunnelLabel = tunnel === 'mixed' ? 'Mixed methods' : (DESIGN_OPTIONS.find((o) => o.id === tunnel)?.label ?? tunnel);
-    const playerReforms = state.reforms.filter((id) => !sqReforms.includes(id)).length;
+    // Every reform in force, the ones of day one included: the same count the reform screen shows.
+    const inForce = state.reforms.length;
+    const underground = project.methods.some((m) => isUnderground(m));
+    const ghostInput = ref && isMission ? ghostOf(state.scenario, projectLengthM(ref.run.project) / 1000) : null;
+    if (ghostInput && ref) ghostInput.polandPerKmCents = ref.polandPerKmCents;
     const receipt = buildReceipt(
       project.id,
       final,
       {
         yours: yoursColumn(
-          `${tunnelLabel}, ${playerReforms} ${playerReforms === 1 ? 'reform' : 'reforms'} enacted`,
+          `${tunnelLabel}, ${inForce} ${inForce === 1 ? 'reform' : 'reforms'} in force`,
           final,
           project,
           eac,
@@ -336,12 +440,14 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         statusQuo: runColumn('statusQuo', statusQuoBasis, statusQuo, statusQuoTick0),
         poland: runColumn(
           'poland',
-          'This route and these stations as the Polish design (twin 6.6 m bores, compact boxes) at Polish prices and under Polish rules',
+          underground
+            ? 'This route and these stations as the Polish design (twin 6.6 m bores, compact boxes) at Polish prices and under Polish rules'
+            : 'This route and these stations built in Poland: the same surface line at Polish prices and under Polish rules',
           poland,
           tick0,
         ),
       },
-      ref && state.scenario.reference?.projectId === project.id ? ghostOf(state.scenario, projectLengthM(ref.run.project) / 1000) : null,
+      ghostInput,
       new Set(state.reforms),
       start,
     );
@@ -349,7 +455,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     const scorecard = buildScorecard({
       receipt,
       ridersPerDay: riders,
-      referenceRiders: ref && state.scenario.reference?.projectId === project.id ? ref.riders : 0,
+      referenceRiders: ref && isMission ? ref.riders : 0,
       start,
       polandSource:
         'The model: this route as the Polish design at Polish prices, calibrated on the Warsaw metro extensions and the Lodz rail tunnel',
@@ -365,10 +471,27 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       riders,
       receipt,
       scorecard,
-      design: designView(project, p, eac),
+      design: designView(project, p, eac, exact),
+      stationOptions: stationOptions(project, eac, poland),
+      exact,
     };
     cache.set(project.id, fresh);
     return fresh;
+  }
+
+  /** Price tags of the station types, anchored on the forecasts of record like the design tags. */
+  function stationOptions(project: ProjectState, eac: Forecast, poland: DesignRun): StationOptionView[] {
+    if (project.frozen !== null || project.status === 'open') return [];
+    const quick = quickProject(state, project, state.reforms);
+    const quickPl = estimateAlignment(state, { projectId: project.id, waypoints: project.waypoints, methods: project.methods });
+    const scale = quick.costCents > 0 ? eac.costCents / quick.costCents : 1;
+    const polandScale = quickPl.polandCostCents > 0 ? poland.costCents / quickPl.polandCostCents : 1;
+    return STATION_TEMPLATES.map((template) => ({
+      template,
+      label: STATION_TEMPLATE_LABELS[template],
+      note: STATION_TEMPLATE_NOTES[template],
+      ...stationAdds(state, project, template, scale, polandScale),
+    }));
   }
 
   /** As-built axis of a heading as points. The array is extended in place while the heading advances. */
@@ -425,7 +548,9 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       const done = project.status === 'open' || (project.status === 'active' && i < phaseIndex) || i < headIndex;
       const current = project.status === 'active' && i === phaseIndex;
       const progress = done ? 1 : current ? project.phaseProgress : head && i === headIndex ? head.progress : 0;
-      const plannedDays = Math.round(id === 'construction' ? plannedConstructionDays(project, p, flags) : phaseDays(id, p));
+      const plannedDays = Math.round(
+        id === 'construction' ? plannedConstructionDays(project, p, flags) : phaseDays(id, p, projectLengthM(project)),
+      );
       const fixed = PHASE_GATES[id];
       const gate =
         fixed && id === 'utilities' && project.methods.length > 0 ? { ...fixed, label: launchLabel(project, flags).label } : fixed;
@@ -508,6 +633,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       tunnels: tunnelViews,
       pits: hasLine ? pitViews(project, flags) : [],
       receipt,
+      stationOptions: fc ? fc.stationOptions : [],
       scorecard: fc
         ? fc.scorecard
         : buildScorecard({
@@ -521,29 +647,45 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
   }
 
   /** What each reform not yet enacted would change for the mission project, from the closed-form estimate. */
-  function reformPreviews(project: ProjectState | null, view: ProjectView | undefined): Map<string, ReformPreview> {
-    const key = `${state.version}/${Math.floor(state.tick / FORECAST_REFRESH_TICKS)}/${project?.id ?? ''}`;
+  function reformPreviews(project: ProjectState | null, view: ProjectView | undefined, p: Profile): Map<string, ReformPreview> {
+    // With time standing (the reform screen pauses the game) each preview is a forecast run: what enacting does, to the cent.
+    const exact = project !== null && project.status !== 'open' && timeStands(p);
+    const key = `${state.version}/${exact ? `x${state.tick}` : Math.floor(state.tick / FORECAST_REFRESH_TICKS)}/${project?.id ?? ''}`;
     if (previews && previews.key === key) return previews.byId;
     const byId = new Map<string, ReformPreview>();
     if (project && view && project.status !== 'open' && project.methods.length > 0) {
       const before = quickProject(state, project, state.reforms);
       const lengthKm = view.lengthM / 1000;
       const polandPerKm = view.receipt.columns.poland.costPerKmCents;
+      const yours = view.receipt.columns.yours.costCents;
+      const own = contractProfile(project, p);
+      const flags = projectFlags(project, own);
+      const now = exact ? forecastProject(state, project) : null;
       for (const r of REFORMS) {
         if (state.reforms.includes(r.id)) continue;
-        const after = quickProject(state, project, [...state.reforms, r.id]);
-        // The closed form gives the ratio; applied to the forecast of record it lands on what enacting does.
-        const yours = view.receipt.columns.yours.costCents;
+        let saved: number;
+        let daysDelta: number;
+        if (now) {
+          const after = forecastWhatIf(state, project, [...state.reforms, r.id]);
+          saved = after.costCents - now.costCents;
+          daysDelta = after.openTick - now.openTick;
+        } else {
+          const after = quickProject(state, project, [...state.reforms, r.id]);
+          // The closed form gives the ratio; applied to the forecast of record it lands close to what enacting does.
+          saved = before.costCents > 0 ? Math.round((yours * (after.costCents - before.costCents)) / before.costCents) : 0;
+          daysDelta = Math.round(after.days - before.days);
+        }
         // What the reform costs in cash is paid by the project: it is part of what enacting does to the estimate.
-        const saved = before.costCents > 0 ? Math.round((yours * (after.costCents - before.costCents)) / before.costCents) : 0;
         const costDeltaCents = saved + r.cost.cents;
-        const perKm = lengthKm > 0 ? Math.round((view.receipt.columns.yours.costCents + costDeltaCents) / lengthKm) : 0;
+        const perKm = lengthKm > 0 ? Math.round(((now ? now.costCents : yours) + costDeltaCents) / lengthKm) : 0;
         byId.set(r.id, {
           projectId: project.id,
           costDeltaCents,
-          daysDelta: Math.round(after.days - before.days),
+          daysDelta,
           costPerKmAfterCents: perKm,
           ratioToPolandAfter: polandPerKm > 0 ? perKm / polandPerKm : 1,
+          notes: reformNotes(state, project, r, own, flags),
+          exact: now !== null,
         });
       }
     }
@@ -575,7 +717,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     const projects = state.projects.map((pr) => projectView(pr, p, canAffordReform));
     const mission = missionProject(state);
     const missionView = mission ? projects.find((v) => v.id === mission.id) : undefined;
-    const preview = reformPreviews(mission, missionView);
+    const preview = reformPreviews(mission, missionView, p);
     const reforms: ReformView[] = reformStatus.map(({ r, status, blockedReason, affordable }) => ({
       id: r.id,
       branch: r.branch,
@@ -695,7 +837,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       ridersPerDay: riders,
       notices: state.notices.map((n) => ({ ...n })),
       headline,
-      clock: clockView(state, p),
+      clock: clockNow(p),
       mission: missionOut,
       nextAction:
         state.pendingEvents.length > 0 && missionView

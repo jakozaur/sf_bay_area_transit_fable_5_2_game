@@ -91,7 +91,7 @@ export const DUMBARTON_TO_META: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(3e8),
     // The three mainline-terminal mandates are The Portal's; they do not apply to a surface line.
-    policies: ['narrowRecord', 'twoTracks', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
     tech: [],
     politicalCapital: 50,
     funding: [

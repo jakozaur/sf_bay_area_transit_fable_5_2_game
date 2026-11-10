@@ -47,3 +47,9 @@ export function monthYear(iso: string): string {
   isoToDays(iso);
   return `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 }
+
+/** "31 Mar 2036" for an ISO date: a day the player reads (objectives, feed lines). */
+export function dayMonthYear(iso: string): string {
+  isoToDays(iso);
+  return `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+}

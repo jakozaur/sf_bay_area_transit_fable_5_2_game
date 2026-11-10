@@ -350,10 +350,10 @@ export const REFORMS: readonly ReformDef[] = [
     'twinBoreStandard',
     'design',
     'Twin-bore standard',
-    pc(20),
+    pc(10),
     ['twoTracks'],
     [set('design.twinBoreDefault', 1)],
-    'Mined caverns and giant single bores are redrawn as two ordinary 6.6 m tubes, the way Warsaw does it.',
+    'Two ordinary 6.6 m tubes become the standard tunnel, the way Warsaw does it: the design chooser may pick them, and caverns and giant bores nobody chose are redrawn as twin tubes.',
     'doc 06 sections 2.1 and 3.1 (Warsaw twin 6.3 m EPB; BART SV II single-bore dispute); doc 11 section 6.4 (single bore is a x2.2 design gap)',
   ),
   // ---------------------------------------------------------- tunnelling technology
@@ -445,9 +445,23 @@ export function profileReforms(costProfile: string): readonly string[] {
 }
 
 const profileCache = new Map<string, Profile>();
+/**
+ * The last profile computed for an array, with the length it had: the engine asks for the profile of the same
+ * `state.reforms` array every simulated day, and sorting and joining it each time was a third of a forecast run.
+ * Reform lists only grow (enactReform appends), so the same array at the same length is the same set.
+ */
+const profileByArray = new WeakMap<readonly string[], { n: number; profile: Profile }>();
 
 /** Profile for a set of enacted reforms. Effects apply in tree order, so the result does not depend on enactment order. */
 export function profileFor(enacted: readonly string[]): Profile {
+  const seen = profileByArray.get(enacted);
+  if (seen !== undefined && seen.n === enacted.length) return seen.profile;
+  const profile = profileOfSet(enacted);
+  profileByArray.set(enacted, { n: enacted.length, profile });
+  return profile;
+}
+
+function profileOfSet(enacted: readonly string[]): Profile {
   const key = [...enacted].sort().join(',');
   const hit = profileCache.get(key);
   if (hit) return hit;

@@ -90,6 +90,37 @@ export const CONSTANTS = {
     false,
   ),
 
+  tunnelDepthFreeM: c(
+    25,
+    'm below datum',
+    'tuning after the second playtest: a bored or mined tunnel costs the same down to this depth below sea level. The sim knows elevations, not the street, so depth is counted from the datum',
+    false,
+  ),
+  tunnelDepthFactorPerM: c(
+    0.01,
+    '1/m',
+    'tuning: +1 percent per metre below tunnelDepthFreeM (water pressure, longer shafts and muck haul); the tunnel analogue of stationDepthFactorPerM, no source',
+    false,
+  ),
+  cutCoverDepthFreeM: c(
+    20,
+    'm below datum',
+    'tuning: the cut-and-cover box of doc 11 section 6.2 is 18 m deep; a deeper trench costs more',
+    false,
+  ),
+  cutCoverDepthFactorPerM: c(
+    0.03,
+    '1/m',
+    'tuning: +3 percent per metre below cutCoverDepthFreeM (the excavation and its walls grow with depth); no source',
+    false,
+  ),
+  cutCoverMaxDepthM: c(
+    35,
+    'm below datum',
+    'tuning: a trench deeper than this is not dug from the street; doc 11 section 3.1 has the S2 Ursynow box at about 12 m and doc 06 station boxes at 20 to 30 m',
+    false,
+  ),
+
   // --- Status-quo unit price factors (reformed value is 1.0 for each) ---
   procurementFactor: c(1.5, 'x', 'doc 06 section 7.5 (TCP 1.85 in New York, scaled); doc 07 section 4 uses 1.6'),
   labourFactor: c(1.3, 'x', 'doc 07 section 4 (site staffing and work hours; TCP 1.5 in New York, discounted)'),
@@ -143,6 +174,19 @@ export const CONSTANTS = {
     'months',
     'doc 11 section 5.3 (breakthrough to opening: Poland 21, Bay Area comparators 15 to 22; no gap, so no reform changes it)',
   ),
+  fitOutFreeKm: c(
+    10,
+    'km',
+    'tuning after the second playtest: the 20 months of fit-out are for lines up to this long (the comparators of doc 11 section 5.3 are 2 to 7 km); a 626 km line opened a month after a 17 km one',
+    false,
+  ),
+  fitOutMonthsPerKm: c(
+    1,
+    'months/km',
+    'tuning: track, power and signalling beyond fitOutFreeKm take a month per route-km more, laid from several fronts; no source',
+    false,
+  ),
+  fitOutMaxFactor: c(4, 'x', 'tuning: fit-out is never more than this many times the base, however long the line', false),
   constructionTimeFactorStatusQuo: c(1.5, 'x', 'doc 11 section 5.3 (build x1.5 to x2); doc 07 section 4 has 8 years against 3'),
   daysPerMonth: c(30.4375, 'days', 'calendar arithmetic'),
 
@@ -221,6 +265,12 @@ export const CONSTANTS = {
   driveCorridorM: c(30, 'm', 'tuning: a driven machine cannot move further than this from the planned alignment', false),
   driveFreeDeviationM: c(3, 'm', 'tuning: deviation from the plan below this carries no surcharge', false),
   driveOffPlanCostFactor: c(1.25, 'x', 'tuning: civil cost factor for metres bored beyond the free deviation; no source', false),
+  driveOffPlanCostPerM: c(
+    0.05,
+    '1/m',
+    'tuning after the second playtest: the surcharge grows by this share per metre beyond the free deviation, so a machine 30 m off pays about 2.6 times the planned metre and one just outside the tolerance pays driveOffPlanCostFactor',
+    false,
+  ),
   driveVerticalRadiusM: c(
     1000,
     'm',

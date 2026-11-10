@@ -280,6 +280,8 @@ export interface GhostInput {
   openDate: string;
   lengthKm: number;
   source: string;
+  /** What Poland would pay per route-km for the sponsor's own route and stations; absent: the Poland column is used. */
+  polandPerKmCents?: number;
 }
 
 /** The sponsor figure of a scenario, or null for a line nobody has officially priced. */
@@ -323,7 +325,10 @@ export function buildReceipt(
       title: r.title,
       enacted: enacted.has(r.id),
     }));
-    const status: ReceiptLine['status'] = cents.yours === 0 ? 'removed' : reforms.some((r) => r.enacted) ? 'reduced' : 'paid';
+    // Reduced: a reform against the line is enacted and the player's factor is below the status quo's. A reform
+    // bought after the contracts were let is enacted and changes nothing: the line is still paid in full.
+    const lowered = def.group === 'delay' || factor.yours < factor.statusQuo - 1e-3;
+    const status: ReceiptLine['status'] = cents.yours === 0 ? 'removed' : reforms.some((r) => r.enacted) && lowered ? 'reduced' : 'paid';
     return { id, group: def.group, label: def.label, factor, cents, reforms, status, evidence: def.evidence };
   });
   const groups = RECEIPT_GROUPS.map((id) => {
@@ -354,6 +359,10 @@ export function buildReceipt(
     // Per route-km, so a sponsor figure for a longer corridor (Dumbarton) is compared like with like.
     if (ghostView.costPerKmCents > 0)
       ghostView.unexplainedShare = (ghostView.costPerKmCents - columns.statusQuo.costPerKmCents) / ghostView.costPerKmCents;
+    // The sponsor's figure is for the sponsor's route: its ratio is against Poland on that route, not on the
+    // player's. The second playtest read "official plan: 11.8 times" on a hand-drawn line and 18.7 on the official one.
+    ghostView.polandPerKmCents =
+      ghost.polandPerKmCents !== undefined && ghost.polandPerKmCents > 0 ? ghost.polandPerKmCents : columns.poland.costPerKmCents;
   }
   const perKm = (id: ReceiptColumnId) => columns[id].costPerKmCents;
   return {
@@ -366,7 +375,7 @@ export function buildReceipt(
     ratios: {
       yoursToPoland: ratio(perKm('yours'), perKm('poland')),
       statusQuoToPoland: ratio(perKm('statusQuo'), perKm('poland')),
-      ghostToPoland: ghostView ? ratio(ghostView.costPerKmCents, perKm('poland')) : null,
+      ghostToPoland: ghostView ? ratio(ghostView.costPerKmCents, ghostView.polandPerKmCents ?? perKm('poland')) : null,
       yoursToStatusQuo: ratio(perKm('yours'), perKm('statusQuo')),
     },
   };
@@ -534,7 +543,8 @@ export function buildScorecard(i: ScoreInput): Scorecard {
 
   // Cost: position on a log scale between Poland's cost per km and the ghost's.
   const rYours = ratio(yours.costPerKmCents, poland.costPerKmCents);
-  const rGhost = ratio(ghost.costPerKmCents, poland.costPerKmCents);
+  // The sponsor figure is measured against Poland on the sponsor's route (GhostView.polandPerKmCents).
+  const rGhost = r.ratios.ghostToPoland ?? ratio(ghost.costPerKmCents, poland.costPerKmCents);
   let costStars: number;
   if (yours.costPerKmCents <= 0) costStars = 0;
   else if (rGhost > 1.05) costStars = starsAt(rYours <= 1 ? 0 : Math.log(rYours) / Math.log(rGhost));
@@ -568,6 +578,12 @@ export function buildScorecard(i: ScoreInput): Scorecard {
     { id: 'riders', stars: riderStars, reason: riderReason },
   ];
   const stars = Math.min(costStars, dateStars, riderStars);
+  const AXIS_NAME: Record<StarAxis, string> = { cost: 'cost', date: 'opening date', riders: 'riders' };
+  const weakest = axes.filter((a) => a.stars === stars).map((a) => AXIS_NAME[a.id]);
+  const starsReason =
+    stars === 3
+      ? 'Three stars on every axis.'
+      : `The rating is the weakest of the three: ${weakest.join(' and ')}. Three stars on an axis means within a quarter of the way from Poland to ${ghost.label}.`;
   const tense = r.final ? 'You paid' : 'You are on course to pay';
   const verdict = `${tense} ${money(yours.costCents)}, ${rYours.toFixed(1)} times what Poland would have paid per km. ${ghost.label}: ${money(ghost.costCents)}, ${rGhost.toFixed(1)} times.`;
   return {
@@ -579,6 +595,7 @@ export function buildScorecard(i: ScoreInput): Scorecard {
     ridersPerDay: i.ridersPerDay,
     costPerRiderCents: i.ridersPerDay > 0 ? Math.round(yours.costCents / i.ridersPerDay) : 0,
     stars,
+    starsReason,
     axes,
     verdict,
   };

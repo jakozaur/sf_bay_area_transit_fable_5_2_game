@@ -62,7 +62,7 @@ export const ORACLE_SHUTTLE: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(2e8),
     // The three mainline-terminal mandates are The Portal's; they do not apply to a shuttle tunnel.
-    policies: ['narrowRecord', 'twoTracks', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
     tech: [],
     politicalCapital: 40,
     funding: [{ id: 'employer', name: 'Employer contribution', amountCents: usd(5e8), release: 'permitting', source: 'game assumption' }],

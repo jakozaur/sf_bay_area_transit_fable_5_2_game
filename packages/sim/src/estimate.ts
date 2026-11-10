@@ -14,6 +14,7 @@ import { expectedAvailability, projectSpentCents } from './engine.ts';
 import { chainages, segmentIndexAt } from './geometry.ts';
 import {
   advanceRate,
+  contractProfile,
   designFlags,
   hardCost,
   headingSpans,
@@ -37,6 +38,7 @@ import {
   type ProjectState,
   type SimState,
   type StationBoxId,
+  type StationState,
   TUNNEL_OPTION_METHOD,
   TUNNEL_OPTIONS,
   type TunnelOptionId,
@@ -46,10 +48,14 @@ import {
 const ESCALATION = 1 + K.escalationPerYear.value;
 const MAX_ESTIMATE_WAYPOINTS = 512;
 
-/** Days the longest run of one effective method takes at its steady rate: the headings' share of construction. */
-export function plannedHeadingDays(g: ProjectGeometry, p: Profile, flags: DesignFlags): number {
+/**
+ * Days the longest run of one effective method takes at its steady rate: the headings' share of construction.
+ * With `only`, the longest among the headings of the methods it accepts (the boring machines, say).
+ */
+export function plannedHeadingDays(g: ProjectGeometry, p: Profile, flags: DesignFlags, only?: (m: Method) => boolean): number {
   let days = 0;
   for (const span of headingSpans(g, flags)) {
+    if (only && !only(span.method)) continue;
     const share = isTbm(span.method) ? expectedAvailability(p) : 1;
     let runDays = 0;
     let i = segmentIndexAt(g.cum, span.fromM);
@@ -108,7 +114,7 @@ export function quickEstimate(g: ProjectGeometry, p: Profile, flags: DesignFlags
   const buildShare = at.phase === 'construction' ? 1 - at.phaseProgress : at.phase === 'fitOut' ? 0 : 1;
   const fitShare = at.phase === 'fitOut' ? 1 - at.phaseProgress : 1;
   const build = plannedConstructionDays(g, p, flags) * buildShare;
-  const fit = phaseDays('fitOut', p) * fitShare;
+  const fit = phaseDays('fitOut', p, g.cum[g.cum.length - 1]) * fitShare;
   const days = pre + build + fit;
   const index0 = at.escalation;
   const esc = (t: number) => index0 * ESCALATION ** (t / DAYS_PER_YEAR);
@@ -146,7 +152,7 @@ export function standingOf(state: SimState, project: ProjectState): Standing {
 /** Closed-form estimate of an existing project under a set of reforms (the reform screen's "before you buy"). */
 export function quickProject(state: SimState, project: ProjectState, reforms: readonly string[]): QuickEstimate {
   if (project.status === 'open') return { costCents: projectSpentCents(project), days: 0 };
-  const p = profileFor(reforms);
+  const p = contractProfile(project, profileFor(reforms));
   return quickEstimate(project, p, projectFlags(project, p), standingOf(state, project));
 }
 
@@ -198,7 +204,7 @@ export function estimateAlignment(state: SimState, req: AlignmentEstimateRequest
     throw new Error(`sim estimateAlignment: unknown tunnel option "${String(req.tunnel)}"`);
   // A project id that does not exist yet is a line being drawn for the first time.
   const project = req.projectId === undefined ? undefined : state.projects.find((x) => x.id === req.projectId);
-  const p = profileFor(state.reforms);
+  const p = project ? contractProfile(project, profileFor(state.reforms)) : profileFor(state.reforms);
   const waypoints: Waypoint[] = req.waypoints;
   const tunnel = req.tunnel ?? project?.tunnelChoice ?? null;
   let methods: Method[];
@@ -234,5 +240,48 @@ export function estimateAlignment(state: SimState, req: AlignmentEstimateRequest
     ratioToPoland: poland.costCents > 0 ? yours.costCents / poland.costCents : 1,
     daysToOpen: Math.round(yours.days),
     openDate: dateAtTick(state.scenario.start.date, state.tick + Math.round(yours.days)),
+  };
+}
+
+const DEFAULT_STATION_DEPTH_M = 18;
+
+/**
+ * What one more station of each type would add to a project, in closed form: the project with the station
+ * minus the project without it, for the player's design and for Poland's. `scale` and `polandScale` anchor the
+ * two on the forecasts of record (forecast cost over closed-form cost), as the design tags are.
+ */
+export function stationAdds(
+  state: SimState,
+  project: ProjectState,
+  template: StationState['template'],
+  scale: number,
+  polandScale: number,
+): { costCents: number; polandCents: number; buildDays: number } {
+  const p = contractProfile(project, profileFor(state.reforms));
+  const flags = projectFlags(project, p);
+  const standing = standingOf(state, project);
+  // At the depth of the stations already on the line, else the default box depth.
+  let depthM = DEFAULT_STATION_DEPTH_M;
+  if (project.stations.length > 0) {
+    depthM = 0;
+    for (const s of project.stations) depthM += s.depthM / project.stations.length;
+  }
+  const withStation: ProjectGeometry = {
+    waypoints: project.waypoints,
+    methods: project.methods,
+    cum: project.cum,
+    stations: [...project.stations, { template, depthM }],
+  };
+  const before = quickEstimate(project, p, flags, standing);
+  const after = quickEstimate(withStation, p, flags, standing);
+  const pl = profileFor(POLAND_PROFILE);
+  const plFlags = designFlags(pl);
+  const draft = draftStanding(state);
+  const plBefore = quickEstimate(polishGeometry(project), pl, plFlags, draft);
+  const plAfter = quickEstimate(polishGeometry(withStation), pl, plFlags, draft);
+  return {
+    costCents: Math.round((after.costCents - before.costCents) * scale),
+    polandCents: Math.round((plAfter.costCents - plBefore.costCents) * polandScale),
+    buildDays: Math.round(stationBuildDays(template, flags, p['time.constructionFactor'])),
   };
 }

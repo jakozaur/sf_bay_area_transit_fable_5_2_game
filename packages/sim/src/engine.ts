@@ -10,11 +10,12 @@ import { defaultMethod, designOption, optionLocks, stationBoxOf, stationSize } f
 import { driveFromPlan, driveSubstep } from './drive.ts';
 import { EVENTS, type EventDef, type EventOption, eventById, eventTitle } from './events.ts';
 import { capsuleBetween, carveCapsules, chainages, nearestChainage, pointAt, segmentIndexAt } from './geometry.ts';
-import { faceGeology, type GroundQuery } from './ground.ts';
+import type { GroundQuery } from './ground.ts';
 import {
   advanceRate,
   carveShape,
   civilCentsPerM,
+  contractProfile,
   effectiveMethod,
   hardCost,
   headingSpans,
@@ -23,6 +24,7 @@ import {
   PHASE_LABELS,
   phaseDays,
   projectFlags,
+  segmentY,
   standardsFor,
   stationBuildDays,
   stationCostCents,
@@ -94,9 +96,15 @@ export const PC_PHASE_DONE = 15;
 export const PC_BREAKTHROUGH = 10;
 export const PC_OPENING = 20;
 const PC_RIDERS_PER_POINT = 10_000;
+/**
+ * The monthly mandate and the riders' goodwill stop adding up at this much unspent capital. The second playtest
+ * reached 1,556 by 2072 with nothing left to buy; milestones (a finished phase, a breakthrough, an opening) still pay.
+ */
+export const PC_MONTHLY_CAP = 150;
 const SUBSTEPS = SUBSTEPS_PER_DAY;
 const MAX_GRADE = K.maxGradePct.value / 100;
 const OFF_PLAN_FACTOR = K.driveOffPlanCostFactor.value;
+const OFF_PLAN_PER_M = K.driveOffPlanCostPerM.value;
 const TRAIL_STEP_M = K.trailStepM.value;
 const FREE_DEVIATION_M = K.driveFreeDeviationM.value;
 const COVER_M = K.driveCoverM.value;
@@ -495,6 +503,7 @@ function newProject(id: string): ProjectState {
     offPlanCents: 0,
     handDigCents: 0,
     handDigM3: 0,
+    contract: null,
   };
 }
 
@@ -508,8 +517,49 @@ export function projectSpentCents(project: ProjectState): number {
   return sum;
 }
 
-function refreshEstimate(project: ProjectState, p: Profile): void {
-  project.hardEstimateCents = project.methods.length === 0 ? 0 : round(hardCost(project, p, projectFlags(project, p), false).totalCents);
+/** Refreshes the unescalated hard estimate of a project under the reforms of `p` (and the contract prices, once tendered). */
+export function refreshEstimate(project: ProjectState, p: Profile): void {
+  const own = contractProfile(project, p);
+  project.hardEstimateCents =
+    project.methods.length === 0 ? 0 : round(hardCost(project, own, projectFlags(project, own), false).totalCents);
+}
+
+/**
+ * Why an edit that leaves an approved project with these waypoints and methods is refused, or null. A draft may
+ * be anything while it is drawn; once approved the line must stay buildable. The second playtest clicked a stray
+ * waypoint onto an approved line, and the hairpin went to tender, was bored and opened.
+ */
+function approvedEditProblem(
+  project: ProjectState,
+  waypoints: readonly Waypoint[],
+  methods: readonly Method[],
+  ctx: StepContext,
+): string | null {
+  if (project.status !== 'active' || ctx.forecast) return null;
+  const checks = checkAlignment(waypoints, methods);
+  return checks.ok ? null : `${project.name} is approved: a change must keep the line buildable. ${checks.problems[0]}`;
+}
+
+/** Street level over each station, as implied by its depth and the line under it: kept when the line is moved. */
+function stationGrounds(project: ProjectState): number[] {
+  if (project.methods.length === 0) return project.stations.map(() => 0);
+  return project.stations.map((s) => pointAt(project.waypoints, project.cum, s.chainageM).y + s.depthM);
+}
+
+/** After the line moved: a station stays under the same street, so its platform depth follows the line. */
+function followLine(project: ProjectState, grounds: readonly number[]): void {
+  if (project.methods.length === 0) return;
+  const byId = new Map<string, number>();
+  project.stations.forEach((s, i) => {
+    byId.set(s.id, grounds[i]);
+  });
+  refreshGeometry(project);
+  for (const s of project.stations) {
+    const ground = byId.get(s.id);
+    if (ground === undefined) continue;
+    const depth = ground - pointAt(project.waypoints, project.cum, s.chainageM).y;
+    s.depthM = Math.min(100, Math.max(0, round(depth * 10) / 10));
+  }
 }
 
 function refreshGeometry(project: ProjectState): void {
@@ -735,19 +785,23 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
         state.projects.push(project);
       }
       const segments = cmd.waypoints.length - 1;
-      if (cmd.methods) {
-        project.methods = [...cmd.methods];
-        project.tunnelChoice = null;
-      } else if (project.methods.length !== segments) {
+      let methods = project.methods;
+      if (cmd.methods) methods = [...cmd.methods];
+      else if (project.methods.length !== segments) {
         // A redrawn line keeps its method when it has one; otherwise it gets the chosen or the standard design.
         const first = project.methods[0];
         const uniform = first !== undefined && project.methods.every((m) => m === first);
         const fill = uniform ? first : project.tunnelChoice ? TUNNEL_OPTION_METHOD[project.tunnelChoice] : defaultMethod(profile);
-        project.methods = new Array<Method>(segments).fill(fill);
+        methods = new Array<Method>(segments).fill(fill);
       }
+      const refused = approvedEditProblem(project, cmd.waypoints, methods, ctx);
+      if (refused) return reject(state, cmd, refused);
+      const grounds = stationGrounds(project);
+      if (cmd.methods) project.tunnelChoice = null;
+      project.methods = methods;
       project.waypoints = cmd.waypoints.map((w) => ({ ...w }));
       if (cmd.name) project.name = cmd.name;
-      refreshGeometry(project);
+      followLine(project, grounds);
       refreshEstimate(project, profile);
       state.version++;
       return;
@@ -765,13 +819,20 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       waypoints.splice(index, 0, { ...cmd.waypoint });
       const problem = alignmentProblem(waypoints);
       if (problem) return reject(state, cmd, problem);
+      const methods = project.methods.slice();
+      let clearsChoice = false;
       if (waypoints.length >= 2) {
         const neighbour = project.methods[Math.min(Math.max(0, index - 1), project.methods.length - 1)];
-        project.methods.splice(Math.max(0, index - 1), 0, cmd.method ?? neighbour ?? defaultMethod(profile));
-        if (cmd.method !== undefined && cmd.method !== neighbour) project.tunnelChoice = null;
+        methods.splice(Math.max(0, index - 1), 0, cmd.method ?? neighbour ?? defaultMethod(profile));
+        clearsChoice = cmd.method !== undefined && cmd.method !== neighbour;
       }
+      const refused = approvedEditProblem(project, waypoints, methods, ctx);
+      if (refused) return reject(state, cmd, refused);
+      const grounds = stationGrounds(project);
+      project.methods = methods;
+      if (clearsChoice) project.tunnelChoice = null;
       project.waypoints = waypoints;
-      refreshGeometry(project);
+      followLine(project, grounds);
       refreshEstimate(project, profile);
       state.version++;
       return;
@@ -783,7 +844,11 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (locked) return reject(state, cmd, locked);
       if (cmd.segment >= project.methods.length)
         return reject(state, cmd, `segment ${cmd.segment} does not exist (${project.methods.length} segments)`);
-      project.methods[cmd.segment] = cmd.method;
+      const methods = project.methods.slice();
+      methods[cmd.segment] = cmd.method;
+      const refused = approvedEditProblem(project, project.waypoints, methods, ctx);
+      if (refused) return reject(state, cmd, refused);
+      project.methods = methods;
       project.tunnelChoice = null;
       refreshEstimate(project, profile);
       state.version++;
@@ -847,10 +912,20 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       const project = findProject(state, cmd.projectId);
       if (!project) return reject(state, cmd, `no project "${cmd.projectId}"`);
       if (project.awaiting !== 'advancePhase') return reject(state, cmd, `project "${project.id}" is not waiting to go to tender`);
+      if (!ctx.forecast) {
+        const checks = checkAlignment(project.waypoints, project.methods);
+        if (!checks.ok) return reject(state, cmd, `${project.name} cannot go to tender: the line is not buildable. ${checks.problems[0]}`);
+      }
       project.awaiting = null;
       project.phase = 'procurement';
       project.phaseProgress = 0;
       project.frozen = standardsFor(project, profile);
+      // The contracts are let under the rules of today: what is reformed later no longer changes their prices.
+      project.contract = {
+        procurement: profile['unit.procurement'],
+        labour: profile['unit.labour'],
+        thirdParty: profile['unit.thirdParty'],
+      };
       refreshEstimate(project, profile);
       state.version++;
       return;
@@ -984,7 +1059,10 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       }
       if (cmd.tunnel !== undefined) {
         const method = TUNNEL_OPTION_METHOD[cmd.tunnel];
-        for (let i = 0; i < project.methods.length; i++) if (isUnderground(project.methods[i])) project.methods[i] = method;
+        const methods = project.methods.map((m) => (isUnderground(m) ? method : m));
+        const refused = approvedEditProblem(project, project.waypoints, methods, ctx);
+        if (refused) return reject(state, cmd, refused);
+        project.methods = methods;
         project.tunnelChoice = cmd.tunnel;
       }
       if (cmd.stationBox !== undefined) project.stationBox = cmd.stationBox;
@@ -1351,7 +1429,7 @@ function advanceFront(
   let s = from;
   while (s < to) {
     const end = Math.min(to, cum[seg + 1]);
-    cost += (end - s) * _civilCentsPerM(front.method, waypoints[seg].geology ?? 'softGround', p, flags);
+    cost += (end - s) * _civilCentsPerM(front.method, waypoints[seg].geology ?? 'softGround', p, flags, segmentY(waypoints, seg));
     s = end;
     seg++;
   }
@@ -1385,7 +1463,8 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
     const above = ctx.ground(d.x, d.y + shape.radiusM + COVER_M, d.z);
     thin = above === Material.AIR || above === Material.WATER;
   }
-  const step = driveSubstep(d, waypoints, cum, front.toM, rate, limits, freeDeviationM(waypoints, cum, d.planM, limits.minRadiusM), thin);
+  const freeM = freeDeviationM(waypoints, cum, d.planM, limits.minRadiusM);
+  const step = driveSubstep(d, waypoints, cum, front.toM, rate, limits, freeM, thin);
   if (d.blocked && !wasBlocked && state.tick - d.corridorNoticeTick >= NOTICE_GAP_DAYS) {
     d.corridorNoticeTick = state.tick;
     feed(state, ctx, 'tbmStopped', project.id, front.id, `${front.name} is at the edge of its corridor and re-steers towards the plan`);
@@ -1396,10 +1475,18 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
   }
   if (step.advancedM <= 0) return;
   front.boredM += step.advancedM;
-  if (d.planM > front.chainageM) front.chainageM = Math.min(front.toM, d.planM);
-  const base = step.advancedM * _civilCentsPerM(front.method, d.geology, p, flags);
-  d.pendingCents += d.offPlan ? base * OFF_PLAN_FACTOR : base;
-  if (d.offPlan) d.pendingOffPlanCents += base * (OFF_PLAN_FACTOR - 1);
+  const paidTo = front.chainageM;
+  if (step.arrived) front.chainageM = front.toM;
+  else if (d.planM > front.chainageM) front.chainageM = Math.min(front.toM, d.planM);
+  // Priced like the plan: by the metres of plan the face has passed, at the ground class and the depth of the
+  // segment it is level with. The project buys the planned tunnel: a driven heading and the autopilot pay the
+  // same for the same line (a hand that cuts a corner does not get the tunnel cheaper than Poland does), and
+  // only the distance from the plan costs extra.
+  const planSeg = _segmentIndexAt(cum, Math.min(paidTo, cum[cum.length - 1] - 1e-9));
+  const base = (front.chainageM - paidTo) * _civilCentsPerM(front.method, d.geology, p, flags, segmentY(waypoints, planSeg));
+  const surcharge = d.offPlan ? base * (offPlanFactor(d, freeM) - 1) : 0;
+  d.pendingCents += base + surcharge;
+  d.pendingOffPlanCents += surcharge;
   if (d.offPlan && !wasOffPlan && state.tick - d.offPlanNoticeTick >= NOTICE_GAP_DAYS) {
     d.offPlanNoticeTick = state.tick;
     feed(
@@ -1408,7 +1495,7 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
       'tbmOffPlan',
       project.id,
       front.id,
-      `${front.name} is off the planned alignment: every metre here costs ${Math.round((OFF_PLAN_FACTOR - 1) * 100)} percent more`,
+      `${front.name} is off the planned alignment: every metre costs ${Math.round((OFF_PLAN_FACTOR - 1) * 100)} percent more, and more the further it strays`,
     );
   }
 
@@ -1424,8 +1511,9 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
     d.carveZ = d.z;
     d.carveDirX = d.dirX;
     d.carveDirZ = d.dirZ;
-    const sampled = ctx.ground ? faceGeology(ctx.ground, d.x, d.y, d.z, shape.radiusM) : null;
-    d.geology = sampled ?? planGeology(project, d.planM);
+    // The ground class is the plan's: the ground investigation the estimate was priced on. Reading the voxels at
+    // the face instead made the same project $478M cheaper when a player took the controls (second playtest).
+    d.geology = planGeology(project, d.planM);
     if (step.arrived || front.boredM - d.trailM >= TRAIL_STEP_M) {
       d.trail.push(d.x, d.y, d.z);
       d.trailM = front.boredM;
@@ -1455,6 +1543,12 @@ function driveFront(state: SimState, project: ProjectState, front: FrontState, p
   d.offPlan = false;
   front.chainageM = front.toM;
   breakThrough(state, project, front, ctx);
+}
+
+/** Civil cost factor of a metre bored off the plan: OFF_PLAN_FACTOR just outside the free tolerance, growing with the distance. */
+export function offPlanFactor(d: { lateralM: number; verticalM: number }, freeM: number): number {
+  const total = Math.sqrt(d.lateralM * d.lateralM + d.verticalM * d.verticalM);
+  return OFF_PLAN_FACTOR + OFF_PLAN_PER_M * Math.max(0, total - freeM);
 }
 
 /**
@@ -1511,7 +1605,7 @@ export function advanceSubstep(state: SimState, ctx: StepContext): void {
       for (const front of project.fronts) {
         if (!front.drive || front.chainageM >= front.toM || front.downDays > 0) continue;
         if (!p) p = _profileFor(state.reforms);
-        driveFront(state, project, front, p, ctx);
+        driveFront(state, project, front, contractProfile(project, p), ctx);
       }
     }
   }
@@ -1522,7 +1616,9 @@ export function advanceSubstep(state: SimState, ctx: StepContext): void {
   }
 }
 
-function stepProject(state: SimState, project: ProjectState, p: Profile, ctx: StepContext, rng: Uint32Array | null): void {
+function stepProject(state: SimState, project: ProjectState, profile: Profile, ctx: StepContext, rng: Uint32Array | null): void {
+  // What the project buys is priced at its contracts once it has been tendered.
+  const p = contractProfile(project, profile);
   spend(state, project, 'overhead', (project.hardEstimateCents * p['soft.overheadPerYear']) / YEAR);
   if (project.delayDays > 0) {
     project.delayDays--;
@@ -1535,7 +1631,7 @@ function stepProject(state: SimState, project: ProjectState, p: Profile, ctx: St
     stepConstruction(state, project, p, ctx, rng);
     return;
   }
-  const d = Math.min(1 - project.phaseProgress, 1 / phaseDays(phase, p));
+  const d = Math.min(1 - project.phaseProgress, 1 / phaseDays(phase, p, projectLengthM(project)));
   if (phase === 'fitOut') {
     const flags = project.frozen;
     if (flags) {
@@ -1590,7 +1686,9 @@ export function advanceDay(state: SimState, ctx: StepContext): void {
   monthly[month] += spentToday;
 
   state.tick++;
-  if (state.tick % 30 === 0) state.politicalCapital += PC_PER_MONTH + Math.floor(riders / PC_RIDERS_PER_POINT);
+  if (state.tick % 30 === 0 && state.politicalCapital < PC_MONTHLY_CAP) {
+    state.politicalCapital = Math.min(PC_MONTHLY_CAP, state.politicalCapital + PC_PER_MONTH + Math.floor(riders / PC_RIDERS_PER_POINT));
+  }
   state.escalation *= ESC_DAILY;
   if (rng) state.rng = Array.from(rng);
 

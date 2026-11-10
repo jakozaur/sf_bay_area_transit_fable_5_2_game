@@ -14,6 +14,7 @@ import type { AlignmentChecks, Method, Waypoint } from './types.ts';
 const MAX_GRADE_PCT = K.maxGradePct.value;
 const R_TWIN = K.minRadiusTwinBoreM.value;
 const R_LARGE = K.minRadiusLargeBoreM.value;
+const CC_MAX_DEPTH = K.cutCoverMaxDepthM.value;
 /** A segment shorter than this in plan cannot hold a curve or a machine length. */
 export const MIN_SEGMENT_M = 20;
 /** Deflections below this (tan of half the angle, about 0.3 degrees) count as straight. */
@@ -89,6 +90,14 @@ export function checkAlignment(waypoints: readonly Waypoint[], methods?: readonl
       // Just over the limit, one decimal would print the limit itself ("climbs 3.0 percent, maximum 3").
       problems.push(
         `Segment ${i + 1} climbs ${grade.toFixed(grade < MAX_GRADE_PCT + 0.1 ? 2 : 1)} percent, maximum ${MAX_GRADE_PCT} percent`,
+      );
+    }
+    // A trench is dug from the street. The sim knows elevations, not the street, so the limit is below the datum.
+    const below = -(a.y + b.y) / 2;
+    if (methodAt(i) === 'cutAndCover' && below > CC_MAX_DEPTH + 1e-9 && segmentIssues[i] === null) {
+      segmentIssues[i] = 'depth';
+      problems.push(
+        `Segment ${i + 1} is cut-and-cover ${below.toFixed(0)} m below sea level, deeper than a trench goes (${CC_MAX_DEPTH} m): bore or mine it`,
       );
     }
   }

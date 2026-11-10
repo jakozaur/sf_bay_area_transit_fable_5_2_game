@@ -93,7 +93,7 @@ export const GOOGLEPLEX_SPUR: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(4e8),
     // The three mainline-terminal mandates are The Portal's; they do not apply to a metro-style spur.
-    policies: ['narrowRecord', 'twoTracks', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
     tech: [],
     politicalCapital: 50,
     funding: [

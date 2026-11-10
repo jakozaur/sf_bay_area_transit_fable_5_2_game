@@ -3,7 +3,7 @@ import { Material, type SaveFile, type WorldEdit } from '@bayvox/core';
 import { describe, expect, test } from 'vitest';
 import { checkAlignment, vertexRadiusM } from './checks.ts';
 import { CONSTANTS, SUBSTEPS_PER_DAY } from './constants.ts';
-import { autopilotCommands, freeDeviationM } from './engine.ts';
+import { autopilotCommands, freeDeviationM, offPlanFactor } from './engine.ts';
 import { faceGeology, geologyOfMaterial } from './ground.ts';
 import { advanceRate } from './model.ts';
 import { profileFor } from './reforms.ts';
@@ -40,8 +40,8 @@ function driveScenario(): ScenarioDef {
   const s = testScenario();
   return {
     ...s,
-    // Two tracks, so a twin bore is two tubes and may be chosen.
-    start: { ...s.start, policies: ['twoTracks'] },
+    // Two tracks and the twin-bore standard, so a twin bore is two tubes and may be chosen.
+    start: { ...s.start, policies: ['twoTracks', 'twinBoreStandard'] },
     objectives: [
       { id: 'connect', title: 'Connect A and B', kind: 'connect', a: { name: 'A', ...A }, b: { name: 'B', ...B }, radiusM: 100 },
     ],
@@ -274,7 +274,11 @@ describe('design chooser', () => {
       if (!o) throw new Error(`no option ${id}`);
       return o;
     };
-    expect(opt('twinBore').lockedBy).toEqual([{ reformId: 'twoTracks', title: 'Two tracks are enough' }]);
+    // Two locks: the third track must go, and the standard must allow two small tubes. Neither is a free click.
+    expect(opt('twinBore').lockedBy).toEqual([
+      { reformId: 'twoTracks', title: 'Two tracks are enough' },
+      { reformId: 'twinBoreStandard', title: 'Twin-bore standard' },
+    ]);
     expect(opt('compactBox').lockedBy).toEqual([{ reformId: 'noMezzanines', title: 'No full-length mezzanines' }]);
     for (const id of ['singleLargeBore', 'cutAndCover', 'minedCavern', 'mezzanineBox']) expect(opt(id).lockedBy).toEqual([]);
     expect(opt('minedCavern')).toMatchObject({ selected: true, deltaCents: 0, deltaDays: 0, practice: 'california' });
@@ -295,7 +299,7 @@ describe('design chooser', () => {
     // Locked options are refused and the notice names the reform.
     sim.dispatch([{ t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore' }]);
     expect(sim.snapshot().notices.at(-1)?.reason).toMatch(
-      /"Twin bore, 6.6 m" is not allowed by the standards in force; enact "Two tracks are enough" first/,
+      /"Twin bore, 6.6 m" is not allowed by the standards in force; enact "Two tracks are enough" and "Twin-bore standard" first/,
     );
     sim.dispatch([{ t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'singleLargeBore', stationBox: 'compactBox' }]);
     expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/"Compact box".*"No full-length mezzanines"/);
@@ -303,12 +307,14 @@ describe('design chooser', () => {
 
     // The reforms unlock them; the snapshot says which reform unlocks what.
     const reforms = sim.snapshot().reforms;
-    expect(reforms.find((r) => r.id === 'twoTracks')?.unlocks).toEqual(['twinBore']);
+    expect(reforms.find((r) => r.id === 'twoTracks')?.unlocks).toEqual([]);
+    expect(reforms.find((r) => r.id === 'twinBoreStandard')?.unlocks).toEqual(['twinBore']);
     expect(reforms.find((r) => r.id === 'noMezzanines')?.unlocks).toEqual(['compactBox']);
     const predicted = opt('twinBore').costCents;
     const beforeCost = sim.snapshot().projects[0].receipt.columns.yours.costCents;
     sim.dispatch([
       { t: 'enactReform', id: 'twoTracks' },
+      { t: 'enactReform', id: 'twinBoreStandard' },
       { t: 'enactReform', id: 'noMezzanines' },
       { t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore', stationBox: 'compactBox' },
     ]);
@@ -569,7 +575,7 @@ describe('driving a TBM', () => {
     expect(Math.abs(p.fronts[0].boredM - p.cum[2])).toBeLessThan(3);
   });
 
-  test('metres bored off plan cost 25 percent more and show on the receipt', () => {
+  test('metres bored off plan cost 25 percent more at the edge of the tolerance, more further out, and show on the receipt', () => {
     const onPlan = launched(7);
     const offPlan = launched(7);
     for (const sim of [onPlan, offPlan]) sim.dispatch([{ t: 'tbmControl', headingId: HEADING, autopilot: false }]);
@@ -598,9 +604,14 @@ describe('driving a TBM', () => {
     while (offPlan.state.subTick !== 0) offPlan.substep();
     const perMOn = run(onPlan);
     const perMOff = run(offPlan);
-    // Same ground, same prices: the ratio is the surcharge, within the escalation of a few weeks.
-    expect(perMOff / perMOn).toBeGreaterThan(1.22);
-    expect(perMOff / perMOn).toBeLessThan(1.28);
+    // Same ground, same prices: the ratio is the surcharge, within the escalation of a few weeks. It is 25 percent
+    // at the 3 m tolerance and 5 points more per metre beyond it (the second playtest drove 30 m off for 3 percent).
+    const expected = offPlanFactor({ lateralM: lateral, verticalM: 0 }, 3);
+    expect(expected).toBeGreaterThan(1.5);
+    expect(perMOff / perMOn).toBeGreaterThan(expected - 0.04);
+    expect(perMOff / perMOn).toBeLessThan(expected + 0.04);
+    expect(offPlanFactor({ lateralM: 3, verticalM: 0 }, 3)).toBeCloseTo(1.25, 9);
+    expect(offPlanFactor({ lateralM: 30, verticalM: 0 }, 3)).toBeCloseTo(2.6, 9);
     expect(tbm(offPlan).deviation).toMatchObject({ offPlan: true, limitM: 30 });
     expect(offPlan.state.projects[0].offPlanCents).toBeGreaterThan(0);
     expect(onPlan.state.projects[0].offPlanCents).toBe(0);
@@ -610,7 +621,7 @@ describe('driving a TBM', () => {
     expect(onPlan.snapshot().projects[0].receipt.lines.find((l) => l.id === 'offPlan')?.status).toBe('removed');
   });
 
-  test('the ground at the face comes from the injected query and sets the advance rate', () => {
+  test('a driven heading is priced and paced on the ground of the plan, whatever the voxels at the face are', () => {
     expect(geologyOfMaterial(Material.BAY_MUD)).toBe('bayMud');
     expect(geologyOfMaterial(Material.FILL)).toBe('bayMud');
     expect(geologyOfMaterial(Material.ROCK)).toBe('rock');
@@ -623,26 +634,36 @@ describe('driving a TBM', () => {
     expect(faceGeology((_x, y) => (y > 0 ? Material.SAND : Material.ROCK), 0, 0, 0, 3)).toBe('mixedFace');
     expect(faceGeology(() => Material.AIR, 0, 0, 0, 3)).toBeNull();
 
-    // Rock east of x = A.x + 200, alluvium before it, and an open pit (air) at the very start.
+    // The voxels say rock east of x = A.x + 200; the plan (the ground investigation the estimate was priced on)
+    // says soft ground all the way. The second playtest took the controls of a heading whose voxels were rock and
+    // paid $478M less than the autopilot did for the same project.
     const ground = (x: number) => (x < A.x + 20 ? Material.AIR : x < A.x + 200 ? Material.ALLUVIUM : Material.ROCK);
     const sim = launched(8, null, { events: false, ground });
+    const auto = launched(8, null, { events: false, ground });
     sim.dispatch([{ t: 'tbmControl', headingId: HEADING, autopilot: false }]);
-    const sq = profileFor(['twoTracks']);
+    const sq = profileFor(['twoTracks', 'twinBoreStandard']);
     const seen = new Set<string>();
-    while (tbm(sim).boredM < 260) {
+    while (tbm(sim).boredM < 400 || sim.state.subTick !== 0) {
       sim.substep();
       const t = tbm(sim);
       seen.add(t.geology);
       if (t.boredM > 210 && t.stopReason === null) {
-        expect(t.geology).toBe('rock');
-        expect(t.geologyLabel).toBe('Competent rock');
-        expect(t.maxRateMPerDay).toBeCloseTo(advanceRate('boredTwin', 'rock', sq, 1000), 9);
-      } else if (t.boredM > 160 && t.boredM < 195 && t.stopReason === null) {
+        expect(t.geologyLabel).toBe('Soft clay, sand, alluvium');
         expect(t.maxRateMPerDay).toBeCloseTo(advanceRate('boredTwin', 'softGround', sq, 1000), 9);
       }
     }
-    expect([...seen].sort()).toEqual(['rock', 'softGround']);
+    expect([...seen]).toEqual(['softGround']);
+    // Hands on the levers at full thrust on the plan, or the autopilot: the same metres cost the same.
+    while (auto.state.projects[0].fronts[0].boredM < sim.state.projects[0].fronts[0].boredM) auto.step();
+    const perM = (s: GameSim) => s.state.projects[0].spent.civil / s.state.projects[0].fronts[0].boredM;
+    expect(sim.state.projects[0].offPlanCents).toBe(0);
+    expect(perM(sim) / perM(auto)).toBeGreaterThan(0.98);
+    expect(perM(sim) / perM(auto)).toBeLessThan(1.02);
+    // Good ground lets a machine bore more of the day, never more than 0.9 of its peak: 27 m/day (PLAN 6.7).
     expect(advanceRate('boredTwin', 'rock', sq, 1000) / advanceRate('boredTwin', 'softGround', sq, 1000)).toBeCloseTo(1.5, 9);
+    const fast = profileFor(['twoTracks', 'segmentPlantLogistics', 'continuousAdvance', 'prufrockClass']);
+    expect(advanceRate('boredTwin', 'softGround', fast, 1000)).toBeCloseTo(27, 9);
+    expect(advanceRate('boredTwin', 'rock', fast, 1000)).toBeCloseTo(27, 9);
   });
 
   test('a driven tunnel is carved live in a gap-free chain, tube by tube, and replays after a load', () => {
@@ -954,16 +975,30 @@ describe('receipt and scorecard', () => {
       s.state.projects[0].phase === 'construction' && s.state.projects[0].phaseProgress > 0.5 ? false : autopilotCommands(s.state),
     );
     const mid = check();
-    const procurementBefore = mid.lines.find((l) => l.id === 'procurement');
-    sim.dispatch([{ t: 'enactReform', id: 'bestValueAward' }]);
+    const contingencyBefore = mid.lines.find((l) => l.id === 'contingency');
+    sim.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
     const reformed = check();
-    const procurement = reformed.lines.find((l) => l.id === 'procurement');
-    expect(procurement?.status).toBe('reduced');
-    expect(procurement?.reforms.find((r) => r.id === 'bestValueAward')?.enacted).toBe(true);
-    expect(procurement?.cents.yours).toBeLessThan(procurementBefore?.cents.yours ?? 0);
+    const contingency = reformed.lines.find((l) => l.id === 'contingency');
+    expect(contingency?.status).toBe('reduced');
+    expect(contingency?.reforms.find((r) => r.id === 'stageGates')?.enacted).toBe(true);
+    expect(contingency?.cents.yours).toBeLessThan(contingencyBefore?.cents.yours ?? 0);
     // Spend-weighted: between the old factor and the new one.
-    expect(procurement?.factor.yours).toBeLessThan(1.5);
-    expect(procurement?.factor.yours).toBeGreaterThan(1.25);
+    expect(contingency?.factor.yours).toBeLessThan(1.35);
+    expect(contingency?.factor.yours).toBeGreaterThan(1.175);
+    // The contracts were let at tender: a procurement reform bought now changes nothing on this project, the
+    // preview said so before it was bought, and the receipt does not call the line reduced.
+    const procurementBefore = reformed.lines.find((l) => l.id === 'procurement');
+    const offer = sim.snapshot().reforms.find((r) => r.id === 'bestValueAward')?.preview;
+    expect(offer?.costDeltaCents).toBe(0);
+    expect(offer?.notes?.[0]).toMatch(/contracts of .* were let at tender/);
+    sim.dispatch([{ t: 'enactReform', id: 'bestValueAward' }]);
+    const late = check();
+    const procurement = late.lines.find((l) => l.id === 'procurement');
+    expect(procurement?.cents.yours).toBe(procurementBefore?.cents.yours);
+    expect(procurement?.factor.yours).toBeCloseTo(1.5, 6);
+    expect(procurement?.status).toBe('paid');
+    expect(procurement?.reforms.find((r) => r.id === 'bestValueAward')?.enacted).toBe(true);
+    expect(late.columns.yours.costCents).toBe(reformed.columns.yours.costCents);
     sim.run(365 * 30, (s) => (s.state.projects[0].status === 'open' ? false : autopilotCommands(s.state)));
     const final = check();
     expect(final.final).toBe(true);

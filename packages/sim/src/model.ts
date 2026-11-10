@@ -104,18 +104,35 @@ function relieved(factor: number, relief: number, penaltyAbove: boolean): number
   return isPenalty ? 1 + (factor - 1) * (1 - relief) : factor;
 }
 
-/** Civil works per route-metre at Polish prices, in PLN. */
-export function civilPlnPerM(m: Method, geology: Geology, f: DesignFlags, geologyRelief: number): number {
-  const g = relieved(GEOLOGY[geology].cost, geologyRelief, true);
+/**
+ * Cost factor of depth for an underground method whose axis is at elevation `yM` (world metres, negative below
+ * the datum). The sim knows elevations, not the street above, so depth is counted from sea level. The second
+ * playtest set a whole line to 80 m and the estimate fell: deeper ground is rock, and rock is cheaper per metre.
+ */
+export function depthFactor(m: Method, yM: number): number {
+  if (!isUnderground(m)) return 1;
+  const depth = -yM;
+  if (m === 'cutAndCover') return 1 + K.cutCoverDepthFactorPerM.value * Math.max(0, depth - K.cutCoverDepthFreeM.value);
+  return 1 + K.tunnelDepthFactorPerM.value * Math.max(0, depth - K.tunnelDepthFreeM.value);
+}
+
+/** Elevation of the axis of segment `i`: the mean of its two waypoints. */
+export function segmentY(waypoints: readonly { y: number }[], i: number): number {
+  return (waypoints[i].y + waypoints[i + 1].y) / 2;
+}
+
+/** Civil works per route-metre at Polish prices, in PLN. `yM` is the elevation of the axis (depthFactor); omitted: no depth factor. */
+export function civilPlnPerM(m: Method, geology: Geology, f: DesignFlags, geologyRelief: number, yM = 0): number {
+  const g = relieved(GEOLOGY[geology].cost, geologyRelief, true) * depthFactor(m, yM);
   switch (m) {
     case 'boredTwin':
     case 'boredSingleLarge':
       return sectionAreaM2(m, f) * BORED * g;
     case 'mined':
       // Doc 11 section 6.2 prices soft-ground mining at the bored soft-ground rate; rock gets the mined rock rate.
-      return sectionAreaM2(m, f) * (geology === 'rock' ? MINED_ROCK : BORED * g);
+      return sectionAreaM2(m, f) * (geology === 'rock' ? MINED_ROCK * depthFactor(m, yM) : BORED * g);
     case 'cutAndCover':
-      return sectionAreaM2(m, f) * CUT_COVER;
+      return sectionAreaM2(m, f) * CUT_COVER * depthFactor(m, yM);
     case 'viaduct':
       return VIADUCT_PER_M;
     default:
@@ -193,6 +210,29 @@ export function projectFlags(project: Pick<ProjectState, 'frozen' | 'tunnelChoic
   return project.frozen ?? standardsFor(project, p);
 }
 
+/**
+ * The profile a project pays under. At tender the contracts are let: procurement, staffing and third-party
+ * prices are what they were that day (ProjectState.contract), whatever is reformed afterwards. Everything else
+ * (soft costs, contingency, the schedule, the machines) follows the reforms in force.
+ */
+const contractProfiles = new WeakMap<object, Map<Profile, Profile>>();
+export function contractProfile(project: Pick<ProjectState, 'contract'>, p: Profile): Profile {
+  const c = project.contract;
+  if (!c) return p;
+  if (c.procurement === p['unit.procurement'] && c.labour === p['unit.labour'] && c.thirdParty === p['unit.thirdParty']) return p;
+  let byProfile = contractProfiles.get(c);
+  if (!byProfile) {
+    byProfile = new Map();
+    contractProfiles.set(c, byProfile);
+  }
+  let out = byProfile.get(p);
+  if (!out) {
+    out = { ...p, 'unit.procurement': c.procurement, 'unit.labour': c.labour, 'unit.thirdParty': c.thirdParty };
+    byProfile.set(p, out);
+  }
+  return out;
+}
+
 /** The part of a project the cost functions read, so a line that is still being drawn can be priced. */
 export type ProjectGeometry = Pick<ProjectState, 'waypoints' | 'methods' | 'cum'> & {
   stations: readonly Pick<StationState, 'template' | 'depthM'>[];
@@ -219,7 +259,7 @@ export function hardCost(project: ProjectGeometry, p: Profile, flags: DesignFlag
   for (let i = 0; i < methods.length; i++) {
     const len = cum[i + 1] - cum[i];
     const m = effectiveMethod(methods[i], flags);
-    civil += len * civilPlnPerM(m, waypoints[i].geology ?? 'softGround', flags, relief);
+    civil += len * civilPlnPerM(m, waypoints[i].geology ?? 'softGround', flags, relief, segmentY(waypoints, i));
     systems += len * systemsPlnPerM(m, flags);
   }
   let stations = 0;
@@ -235,9 +275,9 @@ export function stationCostCents(s: Pick<StationState, 'template' | 'depthM'>, p
   return stationPln(s.template, s.depthM, flags) * CENTS_PER_PLN * unitFactor(p);
 }
 
-/** Unescalated civil cost in cents per metre at current prices. */
-export function civilCentsPerM(m: Method, geology: Geology, p: Profile, flags: DesignFlags): number {
-  return civilPlnPerM(m, geology, flags, p['tbm.geologyRelief']) * CENTS_PER_PLN * unitFactor(p);
+/** Unescalated civil cost in cents per metre at current prices, for a segment whose axis is at elevation `yM`. */
+export function civilCentsPerM(m: Method, geology: Geology, p: Profile, flags: DesignFlags, yM = 0): number {
+  return civilPlnPerM(m, geology, flags, p['tbm.geologyRelief'], yM) * CENTS_PER_PLN * unitFactor(p);
 }
 
 /** Unescalated systems cost in cents for the whole project at current prices. */
@@ -266,10 +306,16 @@ export function advanceRate(m: Method, geology: Geology, p: Profile, doneM: numb
   const g = relieved(GEOLOGY[geology].rate, p['tbm.geologyRelief'], false);
   const ctf = p['time.constructionFactor'];
   switch (m) {
+    // Good ground lets a machine bore more of the day, never more than the cap: 27 m/day for the metro class (PLAN 6.7).
     case 'boredTwin':
-      return TBM_PEAK * tbmUtilisation(p) * g * (doneM < K.twinBoreStartupM.value ? K.startupRateFactor.value : 1);
+      return (
+        TBM_PEAK * Math.min(TBM_MAX_UTILISATION, tbmUtilisation(p) * g) * (doneM < K.twinBoreStartupM.value ? K.startupRateFactor.value : 1)
+      );
     case 'boredSingleLarge':
-      return ((LARGE_PEAK * tbmUtilisation(p) * g) / ctf) * (doneM < K.largeBoreStartupM.value ? K.startupRateFactor.value : 1);
+      return (
+        ((LARGE_PEAK * Math.min(TBM_MAX_UTILISATION, tbmUtilisation(p) * g)) / ctf) *
+        (doneM < K.largeBoreStartupM.value ? K.startupRateFactor.value : 1)
+      );
     case 'mined':
       return (K.minedMPerDay.value * g) / ctf;
     case 'cutAndCover':
@@ -343,9 +389,17 @@ export function polishGeometry(g: ProjectGeometry): ProjectGeometry {
   };
 }
 
-/** Planned length in days of a clock-driven phase. Construction is driven by headings and stations instead. */
-export function phaseDays(phase: Exclude<PhaseId, 'construction'>, p: Profile): number {
-  return p[`time.${phase}`] * DAYS_PER_MONTH;
+/**
+ * Planned length in days of a clock-driven phase. Construction is driven by headings and stations instead.
+ * With `lengthM`, fit-out grows with the line beyond CONSTANTS.fitOutFreeKm: laying track and wiring 60 km takes
+ * longer than 6, and without this the opening date did not depend on the length at all.
+ */
+export function phaseDays(phase: Exclude<PhaseId, 'construction'>, p: Profile, lengthM = 0): number {
+  const base = p[`time.${phase}`] * DAYS_PER_MONTH;
+  if (phase !== 'fitOut') return base;
+  const extraKm = Math.max(0, lengthM / 1000 - K.fitOutFreeKm.value);
+  const extra = extraKm * K.fitOutMonthsPerKm.value * DAYS_PER_MONTH;
+  return Math.min(base * K.fitOutMaxFactor.value, base + extra);
 }
 
 export const PHASE_LABELS: Record<PhaseId, string> = {

@@ -7,29 +7,44 @@ import { minRadiusFor } from './checks.ts';
 import { CONSTANTS as K } from './constants.ts';
 import { hasBox, stationBoxOf, stationSize } from './design.ts';
 import { isRecovering, planPointAt } from './drive.ts';
-import { isDrivable } from './engine.ts';
+import { freeDeviationM, isDrivable, offPlanFactor } from './engine.ts';
 import { plannedConstructionDays, plannedHeadingDays, plannedStationDays } from './estimate.ts';
 import { chainages, nearestChainage, planDistance, pointAt, segmentIndexAt, subPath } from './geometry.ts';
-import { advanceRate, carveShape, GEOLOGY, headingSpans, isTbm, isUnderground, PHASE_LABELS, phaseDays, projectFlags } from './model.ts';
-import type { Profile } from './reforms.ts';
+import {
+  advanceRate,
+  carveShape,
+  effectiveMethod,
+  GEOLOGY,
+  headingSpans,
+  isTbm,
+  isUnderground,
+  PHASE_LABELS,
+  phaseDays,
+  projectFlags,
+} from './model.ts';
+import { type Profile, profileFor, type ReformDef } from './reforms.ts';
 import { serviceCycleS } from './trains.ts';
-import type {
-  AlignmentChecks,
-  ClockView,
-  DesignFlags,
-  FrontState,
-  GameCommand,
-  Method,
-  MissionStage,
-  MissionTarget,
-  NextAction,
-  ObjectiveDef,
-  ProjectState,
-  ServiceView,
-  SimState,
-  StationState,
-  StationView,
-  TbmView,
+import {
+  type AlignmentChecks,
+  type ClockView,
+  type DesignFlags,
+  type FrontState,
+  type GameCommand,
+  type Method,
+  type MissionStage,
+  type MissionTarget,
+  type NextAction,
+  type ObjectiveDef,
+  PHASES,
+  type PhaseId,
+  type ProjectState,
+  type ScenarioDef,
+  type ServiceView,
+  type SimState,
+  type StationState,
+  type StationTemplate,
+  type StationView,
+  type TbmView,
 } from './types.ts';
 
 const MAX_GRADE_PCT = K.maxGradePct.value;
@@ -64,8 +79,8 @@ export function tbmView(project: ProjectState, f: FrontState, p: Profile, flags:
   const done = f.chainageM >= f.toM;
   const d = f.drive;
   const seg = segmentIndexAt(project.cum, Math.min(f.chainageM, f.toM - 1e-9));
-  const planGeology = project.waypoints[seg].geology ?? 'softGround';
-  const geology = d ? d.geology : planGeology;
+  // The ground class of the plan where the face is: what the heading is priced and paced on, driven or not.
+  const geology = project.waypoints[seg].geology ?? 'softGround';
   const maxRate = advanceRate(f.method, geology, p, f.boredM);
   const shape = carveShape(f.method, flags);
   let stopReason: TbmView['stopReason'] = null;
@@ -99,6 +114,10 @@ export function tbmView(project: ProjectState, f: FrontState, p: Profile, flags:
   }
   const lateralM = d ? d.lateralM : 0;
   const verticalM = d ? d.verticalM : 0;
+  // The tolerance widens through a bend (the plan is a polygon, the machine turns on a radius): the readout
+  // says what it is here, so "costs extra" at 4.8 m and not at 6.1 m is explained by the number beside it.
+  const freeM = freeDeviationM(project.waypoints, project.cum, d ? d.planM : f.chainageM, minRadiusFor(f.method));
+  const surchargePct = d?.offPlan ? Math.round((offPlanFactor(d, freeM) - 1) * 100) : 0;
   return {
     id: f.id,
     name: f.name,
@@ -128,6 +147,8 @@ export function tbmView(project: ProjectState, f: FrontState, p: Profile, flags:
       planChainageM: f.chainageM,
       limitM: CORRIDOR,
       offPlan: d ? d.offPlan : false,
+      freeM,
+      surchargePct,
     },
     geology,
     geologyLabel: GEOLOGY[geology].label,
@@ -329,7 +350,7 @@ export function clockView(state: SimState, p: Profile): ClockView {
     }
     const flags = projectFlags(project, p);
     if (project.phase !== 'construction') {
-      lapse = Math.max(lapse, phaseDays(project.phase, p) / LAPSE_SECONDS);
+      lapse = Math.max(lapse, phaseDays(project.phase, p, project.cum[project.cum.length - 1]) / LAPSE_SECONDS);
       continue;
     }
     let running = false;
@@ -489,20 +510,23 @@ export function projectNextAction(
       'Pick an option on the card. Time stands still until you do.',
       'event',
     );
-  if (project.awaiting === 'advancePhase')
+  if (project.awaiting === 'advancePhase') {
+    // An older save, or a line made unbuildable by a rule that changed: it is fixed before it is tendered.
+    if (!checks.ok) return action('fixAlignment', id, `Fix the alignment of ${name}`, checks.problems[0], 'plan');
     return action(
       'advancePhase',
       id,
       `Send ${name} to tender`,
       canAffordReform
-        ? `Tender freezes the design. You have ${pc} political capital: enact design reforms and pick the design first.`
-        : 'Tender freezes the design. Pick the tunnel and station design first.',
+        ? `Tender fixes the design and the contract prices. You have ${pc} political capital: spend it first.`
+        : 'Tender fixes the design and the contract prices: procurement, staffing and utilities.',
       'project',
       { t: 'advancePhase', projectId: id },
     );
+  }
   if (project.awaiting === 'launchTBM') {
     const launch = launchLabel(project, flags);
-    const spend = canAffordReform ? ` You have ${pc} political capital: reforms only change what is bought after them.` : '';
+    const spend = canAffordReform ? ` ${pc} political capital in hand.` : '';
     return action(
       'launchTBM',
       id,
@@ -548,7 +572,7 @@ export function projectNextAction(
   }
   const goal = PHASE_GOAL[project.phase];
   const hint = canAffordReform
-    ? `${PHASE_LABELS[project.phase]} runs as a time-lapse. You have ${pc} political capital: open Reforms (time waits while you read).`
+    ? `${PHASE_LABELS[project.phase]} runs as a time-lapse. ${pc} political capital buys a reform now.`
     : `${PHASE_LABELS[project.phase]} runs as a time-lapse.`;
   return action('wait', id, `Get ${name} ${goal}`, hint, canAffordReform ? 'reforms' : 'speed');
 }
@@ -567,10 +591,124 @@ export function missionTargets(state: SimState, project: ProjectState | null): M
           if (planDistance(at.x, at.z, end.x, end.z) <= o.radiusM) served = true;
         }
       }
-      out.push({ name: end.name, x: end.x, z: end.z, radiusM: o.radiusM, stretch: o.stretch === true, served });
+      const target: MissionTarget = { name: end.name, x: end.x, z: end.z, radiusM: o.radiusM, stretch: o.stretch === true, served };
+      // The station the official plan puts in this ring, if any: the nearest one.
+      let best = o.radiusM;
+      for (const s of referenceStations(state.scenario)) {
+        const d = planDistance(s.x, s.z, end.x, end.z);
+        if (d <= best) {
+          best = d;
+          target.template = s.template;
+          target.templateNote = STATION_TEMPLATE_NOTES[s.template];
+        }
+      }
+      out.push(target);
     }
   }
   return out;
+}
+
+export const STATION_TEMPLATE_LABELS: Record<StationTemplate, string> = {
+  undergroundStandard: 'Underground box',
+  undergroundDeepMined: 'Deep mined cavern',
+  terminalFitOut: 'Terminal fit-out',
+  inBore: 'Platforms in the bore',
+  surface: 'Surface',
+  elevated: 'Elevated',
+};
+
+/** What each station type is and where it fits, one line. */
+export const STATION_TEMPLATE_NOTES: Record<StationTemplate, string> = {
+  undergroundStandard: 'A new cut-and-cover box under the street. The standard metro station.',
+  undergroundDeepMined: 'A cavern mined from below, for where the street cannot be opened. Half again the price of a box.',
+  terminalFitOut: 'Platforms, track and systems in a station box that already stands, like the trainbox under the Transit Center.',
+  inBore: 'Platforms inside a 16 m single bore. Needs the big tube.',
+  surface: 'Platforms at street level. Cheap, and only where the line is on the surface.',
+  elevated: 'Platforms on a viaduct.',
+};
+
+const referenceStationCache = new WeakMap<ScenarioDef, { x: number; z: number; template: StationTemplate }[]>();
+
+/** Where the official plan of a scenario puts its stations, from its reference commands. */
+export function referenceStations(scenario: ScenarioDef): { x: number; z: number; template: StationTemplate }[] {
+  const hit = referenceStationCache.get(scenario);
+  if (hit) return hit;
+  const out: { x: number; z: number; template: StationTemplate }[] = [];
+  let wps: { x: number; y: number; z: number }[] = [];
+  for (const c of scenario.reference?.commands ?? []) {
+    if (c.t === 'setAlignment') wps = c.waypoints;
+    else if (c.t === 'addStation') {
+      if (c.at) out.push({ x: c.at.x, z: c.at.z, template: c.template });
+      else if (c.chainageM !== undefined && wps.length >= 2) {
+        const cum = chainages(wps);
+        const at = pointAt(wps, cum, Math.min(c.chainageM, cum[cum.length - 1]));
+        out.push({ x: at.x, z: at.z, template: c.template });
+      }
+    }
+  }
+  referenceStationCache.set(scenario, out);
+  return out;
+}
+
+// ---------------------------------------------------------------- what a reform does not change, and why
+
+const CONTRACT_KEYS: ReadonlySet<string> = new Set(['unit.procurement', 'unit.labour', 'unit.thirdParty']);
+const TIME_PHASE: Readonly<Record<string, PhaseId>> = {
+  'time.planning': 'planning',
+  'time.permitting': 'permitting',
+  'time.procurement': 'procurement',
+  'time.utilities': 'utilities',
+};
+
+function months(days: number): string {
+  const m = Math.round(days / K.daysPerMonth.value);
+  return `${m} ${m === 1 ? 'month' : 'months'}`;
+}
+
+/**
+ * Sentences that explain a reform's preview on a project where the numbers alone would mislead: the contracts
+ * are let, the phase it shortens is over, the stations set the opening date, event cards are not in the estimate.
+ */
+export function reformNotes(state: SimState, project: ProjectState, r: ReformDef, p: Profile, flags: DesignFlags): string[] {
+  const notes: string[] = [];
+  const keys = r.effects.map((e) => e.key as string);
+  const name = project.name;
+  if (project.contract && keys.some((k) => CONTRACT_KEYS.has(k)))
+    notes.push(`The contracts of ${name} were let at tender: its procurement, staffing and utility prices no longer change.`);
+  if (project.frozen && keys.some((k) => k.startsWith('design.')))
+    notes.push(`The design of ${name} went to tender and is built as tendered.`);
+  if (project.status === 'active') {
+    const at = PHASES.indexOf(project.phase);
+    for (const k of keys) {
+      const phase = TIME_PHASE[k];
+      if (phase === undefined) continue;
+      const i = PHASES.indexOf(phase);
+      if (i < at || (i === at && project.awaiting !== null))
+        notes.push(`${PHASE_LABELS[phase]} is behind ${name}: the time this saves is already spent.`);
+    }
+  }
+  if (keys.some((k) => k === 'tbm.rate' || k === 'tbm.breakdown' || k === 'tbm.geologyRelief')) {
+    const bores =
+      project.fronts.length > 0
+        ? project.fronts.some((f) => isTbm(f.method))
+        : project.methods.some((m) => isTbm(effectiveMethod(m, flags)));
+    if (!bores) notes.push(`${name} has no boring machine: there is nothing for this to speed up.`);
+    else if (project.phase !== 'fitOut' && keys.some((k) => k !== 'tbm.geologyRelief' && k.startsWith('tbm.'))) {
+      // A faster machine opens the line sooner only if the machine is what the line waits for.
+      const after = profileFor([...state.reforms, r.id]);
+      const now = plannedHeadingDays(project, p, flags, isTbm);
+      const then = plannedHeadingDays(project, after, flags, isTbm);
+      const stations = plannedStationDays(project, p, flags);
+      const others = plannedHeadingDays(project, p, flags, (m) => !isTbm(m));
+      if (then < now && Math.max(stations, others) >= then) {
+        const critical = stations >= others ? `The station boxes take ${months(stations)}` : `The other headings take ${months(others)}`;
+        notes.push(`Boring takes ${months(now)}, ${months(then)} with this. ${critical} and set the opening date.`);
+      }
+    }
+  }
+  if (keys.some((k) => k.startsWith('event.') && k.endsWith('.rate')))
+    notes.push('Event cards are priced when they are drawn, not before: fewer cards is a saving the estimate does not show.');
+  return notes;
 }
 
 /** The most urgent thing to do in the whole game. */

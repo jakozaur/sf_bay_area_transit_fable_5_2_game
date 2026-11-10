@@ -99,8 +99,9 @@ export const THE_PORTAL: ScenarioDef = {
     what: 'Caltrain ends at 4th and King. The Portal is 2.1 km of tunnel under Townsend and 2nd Street to the trainbox that has sat empty under the Salesforce Transit Center since 2018.',
     officialCost: '$6.84 billion for 2.1 km, not counting the trainbox already built: about $3.3 billion per km (TJPA, July 2025).',
     officialDate: 'Open for use in the first quarter of 2036, if the federal grant is signed in July 2027.',
-    why: 'It is the most expensive railway per km on the continent, and it carries the Bay Area into its own downtown. Warsaw builds metro for about $140 million per km in 2026 money, stations included.',
-    source: 'doc 05 section 3.1 (SFCTA memo, January 2026); doc 11 section 6.3 (Warsaw M2 extensions, 2015 to 2022, in 2026 money)',
+    why: 'It carries the Bay Area into its own downtown, at a price per km only New York has beaten. Warsaw builds metro for about $140 million per km, stations included; this route with its two stations would cost Poland about $175 million per km.',
+    source:
+      'doc 05 section 3.1 (SFCTA memo, January 2026); doc 06 section 3.2 (East Side Access, New York, is dearer per km); doc 11 section 6.3 (Warsaw M2 extensions, 2015 to 2022, in 2026 money). The $175 million is the game model for this route.',
   },
   start: {
     date: '2026-11-09',

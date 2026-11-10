@@ -32,7 +32,7 @@ function scenario(over: Partial<ScenarioDef> = {}): ScenarioDef {
   const s = testScenario();
   return {
     ...s,
-    start: { ...s.start, policies: ['twoTracks'] },
+    start: { ...s.start, policies: ['twoTracks', 'twinBoreStandard'] },
     objectives: [
       { id: 'connect', title: 'Connect A and B', kind: 'connect', a: { name: 'A', ...A }, b: { name: 'B', ...B }, radiusM: 100 },
     ],
@@ -163,7 +163,7 @@ describe('machines and headings', () => {
     // A zigzag across the map, as the free-build crash was drawn: 60 km of whatever the standards give.
     const wps: Waypoint[] = [];
     for (let i = 0; i <= 12; i++) wps.push({ x: 15_000 + (i % 2) * 4_000, y: -20, z: -60_000 + i * 3_000 });
-    for (const policies of [[], ['twoTracks']]) {
+    for (const policies of [[], ['twoTracks', 'twinBoreStandard']]) {
       const sim = createSim(scenario({ sandbox: true, objectives: [], start: { ...testScenario().start, policies } }), 1);
       sim.dispatch([{ t: 'setAlignment', projectId: 'line', waypoints: wps }]);
       const snap = sim.snapshot();
@@ -178,7 +178,7 @@ describe('machines and headings', () => {
         oversizeStations: true,
         bespoke: true,
         terminalOversize: true,
-        twinBoreDefault: false,
+        twinBoreDefault: policies.length > 0,
       };
       const spans = headingSpans(sim.state.projects[0], flags);
       const method: Method = policies.length === 0 ? 'mined' : 'boredTwin';
@@ -222,7 +222,12 @@ describe('machines and headings', () => {
 describe('numbers that agree', () => {
   test('Poland is the Polish design of the route: the par does not move when the player changes the design', () => {
     const sim = createSim(testScenario(), 1);
-    sim.dispatch([...TEST_DESIGN, { t: 'enactReform', id: 'twoTracks' }, { t: 'enactReform', id: 'noMezzanines' }]);
+    sim.dispatch([
+      ...TEST_DESIGN,
+      { t: 'enactReform', id: 'twoTracks' },
+      { t: 'enactReform', id: 'twinBoreStandard' },
+      { t: 'enactReform', id: 'noMezzanines' },
+    ]);
     const before = sim.snapshot().projects[0].receipt;
     const costs: number[] = [];
     for (const tunnel of ['twinBore', 'cutAndCover', 'singleLargeBore', 'minedCavern'] as const) {
@@ -301,6 +306,7 @@ describe('numbers that agree', () => {
     check();
     sim.dispatch([
       { t: 'enactReform', id: 'twoTracks' },
+      { t: 'enactReform', id: 'twinBoreStandard' },
       { t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore' },
     ]);
     check();

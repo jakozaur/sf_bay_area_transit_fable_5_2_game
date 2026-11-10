@@ -1,6 +1,6 @@
 /** Scenario validation and objective evaluation. */
 import { isInGrid } from '@bayvox/core';
-import { dateAtTick, isoToDays } from './dates.ts';
+import { dateAtTick, dayMonthYear, isoToDays } from './dates.ts';
 import { feederById } from './demand.ts';
 import { parseCommand, projectSpentCents } from './engine.ts';
 import { planDistance, pointAt } from './geometry.ts';
@@ -162,7 +162,7 @@ export function evaluateObjectives(state: SimState): GameSnapshot['objectives'] 
         const by = open.find((p) => connects(p, o));
         if (by) {
           status = 'done';
-          detail = `${by.name} opened ${dateAtTick(start, by.openedTick)}`;
+          detail = `${by.name} opened ${dayMonthYear(dateAtTick(start, by.openedTick))}`;
         } else detail = `needs an open line with stations within ${o.radiusM} m of ${o.a.name} and ${o.b.name}`;
         break;
       }
@@ -179,10 +179,10 @@ export function evaluateObjectives(state: SimState): GameSnapshot['objectives'] 
         if (winner) {
           const opened = dateAtTick(start, winner.openedTick);
           status = opened <= o.date ? 'done' : 'failed';
-          detail = `opened ${opened}, target ${o.date}`;
+          detail = `opened ${dayMonthYear(opened)}, target ${dayMonthYear(o.date)}`;
         } else {
           if (today > o.date) status = 'failed';
-          detail = `target ${o.date}`;
+          detail = `target ${dayMonthYear(o.date)}`;
         }
         break;
       }

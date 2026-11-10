@@ -356,6 +356,11 @@ export interface ProjectState {
   /** Free digging booked to this project through chargeDig. */
   handDigCents: number;
   handDigM3: number;
+  /**
+   * Unit-price factors of the contracts let at tender (model.ts contractProfile): procurement, staffing and
+   * third parties are paid at these whatever is reformed later. Null or absent (older saves) before tender.
+   */
+  contract?: { procurement: number; labour: number; thirdParty: number } | null;
 }
 
 /** Steps of PaidLedger.steps, in receipt order. */
@@ -562,6 +567,11 @@ export interface GhostView {
   source: string;
   /** (ghost cost - statusQuo column cost) / ghost cost, both per route-km: the share this model does not explain. */
   unexplainedShare: number;
+  /**
+   * What Poland would pay per route-km for the sponsor's own route and stations. The ghost's ratio to Poland is
+   * computed against this, so it is the same number whatever line the player draws. Absent in older snapshots.
+   */
+  polandPerKmCents?: number;
 }
 
 export interface ReceiptLine {
@@ -629,6 +639,8 @@ export interface Scorecard {
   costPerRiderCents: number;
   /** 0 to 3: the minimum of the axes. */
   stars: number;
+  /** One line that says how `stars` follows from the axes, and which axis holds it down. */
+  starsReason?: string;
   axes: { id: StarAxis; stars: number; reason: string }[];
   /** One sentence for the top of the card, numbers from the columns. */
   verdict: string;
@@ -672,6 +684,28 @@ export interface DesignOptionView {
   /** daysToOpen minus the figure for the current selection. */
   deltaDays: number;
   evidence: string;
+  /**
+   * Tunnel options only: days the longest heading takes with this option, and days the slowest station takes.
+   * The longer of the two is the construction phase; the chooser says which one sets the date.
+   */
+  headingDays?: number;
+  stationDays?: number;
+  /** Station options only: false while the line has no station the choice applies to, so the two prices are equal. */
+  applies?: boolean;
+}
+
+/** What one more station of a type would add to the project, for the price tags of the station tool. */
+export interface StationOptionView {
+  template: StationTemplate;
+  label: string;
+  /** One line: what it is and where it fits. */
+  note: string;
+  /** All-in cost one station of this type adds to the estimate at completion, at the depth of the line. */
+  costCents: number;
+  /** What the Polish design of the same station adds to the Poland column. */
+  polandCents: number;
+  /** Days its structure takes to build under the rules in force. */
+  buildDays: number;
 }
 
 export interface DesignView {
@@ -749,6 +783,10 @@ export interface TbmDeviation {
   limitM: number;
   /** Beyond the free tolerance: every metre bored here carries the off-plan surcharge. */
   offPlan: boolean;
+  /** Deviation that carries no surcharge at this point of the plan: 3 m on a straight, more through a bend. */
+  freeM?: number;
+  /** What a metre bored here costs on top of the planned metre, percent; 0 inside the tolerance. */
+  surchargePct?: number;
 }
 
 /**
@@ -851,6 +889,13 @@ export interface MissionTarget {
   stretch: boolean;
   /** A station of the mission project is within reach. */
   served: boolean;
+  /**
+   * The station type the official plan puts here, when it has a station in the ring (The Portal: a terminal
+   * fit-out of the trainbox that already stands at the Transit Center). The station tool proposes it.
+   */
+  template?: StationTemplate;
+  /** Why that type, one line. */
+  templateNote?: string;
 }
 
 export interface MissionView {
@@ -1020,6 +1065,8 @@ export interface ProjectView {
   pits: LaunchPitEntity[];
   receipt: Receipt;
   scorecard: Scorecard;
+  /** Price tags of the station types for this line, STATION_TEMPLATES order. Empty once the design is frozen. */
+  stationOptions?: StationOptionView[];
 }
 
 /** What enacting a reform would change for the mission project, shown before the player buys it. */
@@ -1031,6 +1078,13 @@ export interface ReformPreview {
   daysDelta: number;
   costPerKmAfterCents: number;
   ratioToPolandAfter: number;
+  /**
+   * Why the figures are what they are when that needs saying: the contracts are let, the phase is over, the
+   * stations set the date, event cards are not in the estimate. One sentence each.
+   */
+  notes?: string[];
+  /** True when the figures come from a forecast run (time stands); false: the closed-form estimate, within about a percent. */
+  exact?: boolean;
 }
 
 export interface ReformView {
