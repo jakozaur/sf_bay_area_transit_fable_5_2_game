@@ -198,7 +198,9 @@ export function createFake(): Fake {
       planProjectId: 'portal',
       complete: false,
       result: null,
+      targets: [],
     },
+    moneyCents: 1_000_000_000_00,
     handDig: { volumeM3: 0, cents: 0, centsPerM3: 39_000 },
   } as unknown as GameSnapshot;
   const snapshot = createValue<GameSnapshot>(snap);

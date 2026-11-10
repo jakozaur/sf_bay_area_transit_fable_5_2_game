@@ -35,6 +35,8 @@ export function createDigToolImpl(): DigTool {
   let centsPerM3 = 0;
   let totalCents = 0;
   let totalM3 = 0;
+  let broke = false;
+  let sinceRefusal = Number.POSITIVE_INFINITY;
 
   function radiusOption(value: ToolOptionValue): number {
     if (typeof value !== 'number' || !(value >= T.minRadiusM && value <= T.maxRadiusM)) {
@@ -57,6 +59,14 @@ export function createDigToolImpl(): DigTool {
   function bite(ctx: BayToolContext): boolean {
     const center = target(ctx);
     if (center === null) return false;
+    // Every cubic metre is billed, so an empty account digs nothing. (The first playtest dug the funds to -$374M.)
+    if (ctx.snapshot.moneyCents <= 0) {
+      if (sinceRefusal >= T.cueSeconds * 4) {
+        ctx.services.audio.cue('tool.invalid');
+        sinceRefusal = 0;
+      }
+      return true;
+    }
     const res = ctx.services.world.dig(center, radiusM);
     if (!(res.removedM3 >= 0) || !Number.isFinite(res.removedM3)) {
       throw new Error(`dig tool: world.dig returned removedM3 ${res.removedM3} at (${center.x}, ${center.y}, ${center.z})`);
@@ -74,6 +84,7 @@ export function createDigToolImpl(): DigTool {
 
   function refresh(ctx: BayToolContext): void {
     const h = ctx.snapshot.handDig;
+    broke = ctx.snapshot.moneyCents <= 0;
     centsPerM3 = h.centsPerM3;
     totalCents = h.cents;
     totalM3 = h.volumeM3;
@@ -98,8 +109,9 @@ export function createDigToolImpl(): DigTool {
   function status(): ToolStatus {
     return {
       id: 'dig',
-      hint:
-        stroke !== null
+      hint: broke
+        ? 'No funds: hand digging is billed by the cubic metre, and the account is empty.'
+        : stroke !== null
           ? 'Digging. Release to stop.'
           : 'Hold the left button to dig by hand. The comma and period keys change the brush. Every cubic metre is billed.',
       readouts: [
@@ -196,6 +208,7 @@ export function createDigToolImpl(): DigTool {
 
     update(dtSeconds: number, ctx: BayToolContext): void {
       sinceCue += dtSeconds;
+      sinceRefusal += dtSeconds;
       if (stroke !== null) {
         stroke.sinceBite += dtSeconds;
         // One bite per frame at most: a long frame does not turn into a burst.

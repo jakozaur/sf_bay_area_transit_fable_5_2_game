@@ -264,6 +264,72 @@ test('dig: holding the button digs continuously through world.dig and charges ev
   expect(r.fake.snapshot().handDig.volumeM3).toBe(n * 100);
 });
 
+test('dig: an empty account digs nothing and says why', () => {
+  const r = rig();
+  r.host.port.activate('dig');
+  r.fake.mutate((s) => {
+    s.moneyCents = 0;
+  });
+  r.frame();
+  expect(r.host.port.status.get().hint).toMatch(/^No funds: hand digging is billed/);
+  expect(r.host.handle({ type: 'pointer.down', x: 700, y: 300, button: 0 })).toBe(true);
+  for (let i = 0; i < 60; i++) r.frame();
+  expect(r.fake.digs).toEqual([]);
+  expect(r.fake.commands).toEqual([]);
+  expect(r.fake.cues).toContain('tool.invalid');
+  // Money again: the same stroke digs.
+  r.fake.mutate((s) => {
+    s.moneyCents = 5_000_00;
+  });
+  for (let i = 0; i < 12; i++) r.frame();
+  expect(r.fake.digs.length).toBeGreaterThan(0);
+});
+
+test('station: a station placed inside the ring of a mission target takes the name of the place', () => {
+  const r = rig();
+  withLine(r);
+  r.fake.mutate((s) => {
+    s.mission.targets = [
+      { name: '4th and King', x: 700, z: 560, radiusM: 400, stretch: false, served: false },
+      { name: 'Salesforce Transit Center', x: 2400, z: 1000, radiusM: 100, stretch: false, served: false },
+    ];
+  });
+  r.host.port.activate('station');
+  r.host.handle({ type: 'tool.primary', x: 800, y: 500 });
+  expect(r.last()).toMatchObject({ t: 'addStation', name: '4th and King', stationId: 'station-1' });
+  r.frame();
+  // The name is taken: a second station in the same ring is numbered.
+  r.host.handle({ type: 'tool.primary', x: 1100, y: 500 });
+  expect(r.last()).toMatchObject({ t: 'addStation', name: 'Station 2' });
+  r.frame();
+  // Outside every ring: numbered. Inside the other one: named.
+  r.host.handle({ type: 'tool.primary', x: 1700, y: 1000 });
+  expect(r.last()).toMatchObject({ t: 'addStation', name: 'Station 3' });
+  r.frame();
+  r.host.handle({ type: 'tool.primary', x: 2400, y: 1000 });
+  expect(r.last()).toMatchObject({ t: 'addStation', name: 'Salesforce Transit Center' });
+});
+
+test('drive: a cut-and-cover front or a track gang is not a machine to drive', () => {
+  const r = rig();
+  withTbm(r, fakeTbm({ id: 'portal/f1', name: 'Cut-and-cover front 1', method: 'cutAndCover' }));
+  expect(r.host.port.availability.get().drive).toBe('Nothing to drive: this line has no boring machine and no mined heading');
+  expect(() => r.host.port.activate('drive')).toThrow(/drive is unavailable/);
+  // With a mined heading beside it, the tool takes the heading that has controls, whatever the order.
+  const mixed = rig();
+  withTbm(
+    mixed,
+    fakeTbm({ id: 'portal/f1', name: 'Cut-and-cover front 1', method: 'cutAndCover' }),
+    fakeTbm({ id: 'portal/f2', name: 'Mined heading 2', method: 'mined' }),
+  );
+  expect(mixed.host.port.availability.get().drive).toBeNull();
+  mixed.host.port.activate('drive');
+  expect(mixed.drive.headingId()).toBe('portal/f2');
+  expect(mixed.last()).toEqual({ t: 'tbmControl', headingId: 'portal/f2', autopilot: false });
+  const choices = mixed.host.port.status.get().options[0];
+  expect(choices.kind === 'choice' ? choices.choices.map((c) => c.value) : []).toEqual(['portal/f2']);
+});
+
 test('dig: sky, empty bites, single clicks, project booking and the radius option', () => {
   const r = rig();
   r.host.port.activate('dig');

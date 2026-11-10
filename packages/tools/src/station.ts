@@ -107,10 +107,25 @@ export function createStationToolImpl(): StationTool {
     return null;
   }
 
-  function nextName(p: ProjectView): { id: string; name: string } {
+  /**
+   * Id and name of the next station. A station placed inside the ring of a mission target takes that place's
+   * name ("4th and King"); anywhere else it is "Station n".
+   */
+  function nextName(ctx: BayToolContext, p: ProjectView, at: { x: number; z: number } | null): { id: string; name: string } {
+    let place: string | null = null;
+    if (at !== null) {
+      let best = Number.POSITIVE_INFINITY;
+      for (const t of ctx.snapshot.mission.targets) {
+        const d = Math.hypot(t.x - at.x, t.z - at.z);
+        if (d <= t.radiusM && d < best && !p.stations.some((s) => s.name === t.name)) {
+          best = d;
+          place = t.name;
+        }
+      }
+    }
     for (let n = p.stations.length + 1; ; n++) {
       const id = `station-${n}`;
-      const name = `Station ${n}`;
+      const name = place ?? `Station ${n}`;
       if (!p.stations.some((s) => s.id === id || s.name === name)) return { id, name };
     }
   }
@@ -177,7 +192,7 @@ export function createStationToolImpl(): StationTool {
     const like = p.stations.find((s) => s.style === style);
     const station: StationEntity = {
       id: 'station-ghost',
-      name: nextName(p).name,
+      name: nextName(ctx, p, placement.position).name,
       position: placement.position,
       yaw: placement.yaw,
       style,
@@ -336,7 +351,7 @@ export function createStationToolImpl(): StationTool {
             say(ctx, at.reason);
             break;
           }
-          const { id, name } = nextName(p);
+          const { id, name } = nextName(ctx, p, at.position);
           queue.push({
             t: 'addStation',
             projectId: p.id,

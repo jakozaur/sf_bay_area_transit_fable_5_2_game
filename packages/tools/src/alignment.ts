@@ -26,6 +26,7 @@ import {
   geologyOfMaterial,
   isUnderground,
   type Method,
+  monthYear,
   nearestChainage,
   type ProjectView,
   type Waypoint,
@@ -124,6 +125,10 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
   let frozen = false;
   let freeBuild = false;
   let hasProject = false;
+  /** Seconds left in which a second click on "Use the official alignment" replaces the line that is drawn. */
+  let confirmOfficial = 0;
+  /** What the newest undo entry recorded, and for which selection: a run of depth steps is one undo, not a hundred. */
+  let lastUndo: { kind: 'depth' | 'other'; selected: number } | null = null;
 
   function depthOption(key: string, value: ToolOptionValue): number {
     if (typeof value !== 'number' || !(value >= T.minDepthM && value <= T.maxDepthM)) {
@@ -267,10 +272,17 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
 
   // ---------------------------------------------------------------- edits
 
-  function remember(): void {
+  function remember(kind: 'depth' | 'other' = 'other'): void {
+    // Holding the comma or period key steps the depth many times: the line before the run is what undo returns to.
+    // (The first playtest pushed its waypoint edits out of a 100-step history with 240 depth steps.)
+    if (kind === 'depth' && lastUndo !== null && lastUndo.kind === 'depth' && lastUndo.selected === selected && undoStack.length > 0) {
+      redoStack = [];
+      return;
+    }
     undoStack.push({ waypoints: copy(waypoints), selected });
     if (undoStack.length > T.historyLimit) undoStack.shift();
     redoStack = [];
+    lastUndo = { kind, selected };
   }
 
   /** Sends the draft to the sim: one setAlignment, or removeProject when fewer than two waypoints remain. */
@@ -280,7 +292,8 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
       queue.push({
         t: 'setAlignment',
         projectId,
-        ...(hasProject ? {} : { name: ctx.snapshot.mission.title }),
+        // A mission's line carries the mission's name; in free build there is no mission to name it after.
+        ...(hasProject ? {} : { name: freeBuild ? 'Your line' : ctx.snapshot.mission.title }),
         waypoints: copy(waypoints),
         ...(methods === undefined ? {} : { methods }),
       });
@@ -449,7 +462,7 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
     if (refuseIfFrozen(ctx)) return true;
     const made = makeWaypoint(ctx, pick.point.x, pick.point.z, depthM, true);
     if (made === null) {
-      say(ctx, 'That is outside the site. Waypoints go on the voxel map.', true);
+      say(ctx, 'That is outside the map.', true);
       return true;
     }
     const prev = waypoints[waypoints.length - 1];
@@ -542,11 +555,11 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
         say(ctx, `Waypoint ${selected + 1} is outside the site. Drag it onto the map first.`, true);
         return;
       }
-      remember();
+      remember('depth');
       setDepth(ctx, selected, clamp(Math.round(depth) + step, T.minDepthM, T.maxDepthM));
     } else {
       // The whole line moves down (or up) by one step, keeping its profile.
-      remember();
+      remember('depth');
       depthM = clamp(depthM + step, T.minDepthM, T.maxDepthM);
       for (let i = 0; i < waypoints.length; i++) {
         const depth = depthOf(ctx, waypoints[i]);
@@ -560,6 +573,7 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
     if (drag !== null) cancelDrag(ctx);
     const entry = from.pop();
     if (entry === undefined) return false;
+    lastUndo = null;
     if (refuseIfFrozen(ctx)) {
       from.push(entry);
       return true;
@@ -600,7 +614,7 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
         value: `${e.ratioToPoland.toFixed(1)}x (${formatMoney(e.polandCostPerKmCents)}/km)`,
         bad: false,
       },
-      { id: 'opens', label: 'Opens', value: e.openDate, bad: false },
+      { id: 'opens', label: 'Opens', value: monthYear(e.openDate), bad: false },
     ];
     if (!c.ok || problems.length > 0) {
       out.push({ id: 'problem', label: 'Not buildable', value: problems[0] ?? 'the line breaks a limit', bad: true });
@@ -652,7 +666,7 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
     const commands: ToolCommandSpec[] = [
       {
         id: TOOL_COMMANDS.planUseOfficial,
-        label: 'Use the official alignment',
+        label: confirmOfficial > 0 ? 'Click again: this replaces your line' : 'Use the official alignment',
         ...edit(!freeBuild, 'Free build has no official plan'),
       },
       { id: TOOL_COMMANDS.planDepthAll, label: 'Set the whole line to this depth', ...edit(waypoints.length > 0, 'No line yet') },
@@ -716,6 +730,8 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
       queue = [];
       flash = null;
       close = false;
+      confirmOfficial = 0;
+      lastUndo = null;
       depthM = T.defaultDepthM;
       projectId = ctx.snapshot.mission.planProjectId;
       adopt(projectOf(ctx), false);
@@ -824,6 +840,10 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
         flash.left -= dtSeconds;
         if (flash.left <= 0) flash = null;
       }
+      if (confirmOfficial > 0) {
+        confirmOfficial = Math.max(0, confirmOfficial - dtSeconds);
+        if (confirmOfficial === 0) touch();
+      }
       for (const o of outstanding) o.age += dtSeconds;
       if (outstanding.length > 0 && outstanding[0].age > T.ackSeconds) {
         // The sim never showed the change: it refused the command. Fall back to what it holds and say why.
@@ -874,6 +894,13 @@ export function createAlignmentToolImpl(deps: AlignmentToolDeps = {}): Alignment
       switch (commandId) {
         case TOOL_COMMANDS.planUseOfficial:
           cancelDrag(ctx);
+          // A line the player drew is not thrown away on one click: the button asks once.
+          if (waypoints.length >= 2 && confirmOfficial <= 0) {
+            confirmOfficial = T.flashSeconds;
+            say(ctx, 'The official alignment replaces the line you drew, and its stations. Click the button again to do it.', false);
+            break;
+          }
+          confirmOfficial = 0;
           queue.push({ t: 'useOfficialPlan' });
           break;
         case TOOL_COMMANDS.planDepthAll:

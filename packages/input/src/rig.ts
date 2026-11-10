@@ -113,7 +113,9 @@ export class CameraRig {
     c.smoothTime = opts.smoothTime ?? 0.35;
     c.draggingSmoothTime = 0.08;
     c.dollyToCursor = true;
-    c.dollySpeed = 1.5;
+    // One notch of a mouse wheel is a third closer or further (0.95 ^ (10 x 0.7)); at 1.5 a notch more than halved
+    // the distance and a short spin went from the street to the whole Bay.
+    c.dollySpeed = 0.7;
     // Map-style mouse: left drag pans over the ground plane, right or middle drag orbits, wheel dollies.
     c.mouseButtons.left = CameraControls.ACTION.SCREEN_PAN;
     c.mouseButtons.right = CameraControls.ACTION.ROTATE;

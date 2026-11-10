@@ -116,7 +116,10 @@ test('plan and station tools drive the real sim: every edit is accepted and ackn
   project = s.snap().projects.find((p) => p.id === id);
   expect(project?.waypoints).toHaveLength(3);
   expect(s.snap().notices).toEqual([]);
-  // The official plan replaces the draft; editing it keeps its mixed methods.
+  // The official plan replaces the draft (the button asks once, because a line is drawn); editing it keeps its mixed methods.
+  s.host.port.invoke('plan.useOfficial');
+  s.frame();
+  expect(s.snap().projects.find((p) => p.id === id)?.waypoints).toHaveLength(3);
   s.host.port.invoke('plan.useOfficial');
   s.frame();
   project = s.snap().projects.find((p) => p.id === id);

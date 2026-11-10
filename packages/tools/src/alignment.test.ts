@@ -119,7 +119,7 @@ test('clicks add waypoints on the picked ground point at the depth option; the s
   expect(r.click(10, 10)).toBe(false);
   r.fake.skyBelowX = 0;
   expect(r.click(3000, 4500)).toBe(true);
-  expect(r.host.port.status.get().hint).toMatch(/outside the site/);
+  expect(r.host.port.status.get().hint).toMatch(/outside the map/);
   expect(r.fake.cues[r.fake.cues.length - 1]).toBe('tool.invalid');
   expect(r.setAlignments()).toHaveLength(2);
 });
@@ -344,6 +344,79 @@ test('undo and redo walk the edit history; a new edit drops the redo branch', ()
   expect(cmd(PLAN_REDO)).toBe(false);
   expect(() => r.host.port.invoke(PLAN_REDO)).toThrow(/plan\.redo is disabled: Nothing to redo/);
   expect(r.host.redo()).toBe(false);
+});
+
+test('a run of depth steps is one undo: holding the key cannot push the waypoint edits out of the history', () => {
+  const r = rig();
+  drawLine(r);
+  // 80 steps down, 160 up: the first playtest lost every waypoint edit behind them (the history holds 100 steps).
+  for (let i = 0; i < 80; i++) r.host.handle({ type: 'tool.adjust', delta: 1 });
+  for (let i = 0; i < 160; i++) r.host.handle({ type: 'tool.adjust', delta: -1 });
+  r.frame();
+  expect(r.lastLine()[0].y).toBe(GROUND_Y);
+  // One undo puts the depth back, three more take the waypoints away one by one.
+  expect(r.host.undo()).toBe(true);
+  expect(r.lastLine().map((w) => w.y)).toEqual([GROUND_Y - 20, GROUND_Y - 20, GROUND_Y - 20]);
+  r.frame();
+  expect(r.host.undo()).toBe(true);
+  expect(r.lastLine().map((w) => w.x)).toEqual([500, 1500]);
+  r.frame();
+  expect(r.host.undo()).toBe(true);
+  expect(r.host.undo()).toBe(true);
+  expect(r.plan.draft()).toBeNull();
+  expect(r.host.undo()).toBe(false);
+  // A depth step on another selection is its own step again.
+  const two = rig();
+  drawLine(two);
+  two.host.handle({ type: 'tool.adjust', delta: 1 });
+  two.click(1500, 500);
+  two.host.handle({ type: 'tool.adjust', delta: 1 });
+  two.frame();
+  expect(two.lastLine().map((w) => w.y)).toEqual([GROUND_Y - 21, GROUND_Y - 22, GROUND_Y - 21]);
+  two.host.undo();
+  expect(two.lastLine().map((w) => w.y)).toEqual([GROUND_Y - 21, GROUND_Y - 21, GROUND_Y - 21]);
+  two.frame();
+  two.host.undo();
+  expect(two.lastLine().map((w) => w.y)).toEqual([GROUND_Y - 20, GROUND_Y - 20, GROUND_Y - 20]);
+});
+
+test('the official alignment does not silently replace a line the player drew: the button asks once', () => {
+  const r = rig();
+  // Nothing drawn: one click is enough.
+  r.host.port.activate('plan');
+  r.host.port.invoke(TOOL_COMMANDS.planUseOfficial);
+  expect(r.fake.commands).toEqual([{ t: 'useOfficialPlan' }]);
+  r.frame();
+  r.host.port.activate(null);
+  r.fake.commands.length = 0;
+  // A drawn line: the first click only warns, with the button saying so; the second does it.
+  const own = rig();
+  drawLine(own);
+  own.fake.commands.length = 0;
+  const label = (): string => own.host.port.status.get().commands.find((c) => c.id === TOOL_COMMANDS.planUseOfficial)?.label ?? '';
+  expect(label()).toBe('Use the official alignment');
+  own.host.port.invoke(TOOL_COMMANDS.planUseOfficial);
+  expect(own.fake.commands).toEqual([]);
+  expect(own.host.port.status.get().hint).toMatch(/replaces the line you drew/);
+  expect(label()).toBe('Click again: this replaces your line');
+  expect(own.plan.draft()?.waypoints).toHaveLength(3);
+  own.host.port.invoke(TOOL_COMMANDS.planUseOfficial);
+  expect(own.fake.commands).toEqual([{ t: 'useOfficialPlan' }]);
+  own.frame();
+  expect(own.plan.draft()?.waypoints).toEqual(OFFICIAL);
+  // The question lapses: four seconds later the button is back and a click asks again.
+  own.fake.commands.length = 0;
+  own.host.port.invoke(TOOL_COMMANDS.planUseOfficial);
+  for (let i = 0; i < 300; i++) own.frame();
+  expect(label()).toBe('Use the official alignment');
+  own.host.port.invoke(TOOL_COMMANDS.planUseOfficial);
+  expect(own.fake.commands).toEqual([]);
+});
+
+test('the opening date in the readouts reads as a month and a year, like the rest of the interface', () => {
+  const r = rig();
+  drawLine(r);
+  expect(readout(r, 'opens').value).toBe('May 2032');
 });
 
 test('clear removes the line and can be undone; an unknown command throws', () => {

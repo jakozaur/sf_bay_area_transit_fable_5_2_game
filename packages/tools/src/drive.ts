@@ -11,7 +11,7 @@ import {
   type ToolStatus,
   type WorldPos,
 } from '@bayvox/core';
-import { type BayToolContext, chainages, type GameCommand, type ProjectView, pointAt, type TbmView } from '@bayvox/sim';
+import { type BayToolContext, chainages, type GameCommand, isDrivable, type ProjectView, pointAt, type TbmView } from '@bayvox/sim';
 import type { DriveTool } from './contract.ts';
 import { clamp } from './util.ts';
 
@@ -50,7 +50,8 @@ export function createDriveToolImpl(): DriveTool {
     const mission = ctx.snapshot.mission.projectId;
     // The mission project's machines come first, so the default possession is the one the objective is about.
     const projects = [...ctx.snapshot.projects].sort((a, b) => Number(b.id === mission) - Number(a.id === mission));
-    for (const project of projects) for (const tbm of project.tbms) out.push({ project, tbm });
+    // Only machines that bore or mine a tube take a driver: a cut-and-cover front or a track gang has no controls.
+    for (const project of projects) for (const tbm of project.tbms) if (isDrivable(tbm.method)) out.push({ project, tbm });
     return out;
   }
 
@@ -205,7 +206,10 @@ export function createDriveToolImpl(): DriveTool {
 
     unavailableReason(ctx: BayToolContext): string | null {
       const all = headings(ctx);
-      if (all.length === 0) return 'No machine to drive yet';
+      if (all.length === 0) {
+        const any = ctx.snapshot.projects.some((p) => p.tbms.length > 0);
+        return any ? 'Nothing to drive: this line has no boring machine and no mined heading' : 'No machine to drive yet';
+      }
       if (all.every((h) => h.tbm.status === 'done')) return 'Every machine has broken through';
       return null;
     },
