@@ -1037,7 +1037,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (state.politicalCapital < def.capitalCost)
         return reject(state, cmd, `"${def.title}" costs ${def.capitalCost} political capital, you have ${state.politicalCapital}`);
       state.politicalCapital -= def.capitalCost;
-      if (def.capitalCost > 0 && !ctx.forecast) pushSocialBurst(state, { cause: `housing:${def.id}`, group: 'housing', what: def.title });
+      if (def.capitalCost > 0 && !ctx.forecast)
+        pushSocialBurst(state, { cause: `housing:${def.id}`, group: 'housing', also: `housing.${def.id}`, what: def.title });
       enacted.push(def.id);
       state.housing = enacted;
       // A line already in service gains the riders at once; one that is not yet open is counted when it opens.
