@@ -168,4 +168,14 @@ Additive, save schema stays 2.
 - **Scenarios.** `SILICON_BRANCH` (`siliconBranch`, fourth in `SCENARIOS`); `costBenefit()` (`CostBenefitRow`), whose three benefit constants are unverified assumptions.
 - **UI.** `mountUi(root, services, extras?)` with `UiExtras.costBenefit`: the app passes `costBenefit()`, the UI package still does not import scenarios.
 
+Second round, same day (2026-11-10), additive, save schema stays 2:
+
+- **Oracle shuttle tunnel removed** from `SCENARIOS`, the cards and the table; `scenarioById('oracle-shuttle')` throws one line and a save of it cannot be loaded. The `oracle` voxel site and its demand zone stay. This supersedes the Oracle mentions above.
+- **Googleplex spur starts at San Antonio Caltrain** (rail-network station, 46529.25, -23963.25), not Mountain View: 2.56 km straight, two stations. The station is outside the googleplex voxel site, so the launch pit is at the Googleplex end and the last 1.1 km is network-level track.
+- **Housing.** `ScenarioDef.housing?` (`HousingOptionDef`), `GameSnapshot.housing` (`HousingView[]`, `[]` when the mission has none), command `{ t: 'enactHousing', optionId }`, `Scorecard.housing?`, `CostBenefitRow.withHousing?`. Riders = hectares x homes per hectare x 6 trips per home x 0.15 share on the line; areas, densities and both factors are unverified assumptions (constants.ts, scenarios housing.ts). An option counts once a station of the line is within 2 km.
+- **Backlash is a pile-on.** This supersedes "one post per spend, last 20" above: a spend of political capital appends 2 to 4 posts (`SOCIAL_BURST_MIN`, `SOCIAL_BURST_MAX`) from different handles sharing `SocialPost.burst`, with `likes` and `reposts`; the snapshot keeps the last 40. The UI staggers their arrival (`POST_STAGGER_MS`) and folds the box to its header while a gate card is up.
+- **Reform `smallBoreLoop`** (tunnelling, 15 PC + $60M, `beyondPoland`, profile key `tbm.smallBore`): twin-tube drives at 0.3x civil cost and 1.5x advance; a line with a bored segment keeps 60 percent of its riders, at most 8,000 a day. All four factors are game assumptions.
+
+Measured through the interface: `e2e/tests/m3.spec.ts`.
+
 Measured through the interface (`e2e/tests/m2.spec.ts`, seed of the app, cards on): The Portal with the specustawa and the Polish reforms before tender ends at 1.94x Poland's cost and 0.83x its timeline. Known: on The Portal the timeline is inside 2x without the specustawa (1.6x with no reforms, the head start through permitting); the specustawa decides the timeline on the Silicon branch (2.0x to 1.0x), whose 2x cost is out of reach at 60 capital. No alignment parallel to Caltrain yet.

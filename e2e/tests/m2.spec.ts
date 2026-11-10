@@ -46,20 +46,22 @@ test('the last mission of the list can be played first on a fresh profile', asyn
   // The last campaign mission (free build closes the list and was never locked).
   const ids = await page.locator('.bv-mission').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
   expect(ids.at(-1)).toBe('mission-sandbox');
-  expect(ids.at(-2)).toBe('mission-oracle-shuttle');
-  await page.getByTestId('mission-oracle-shuttle').click();
+  const last = ids.at(-2);
+  if (last === null || last === undefined) throw new Error('the mission list has no campaign mission');
+  expect(last).not.toContain('oracle');
+  await page.getByTestId(last).click();
   await expect(page.getByTestId('screen-briefing')).toBeVisible();
   await page.getByTestId('brief-start').click();
   await expect(page.getByTestId('topbar')).toBeVisible();
   await game.settled();
   const s = await game.snapshot();
-  expect(s.mission.id).toBe('oracle-shuttle');
+  expect(`mission-${s.mission.id}`).toBe(last);
   expect(s.mission.complete).toBe(false);
   await expect(page.getByTestId('session-error')).toHaveCount(0);
   expectNoErrors(game);
 });
 
-test('spending political capital draws a backlash post; a post closes, and close all clears the box', async ({ page }, testInfo) => {
+test('spending political capital draws a pile-on; a post closes, and close all clears the box', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'gpu', 'the reform sheet needs the full-size viewport');
   const game = await openGame(page, testInfo);
   await expect(page.getByTestId('backlash')).toHaveCount(0);
@@ -69,14 +71,21 @@ test('spending political capital draws a backlash post; a post closes, and close
   await enact(page, game, 'design', 'twoTracks');
   const one = await game.snapshot();
   expect(one.politicalCapital).toBe(before - 15);
-  expect(one.socialPosts).toHaveLength(1);
-  const first = one.socialPosts?.[0];
-  if (first === undefined) throw new Error('no post after spending capital');
-  expect(first.cause).toBe('reform:twoTracks');
-  const post = page.getByTestId(`post-${first.id}`);
-  await expect(post).toBeVisible();
-  await expect(post).toContainText(first.handle);
-  await expect(post).toContainText(first.text);
+  // One spend, one pile-on: 2 to 4 posts from different handles, all about that spend.
+  const burst = one.socialPosts ?? [];
+  expect(burst.length).toBeGreaterThanOrEqual(2);
+  expect(burst.length).toBeLessThanOrEqual(4);
+  expect(new Set(burst.map((p) => p.handle)).size).toBe(burst.length);
+  expect(new Set(burst.map((p) => p.burst)).size).toBe(1);
+  for (const p of burst) expect(p.cause).toBe('reform:twoTracks');
+  // They arrive one after another; in the end each is on screen with its handle and text.
+  for (const p of burst) {
+    const post = page.getByTestId(`post-${p.id}`);
+    await expect(post).toBeVisible();
+    await expect(post).toContainText(p.handle);
+    await expect(post).toContainText(p.text);
+  }
+  await expect(page.getByTestId('backlash-angry')).toContainText(/[\d,]+ people are angry at you/);
   // The box stands beside the open sheet, not under it, and inside the window.
   const box = await page.getByTestId('backlash').boundingBox();
   const sheet = await page.getByTestId('panel-reforms').boundingBox();
@@ -86,26 +95,31 @@ test('spending political capital draws a backlash post; a post closes, and close
   expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
   await shot(page, 'backlash-post');
 
-  // Closing one post takes that post away, and the box with it when it was the only one.
+  // Closing one post takes that post away and leaves the rest.
+  const first = burst[0];
+  if (first === undefined) throw new Error('no post after spending capital');
+  const post = page.getByTestId(`post-${first.id}`);
   await page.getByTestId(`post-close-${first.id}`).click();
   await expect(post).toHaveCount(0);
-  await expect(page.getByTestId('backlash')).toHaveCount(0);
+  await expect(page.getByTestId('backlash').locator('li')).toHaveCount(burst.length - 1);
 
-  // Two more spends, two more posts; the closed one stays closed.
+  // Two more spends, two more pile-ons; the closed post stays closed.
   await enact(page, game, 'design', 'twinBoreStandard');
   await enact(page, game, 'design', 'noMezzanines');
-  const three = await game.snapshot();
-  expect(three.socialPosts).toHaveLength(3);
-  await expect(page.getByTestId('backlash').locator('li')).toHaveCount(2);
+  const three = (await game.snapshot()).socialPosts ?? [];
+  expect(new Set(three.map((p) => p.burst)).size).toBe(3);
+  expect(three.length).toBeGreaterThanOrEqual(6);
+  expect(three.length).toBeLessThanOrEqual(12);
+  await expect(page.getByTestId(`post-${three.at(-1)?.id}`)).toBeVisible();
   await expect(post).toHaveCount(0);
   // A reform paid in cash only is not a spend of political capital: no post.
   await enact(page, game, 'tunnelling', 'groundInvestigation');
-  expect((await game.snapshot()).socialPosts).toHaveLength(3);
+  expect((await game.snapshot()).socialPosts).toHaveLength(three.length);
 
   await page.getByTestId('backlash-close-all').click();
   await expect(page.getByTestId('backlash')).toHaveCount(0);
   // Closing is the player's, not the sim's: the posts are still in the snapshot.
-  expect((await game.snapshot()).socialPosts).toHaveLength(3);
+  expect((await game.snapshot()).socialPosts).toHaveLength(three.length);
   expectNoErrors(game);
 });
 
@@ -139,8 +153,11 @@ test('the specustawa takes the permit phases off the schedule and costs the most
   expect(after.projects[0]?.scorecard.polandTarget?.timeRatio).toBeLessThan(2);
   await expect(page.getByTestId('hud-target-time')).toHaveClass(/is-met/);
   // And the internet has opinions.
-  await expect(page.getByTestId('backlash').locator('li')).toHaveCount(1);
-  expect(after.socialPosts?.at(-1)?.cause).toBe('reform:specustawa');
+  const pileOn = (await game.snapshot()).socialPosts ?? [];
+  expect(pileOn.length).toBeGreaterThanOrEqual(2);
+  expect(pileOn.length).toBeLessThanOrEqual(4);
+  for (const p of pileOn) expect(p.cause).toBe('reform:specustawa');
+  await expect(page.getByTestId('backlash').locator('li')).toHaveCount(pileOn.length);
   expectNoErrors(game);
 });
 
@@ -151,7 +168,7 @@ test('the Silicon branch is on the list with its cost-benefit row, and it starts
   await page.waitForTimeout(800);
   await shot(page, 'title-cost-benefit');
   // One row per campaign mission, each with a length, two prices, riders and a ratio.
-  for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch', 'oracle-shuttle'])
+  for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch'])
     await expect(page.getByTestId(`cb-${id}`)).toContainText(/\d+\.\d km.*\$.*\$.*\d\.\d\d$/);
   const row = page.getByTestId('cb-siliconBranch');
   await expect(row).toContainText('17.0 km');
@@ -175,7 +192,7 @@ test('the Silicon branch is on the list with its cost-benefit row, and it starts
   await drawOfficial(page, game);
   const s = await game.snapshot();
   expect(s.projects[0]?.lengthM).toBeGreaterThan(16_000);
-  expect(s.projects[0]?.stations.length).toBe(4);
+  expect(s.projects[0]?.stations.length).toBe(5);
   expect(s.mission.targets.map((t) => t.name)).toEqual(expect.arrayContaining(['Meta, Menlo Park', 'Googleplex']));
   expect(s.mission.targets.every((t) => t.served)).toBe(true);
   await expect(page.getByTestId('hud-target')).toBeVisible();

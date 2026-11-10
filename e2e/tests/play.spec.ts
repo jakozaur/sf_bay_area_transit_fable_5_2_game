@@ -74,7 +74,7 @@ test('the title screen boots over the whole Bay with the mission list', async ({
   await expect(page).toHaveTitle('Polish the Public Transport');
   await expect(page.getByTestId('title-play')).toBeEnabled();
   // Every mission can be picked on a fresh profile: no ordering, no lock.
-  for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'oracle-shuttle', 'sandbox'])
+  for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch', 'sandbox'])
     await expect(page.getByTestId(`mission-${id}`)).toBeEnabled();
   await expect(page.locator('.bv-mission:disabled')).toHaveCount(0);
   await expect(page.getByTestId('title-continue')).toHaveCount(0);
