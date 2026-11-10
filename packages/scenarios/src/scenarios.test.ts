@@ -157,7 +157,7 @@ describe('scenario data', () => {
           },
           { t: 'addStation', projectId: 'free', name: 'South', template: 'undergroundStandard', chainageM: 0 },
           { t: 'addStation', projectId: 'free', name: 'North', template: 'undergroundStandard', at: b },
-          { t: 'enactReform', id: 'stageGates' },
+          { t: 'enactReform', id: 'inHouseEngineering' },
         ]);
       }
       sim.run(1000, (s) => autopilotCommands(s.state));
@@ -203,11 +203,11 @@ describe('The Portal calibration', () => {
     expect(Math.abs(statusQuo.years / OFFICIAL_YEARS - 1)).toBeLessThan(TOLERANCE);
     expect(statusQuo.openDate.startsWith('2036')).toBe(true);
     const objectives = statusQuo.sim.snapshot().objectives;
-    expect(objectives.find((o) => o.id === 'connect')?.status).toBe('done');
-    expect(objectives.find((o) => o.id === 'official-budget')?.status).toBe('done');
-    expect(objectives.find((o) => o.id === 'official-date')?.status).toBe('done');
-    expect(objectives.find((o) => o.id === 'under-2b')?.status).toBe('failed');
-    expect(objectives.find((o) => o.id === 'near-poland')?.status).toBe('failed');
+    // The mission has its connection and the one target, and the unreformed plan misses the target on cost.
+    expect(objectives.map((o) => [o.id, o.status])).toEqual([
+      ['connect', 'done'],
+      ['near-poland', 'failed'],
+    ]);
   });
 
   test(`status quo with event cards, seeds 1 to 10: median ${usdB(median(withEvents.map((o) => o.costCents)))} and ${median(withEvents.map((o) => o.years)).toFixed(1)} years; worst ${usdB(Math.max(...withEvents.map((o) => o.costCents)))} and ${Math.max(...withEvents.map((o) => o.years)).toFixed(1)} years`, () => {
@@ -254,8 +254,10 @@ describe('The Portal calibration', () => {
     expect(twinView.poland.costPerKmCents).toBeGreaterThan(WARSAW_PER_KM);
     expect(twinView.poland.costPerKmCents).toBeLessThan(WARSAW_PER_KM * 1.26);
     const objectives = reformed.sim.snapshot().objectives;
-    for (const id of ['connect', 'official-budget', 'official-date', 'under-2b', 'early', 'near-poland'])
-      expect(objectives.find((o) => o.id === id)?.status, id).toBe('done');
+    expect(objectives.map((o) => [o.id, o.status])).toEqual([
+      ['connect', 'done'],
+      ['near-poland', 'done'],
+    ]);
   });
 
   test(`the gap is a product of four visible factors: ${sqView.factors.map((f) => `${f.id} ${f.value.toFixed(2)}`).join(' x ')}, over the Polish delay ${sqView.factors[3].polandValue.toFixed(2)}`, () => {
@@ -285,37 +287,17 @@ describe('reforms on The Portal', () => {
   const sq = profileFor([]);
 
   /** What each reform is documented to improve. cost and time are measured on the played project; the rest on the profile. */
-  const EXPECT: Record<string, ('cost' | 'systems' | 'time' | 'tbmRate' | `hazard:${string}`)[]> = {
-    narrowRecord: ['hazard:lawsuit'],
-    nepaPageLimits: ['time', 'cost'],
-    megaprojectCertification: ['time', 'cost'],
-    railSpecustawa: ['time', 'cost', 'hazard:lawsuit'],
+  const EXPECT: Record<string, ('cost' | 'time' | 'tbmRate' | `hazard:${string}`)[]> = {
+    railSpecustawa: ['time', 'cost', 'hazard:lawsuit', 'hazard:fundingGap'],
     specustawa: ['time', 'cost', 'hazard:lawsuit'],
-    fundLocally: ['time', 'cost', 'hazard:fundingGap'],
-    utilityStatute: ['time', 'cost'],
-    masterPermitting: ['time', 'cost'],
-    potholeFirst: ['hazard:utilitySurprise'],
-    stageGates: ['cost'],
+    utilityStatute: ['time', 'cost', 'hazard:utilitySurprise'],
     inHouseEngineering: ['time', 'cost'],
-    payBands: ['cost'],
-    bestValueAward: ['cost', 'hazard:changeOrder', 'hazard:contractorBankruptcy'],
-    itemizedContracts: ['time', 'cost', 'hazard:changeOrder'],
-    openTenders: ['cost'],
-    importSupplyChain: ['systems'],
+    bestValueAward: ['time', 'cost', 'hazard:changeOrder', 'hazard:contractorBankruptcy'],
     roundTheClock: ['time', 'cost'],
     emergencyAward: ['time'],
-    parallelWorks: ['time'],
-    leanSupervision: ['cost'],
-    twoTracks: ['cost'],
-    shallowBoxes: ['cost'],
-    noMezzanines: ['time', 'cost'],
-    stationCatalogue: ['cost'],
-    rightSizeTerminal: ['cost'],
     twinBoreStandard: ['cost'],
-    groundInvestigation: ['hazard:tbmStuck'],
-    segmentPlantLogistics: ['tbmRate'],
+    stationCatalogue: ['time', 'cost'],
     rightMachine: ['hazard:tbmStuck', 'tbmRate'],
-    continuousAdvance: ['tbmRate'],
     prufrockClass: ['tbmRate'],
     smallBoreLoop: ['tbmRate'],
   };
@@ -336,12 +318,10 @@ describe('reforms on The Portal', () => {
       for (const e of EVENTS) expect(p[`event.${e.id}.rate` as ProfileKey]).toBeLessThanOrEqual(sq[`event.${e.id}.rate` as ProfileKey]);
       for (const what of EXPECT[id]) {
         if (what === 'cost') expect(one.costCents / base.costCents, 'cost falls by at least 0.5 percent').toBeLessThan(0.995);
-        // Track, power and signalling only (the Buy America waiver): a twentieth of this project.
-        else if (what === 'systems') expect(one.costCents / base.costCents, 'cost falls by at least 0.3 percent').toBeLessThan(0.997);
         else if (what === 'time') expect(base.years - one.years, 'opens at least a month sooner').toBeGreaterThan(1 / 12);
         else if (what === 'tbmRate')
           expect(advanceRate('boredTwin', 'bayMud', p, 1000)).toBeGreaterThan(advanceRate('boredTwin', 'bayMud', sq, 1000));
-        else expect(p[`event.${what.slice(7)}.rate` as ProfileKey]).toBeLessThan(1);
+        else expect(p[`event.${what.slice(7)}.rate` as ProfileKey]).toBeLessThan(sq[`event.${what.slice(7)}.rate` as ProfileKey]);
       }
     },
   );
@@ -352,8 +332,8 @@ describe('reforms on The Portal', () => {
     const before = sim.snapshot().projects[0].comparison;
     sim.run(60);
     sim.dispatch([
-      { t: 'enactReform', id: 'twoTracks' },
-      { t: 'enactReform', id: 'stageGates' },
+      { t: 'enactReform', id: 'twinBoreStandard' },
+      { t: 'enactReform', id: 'inHouseEngineering' },
     ]);
     expect(sim.snapshot().notices).toEqual([]);
     const after = sim.snapshot().projects[0].comparison;
@@ -363,8 +343,10 @@ describe('reforms on The Portal', () => {
     expect(after.factors[2].value).toBeLessThan(before.factors[2].value);
     // The Polish benchmark does not move.
     expect(after.poland.costCents).toBe(before.poland.costCents);
-    // Above PC_MONTHLY_CAP the monthly mandate adds nothing: the 300 PC of M2 only go down in these two months.
-    expect(sim.snapshot().politicalCapital).toBe(THE_PORTAL.start.politicalCapital - 15 - 15);
+    // Above PC_MONTHLY_CAP the monthly mandate adds nothing: the starting 200 only go down in these two months.
+    expect(sim.snapshot().politicalCapital).toBe(THE_PORTAL.start.politicalCapital - 40 - 40);
+    // The tunnel reform redrew the approved line as twin bore.
+    expect(sim.snapshot().projects[0].design.tunnel).toBe('twinBore');
   });
 });
 

@@ -12,8 +12,7 @@ import {
 import { checkAlignment } from './checks.ts';
 import { CONSTANTS, SUBSTEPS_PER_DAY } from './constants.ts';
 import { dateAtTick } from './dates.ts';
-import { ridership } from './demand.ts';
-import { DESIGN_OPTIONS, lockTitles, optionLocks, reformUnlocks, stationBoxOf, stationSize, tunnelOf } from './design.ts';
+import { DESIGN_OPTIONS, lockTitles, optionLocks, reformSelects, reformUnlocks, stationBoxOf, stationSize, tunnelOf } from './design.ts';
 import {
   addPaid,
   advanceDay,
@@ -66,7 +65,7 @@ import {
   runColumn,
   yoursColumn,
 } from './receipt.ts';
-import { POLAND_PROFILE, type Profile, profileFor, profileReforms, REFORMS } from './reforms.ts';
+import { migrateReformIds, POLAND_PROFILE, type Profile, profileFor, profileReforms, REFORMS } from './reforms.ts';
 import { evaluateObjectives, validateScenario } from './scenario.ts';
 import {
   type AlignmentEstimate,
@@ -77,6 +76,7 @@ import {
   type EventView,
   FEED_LENGTH,
   type FrontState,
+  type GameCommand,
   type GameSnapshot,
   type HeadlineView,
   LEDGER_CATEGORIES,
@@ -251,7 +251,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
   const cache = new Map<string, ProjectCache>();
   const tunnels = new Map<string, TunnelCache>();
   const services = new Map<string, ServiceView>();
-  let referenceRun: { run: DesignRun; riders: number; polandPerKmCents: number } | null = null;
+  let referenceRun: { run: DesignRun; polandPerKmCents: number } | null = null;
   let previews: { key: string; byId: Map<string, ReformPreview> } | null = null;
   // Tunnel paths are append-only within one life of the sim; a load or a restart starts a new revision.
   let rev = loaded ? 1_000_000 + state.tick : 1;
@@ -267,7 +267,7 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
   }
 
   /** The scenario's reference plan under the rules of day one, run once. */
-  function reference(): { run: DesignRun; riders: number; polandPerKmCents: number } | null {
+  function reference(): { run: DesignRun; polandPerKmCents: number } | null {
     const ref = state.scenario.reference;
     if (!ref) return null;
     if (!referenceRun) {
@@ -277,7 +277,6 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       const lengthKm = projectLengthM(run.project) / 1000;
       referenceRun = {
         run,
-        riders: ridership(run.project, state.scenario.feeders).ridersPerDay,
         polandPerKmCents: lengthKm > 0 ? Math.round(poland.costCents / lengthKm) : 0,
       };
     }
@@ -457,7 +456,6 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     const scorecard = buildScorecard({
       receipt,
       ridersPerDay: riders,
-      referenceRiders: ref && isMission ? ref.riders : 0,
       start,
       polandSource:
         'The model: this route as the Polish design at Polish prices, calibrated on the Warsaw metro extensions and the Lodz rail tunnel',
@@ -642,7 +640,6 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         : buildScorecard({
             receipt,
             ridersPerDay: 0,
-            referenceRiders: 0,
             start: state.scenario.start.date,
             polandSource: 'no alignment yet',
           }),
@@ -666,20 +663,22 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
       const now = exact ? forecastProject(state, project) : null;
       for (const r of REFORMS) {
         if (state.reforms.includes(r.id)) continue;
-        let saved: number;
+        // The reform that allows the twin bore also picks it while the design is open: the preview is of both.
+        const picks = project.frozen === null && project.methods.some(isUnderground) ? reformSelects(r.id) : null;
+        let costDeltaCents: number;
         let daysDelta: number;
         if (now) {
-          const after = forecastWhatIf(state, project, [...state.reforms, r.id]);
-          saved = after.costCents - now.costCents;
+          const pick: GameCommand[] = picks ? [{ t: 'setDesign', projectId: project.id, tunnel: picks }] : [];
+          const after = forecastWhatIf(state, project, [...state.reforms, r.id], pick);
+          costDeltaCents = after.costCents - now.costCents;
           daysDelta = after.openTick - now.openTick;
         } else {
-          const after = quickProject(state, project, [...state.reforms, r.id]);
+          // quickOption prices a design option under the reforms that unlock it: here, this reform.
+          const after = picks ? quickOption(state, project, picks) : quickProject(state, project, [...state.reforms, r.id]);
           // The closed form gives the ratio; applied to the forecast of record it lands close to what enacting does.
-          saved = before.costCents > 0 ? Math.round((yours * (after.costCents - before.costCents)) / before.costCents) : 0;
+          costDeltaCents = before.costCents > 0 ? Math.round((yours * (after.costCents - before.costCents)) / before.costCents) : 0;
           daysDelta = Math.round(after.days - before.days);
         }
-        // What the reform costs in cash is paid by the project: it is part of what enacting does to the estimate.
-        const costDeltaCents = saved + r.cost.cents;
         const perKm = lengthKm > 0 ? Math.round(((now ? now.costCents : yours) + costDeltaCents) / lengthKm) : 0;
         byId.set(r.id, {
           projectId: project.id,
@@ -700,23 +699,15 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
     const p = profileFor(state.reforms);
     const enacted = new Set(state.reforms);
     const reformStatus = REFORMS.map((r) => {
-      const status: ReformView['status'] = enacted.has(r.id)
-        ? 'enacted'
-        : r.prereqs.every((id) => enacted.has(id))
-          ? 'available'
-          : 'locked';
-      // Same rules, same order as the enactReform command.
-      const missing = r.prereqs.filter((id) => !enacted.has(id)).map((id) => REFORMS.find((x) => x.id === id)?.title ?? id);
-      let blockedReason: string | null = null;
-      if (status === 'locked') blockedReason = `Needs ${missing.join(', ')} first`;
-      else if (status === 'available' && state.politicalCapital < r.cost.pc)
-        blockedReason = `Costs ${r.cost.pc} political capital, you have ${state.politicalCapital}`;
-      else if (status === 'available' && r.cost.cents > 0 && state.cashCents < r.cost.cents)
-        blockedReason = `Costs $${(r.cost.cents / 1e8).toFixed(0)}M, cash is short`;
+      // No reform has a prerequisite: one that is not enacted is available, and only its price can stand in the way.
+      const status: ReformView['status'] = enacted.has(r.id) ? 'enacted' : 'available';
+      const blockedReason =
+        status === 'available' && state.politicalCapital < r.cost.pc
+          ? `Costs ${r.cost.pc} political capital, you have ${state.politicalCapital}`
+          : null;
       return { r, status, blockedReason, affordable: status === 'available' && blockedReason === null };
     });
-    // Reforms priced in political capital: the ones the hints point at. A $5M survey is always affordable and is not news.
-    const canAffordReform = reformStatus.some((x) => x.affordable && x.r.cost.pc > 0);
+    const canAffordReform = reformStatus.some((x) => x.affordable);
     const projects = state.projects.map((pr) => projectView(pr, p, canAffordReform));
     const mission = missionProject(state);
     const missionView = mission ? projects.find((v) => v.id === mission.id) : undefined;
@@ -982,7 +973,8 @@ function migrateV1(save: SaveFile): SaveFile {
     project.paid = { civil: 0, stations: 0, systems: 0, steps: [0, 0, 0, 0, 0, 0, 0, 0] };
     const index = (old.escalation + (project.approvedTick >= 0 ? project.approvedEscalation : old.escalation)) / 2;
     for (const cat of ['civil', 'stations', 'systems'] as const) {
-      if (project.spent[cat] > 0) addPaid(project.paid, profileFor(old.reforms), cat, project.spent[cat] / index);
+      // The reform ids of a version 1 save are renamed by the next migration; the profile is read through the same table.
+      if (project.spent[cat] > 0) addPaid(project.paid, profileFor(migrateReformIds(old.reforms)), cat, project.spent[cat] / index);
     }
     for (const s of project.stations) {
       // Round 1 carved a box in one go when its structure was complete.
@@ -999,8 +991,24 @@ function migrateV1(save: SaveFile): SaveFile {
   return { ...save, schemaVersion: 2, sim: old, stateHash: hashState(old) };
 }
 
+/**
+ * Version 2 to version 3: the 32 reforms of M2 became 12 (reforms.ts REFORM_MIGRATION). The enacted reforms and
+ * the start reforms of the scenario inside the state are renamed to the ones that absorbed them. An id nobody
+ * absorbed fails the load. Money and capital already spent stay spent.
+ */
+function migrateV2(save: SaveFile): SaveFile {
+  const old = JSON.parse(JSON.stringify(save.sim)) as SimState;
+  const hash = hashState(old);
+  if (hash !== save.stateHash) throw new Error(`sim: save is corrupt: state hash ${hash} does not match recorded ${save.stateHash}`);
+  old.schemaVersion = 3;
+  old.reforms = migrateReformIds(old.reforms);
+  old.scenario.start.policies = migrateReformIds(old.scenario.start.policies);
+  old.scenario.start.tech = migrateReformIds(old.scenario.start.tech);
+  return { ...save, schemaVersion: 3, sim: old, stateHash: hashState(old) };
+}
+
 /** Save migrations by source schemaVersion. */
-const MIGRATIONS: Record<number, (save: SaveFile) => SaveFile> = { 1: migrateV1 };
+const MIGRATIONS: Record<number, (save: SaveFile) => SaveFile> = { 1: migrateV1, 2: migrateV2 };
 
 /**
  * Restores a sim from a save and replays the carve edits of all construction so far into `world`.

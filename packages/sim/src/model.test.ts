@@ -25,11 +25,11 @@ describe('constants', () => {
   });
 });
 
-describe('reform tree', () => {
-  test('has at least 20 nodes in four branches, each with evidence and a one-line description', () => {
-    expect(REFORMS.length).toBeGreaterThanOrEqual(20);
+describe('reforms', () => {
+  test('there are twelve in the four groups, each with evidence, a one-line description and a price in political capital only', () => {
+    expect(REFORMS.length).toBe(12);
     expect(BRANCHES.map((b) => b.id)).toEqual(['permitting', 'procurement', 'design', 'tunnelling']);
-    for (const b of BRANCHES) expect(REFORMS.filter((r) => r.branch === b.id).length, b.id).toBeGreaterThanOrEqual(5);
+    for (const b of BRANCHES) expect(REFORMS.filter((r) => r.branch === b.id).length, b.id).toBeGreaterThanOrEqual(2);
     const ids = new Set<string>();
     for (const r of REFORMS) {
       expect(ids.has(r.id), r.id).toBe(false);
@@ -38,31 +38,17 @@ describe('reform tree', () => {
       expect(r.description.includes('\n'), r.id).toBe(false);
       expect(r.evidence, r.id).toMatch(/doc \d\d/);
       expect((r.title + r.description + r.evidence).includes(EM_DASH), r.id).toBe(false);
-      expect(r.cost.pc > 0 || r.cost.cents > 0, `${r.id} has a cost`).toBe(true);
+      expect(r.cost.pc, `${r.id} has a cost`).toBeGreaterThan(0);
+      expect(r.cost.cents, `${r.id} costs no cash`).toBe(0);
+      expect(r.prereqs, `${r.id} needs nothing first`).toEqual([]);
       expect(r.effects.length, r.id).toBeGreaterThan(0);
+      // One effect per profile key, so a reform reads as one line per thing it changes.
+      expect(new Set(r.effects.map((e) => e.key)).size, r.id).toBe(r.effects.length);
       for (const e of r.effects) expect(e.key in STATUS_QUO_PROFILE, `${r.id} ${e.key}`).toBe(true);
     }
-  });
-
-  test('prerequisites exist and come earlier in tree order within a branch, so there are no cycles', () => {
-    const order = new Map(REFORMS.map((r, i) => [r.id, i]));
-    for (const r of REFORMS) {
-      for (const pre of r.prereqs) {
-        const def = reformById(pre);
-        expect(def, `${r.id} needs ${pre}`).toBeDefined();
-        if (def && def.branch === r.branch)
-          expect(order.get(pre) as number, `${r.id} after ${pre}`).toBeLessThan(order.get(r.id) as number);
-      }
-    }
-    // Cross-branch prerequisites must not loop back.
-    const seen = new Set<string>();
-    const visit = (id: string, path: string[]): void => {
-      if (path.includes(id)) throw new Error(`reform prerequisite cycle: ${[...path, id].join(' > ')}`);
-      if (seen.has(id)) return;
-      for (const pre of reformById(id)?.prereqs ?? []) visit(pre, [...path, id]);
-      seen.add(id);
-    };
-    for (const r of REFORMS) visit(r.id, []);
+    expect(ids.has('specustawa')).toBe(true);
+    expect(ids.has('smallBoreLoop')).toBe(true);
+    expect(reformById('twinBoreStandard')?.branch).toBe('design');
   });
 
   test('the Poland profile lands exactly on the reformed targets', () => {
@@ -88,7 +74,7 @@ describe('reform tree', () => {
     });
     // Speculative machines are not Polish practice.
     expect(POLAND_PROFILE).not.toContain('prufrockClass');
-    expect(POLAND_PROFILE).not.toContain('continuousAdvance');
+    expect(POLAND_PROFILE).not.toContain('emergencyAward');
     // Twin-bore TBM pace stays in the Warsaw record of 10 to 12 m/day (doc 06 section 2.1).
     const rate = advanceRate('boredTwin', 'softGround', p, 1000);
     expect(rate).toBeGreaterThanOrEqual(10);
@@ -96,7 +82,9 @@ describe('reform tree', () => {
   });
 
   test('profile does not depend on enactment order and rejects unknown ids', () => {
-    expect(profileFor(['twoTracks', 'stageGates', 'roundTheClock'])).toEqual(profileFor(['roundTheClock', 'twoTracks', 'stageGates']));
+    expect(profileFor(['twinBoreStandard', 'inHouseEngineering', 'roundTheClock'])).toEqual(
+      profileFor(['roundTheClock', 'twinBoreStandard', 'inHouseEngineering']),
+    );
     expect(() => profileFor(['noSuchReform'])).toThrow(/unknown reform id "noSuchReform"/);
   });
 
@@ -141,12 +129,10 @@ describe('cost model against the Polish record', () => {
     expect(advanceRate('boredTwin', 'bayMud', sq, 1000)).toBeCloseTo(10.5 * 0.8, 9);
     expect(advanceRate('boredTwin', 'rock', sq, 1000)).toBeCloseTo(10.5 * 1.5, 9);
     expect(advanceRate('boredTwin', 'softGround', sq, 10)).toBeCloseTo(10.5 * 0.4, 9);
-    expect(advanceRate('boredTwin', 'softGround', profileFor(['segmentPlantLogistics', 'continuousAdvance']), 1000)).toBeCloseTo(
-      10.5 * 1.1 * 1.6,
-      9,
-    );
-    // Right machine for the ground removes half of the Bay Mud penalty.
-    expect(advanceRate('boredTwin', 'bayMud', profileFor(['groundInvestigation', 'rightMachine']), 1000)).toBeCloseTo(10.5 * 0.9, 9);
+    // The segment plant of the machine reform keeps the machine boring 1.1 times as much of the day.
+    expect(advanceRate('boredTwin', 'softGround', profileFor(['rightMachine']), 1000)).toBeCloseTo(10.5 * 1.1, 9);
+    // The right machine for the ground removes half of the Bay Mud penalty.
+    expect(advanceRate('boredTwin', 'bayMud', profileFor(['rightMachine']), 1000)).toBeCloseTo(10.5 * 1.1 * 0.9, 9);
     // Status quo slows everything except the metro TBM (doc 11 section 5.3).
     expect(advanceRate('mined', 'softGround', sq, 0)).toBeCloseTo(2.5 / 1.5, 9);
     expect(advanceRate('boredSingleLarge', 'softGround', sq, 1000)).toBeCloseTo(8 / 1.5, 9);

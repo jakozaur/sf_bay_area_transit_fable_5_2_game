@@ -1,7 +1,7 @@
 /** Free build over the whole Bay: no reference project, effectively unlimited money and political capital (doc 08 section 4.6). */
 import { GAME_BOX } from '@bayvox/core';
 import type { ScenarioDef } from '@bayvox/sim';
-import { cameraOver, EXISTING_BART, EXISTING_CALTRAIN, usd } from './helpers.ts';
+import { cameraOver, EXISTING_BART, EXISTING_CALTRAIN, POLAND_TARGET, usd } from './helpers.ts';
 
 export const SANDBOX: ScenarioDef = {
   id: 'sandbox',
@@ -21,7 +21,7 @@ export const SANDBOX: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(1e12),
     // The three mainline-terminal mandates are The Portal's; a line drawn from nothing starts as a two-track metro.
-    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['twinBoreStandard'],
     tech: [],
     politicalCapital: 1000,
     funding: [],
@@ -29,6 +29,6 @@ export const SANDBOX: ScenarioDef = {
   camera: cameraOver((GAME_BOX.south + GAME_BOX.north) / 2, (GAME_BOX.west + GAME_BOX.east) / 2, 60000),
   existing: [EXISTING_CALTRAIN, EXISTING_BART],
   feeders: ['caltrain', 'bart'],
-  objectives: [{ id: 'riders', title: 'Carry 50,000 riders a day on new lines', kind: 'minRiders', riders: 50_000 }],
+  objectives: [POLAND_TARGET],
   costProfile: 'bayAreaStatusQuo',
 };

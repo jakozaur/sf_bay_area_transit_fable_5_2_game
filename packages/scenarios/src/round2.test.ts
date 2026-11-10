@@ -186,7 +186,6 @@ describe('scenario geography against the baked data', () => {
     const g = referenceView(GOOGLEPLEX_SPUR);
     expect(station('sanAntonio')).toMatchObject({ name: 'San Antonio', system: 'Caltrain' });
     expect(near(connect(GOOGLEPLEX_SPUR).a, station('sanAntonio'))).toBeLessThan(1);
-    expect(near(connect(GOOGLEPLEX_SPUR, 'bay-view').a, station('sanAntonio'))).toBeLessThan(1);
     expect(near(station('sanAntonio'), connect(GOOGLEPLEX_SPUR).b)).toBeLessThan(near(station('mountainView'), connect(GOOGLEPLEX_SPUR).b));
     expect(inside('googleplex', connect(GOOGLEPLEX_SPUR).a)).toBe(false);
     expect(inside('googleplex', GOOGLEPLEX_SPUR.reference?.launchPit ?? { x: 0, z: 0 })).toBe(true);
@@ -204,7 +203,6 @@ describe('scenario geography against the baked data', () => {
     // Dumbarton: Redwood City Caltrain to Willow Road on the freight lead; only the Meta end is in the site.
     const d = referenceView(DUMBARTON_TO_META);
     expect(near(connect(DUMBARTON_TO_META).a, station('redwoodCity'))).toBeLessThan(1);
-    expect(near(connect(DUMBARTON_TO_META, 'cross-the-bay').b, station('unionCity'))).toBeLessThan(1);
     expect(inside('meta', connect(DUMBARTON_TO_META).b)).toBe(true);
     expect(inside('meta', d.stations[2].position)).toBe(true);
     expect(d.lengthM).toBeGreaterThan(7300);
@@ -355,23 +353,16 @@ describe('every mission plays start to finish on autopilot through the clock con
   });
 });
 
-// A first-time player who reforms as political capital allows, builds the Polish design and drives the machine by hand.
+// A first-time player who buys from the top of the Reforms sheet (the six that cut the cost of this line, then the
+// machine reform) and drives the machine by hand. No design command: the tunnel reform picks the twin bore.
 const WISH = [
-  'twoTracks',
   'twinBoreStandard',
-  'noMezzanines',
-  'shallowBoxes',
-  'potholeFirst',
-  'groundInvestigation',
-  'segmentPlantLogistics',
-  'rightSizeTerminal',
-  'stageGates',
   'bestValueAward',
-  'stationCatalogue',
   'inHouseEngineering',
-  'roundTheClock',
-  'itemizedContracts',
   'utilityStatute',
+  'roundTheClock',
+  'stationCatalogue',
+  'rightMachine',
 ];
 
 function player(log: { reform: string; tick: number; pc: number }[] = []): NonNullable<Parameters<typeof playMission>[1]>['each'] {
@@ -382,30 +373,17 @@ function player(log: { reform: string; tick: number; pc: number }[] = []): NonNu
     // Everything on the list that the capital in hand buys, in order, before any gate is pressed: tender fixes
     // the design and the contract prices, so a reform bought one frame later would be a reform bought too late.
     let pc = snap.politicalCapital;
-    let cash = snap.moneyCents;
     const have = new Set(snap.reforms.filter((x) => x.status === 'enacted').map((x) => x.id));
     for (const id of WISH) {
       const r = snap.reforms.find((x) => x.id === id);
-      if (!r || have.has(id) || !r.prereqs.every((x) => have.has(x)) || r.cost.pc > pc || (r.cost.cents > 0 && r.cost.cents > cash))
-        continue;
+      if (!r || have.has(id) || r.cost.pc > pc) continue;
       out.push({ t: 'enactReform', id });
       log.push({ reform: id, tick: snap.tick, pc });
       pc -= r.cost.pc;
-      cash -= r.cost.cents;
       have.add(id);
     }
     const p = snap.projects[0];
     if (!p) return out;
-    if (!p.designFrozen) {
-      for (const o of p.design.options) {
-        if ((o.id !== 'twinBore' && o.id !== 'compactBox') || o.selected || o.lockedBy.length > 0) continue;
-        out.push(
-          o.group === 'tunnel'
-            ? { t: 'setDesign', projectId: p.id, tunnel: 'twinBore' }
-            : { t: 'setDesign', projectId: p.id, stationBox: 'compactBox' },
-        );
-      }
-    }
     const t = p.tbms.find((x) => x.status !== 'done' && x.method === 'boredTwin');
     if (!t) return out;
     const control = (c: Omit<Extract<GameCommand, { t: 'tbmControl' }>, 't' | 'headingId'>) =>
@@ -442,7 +420,7 @@ describe('The Portal, played by hand', () => {
   test(`a reforming player who drives the TBM opens it in ${mmss(run.seconds)} of real time for ${usdB(project.spentCents)} (${project.receipt.ratios.yoursToPoland.toFixed(1)}x Poland, ${project.scorecard.stars} stars) against the official ${usdB(project.receipt.ghost?.costCents ?? 0)}`, () => {
     expect(run.complete).toBe(true);
     expect(snap.notices).toEqual([]);
-    // Polish design: one twin-bore drive end to end and compact boxes, chosen once the reforms unlocked them.
+    // Polish design: one twin-bore drive end to end and compact boxes, picked by the reforms that allow them.
     expect(project.design).toMatchObject({ tunnel: 'twinBore', stationBox: 'compactBox', frozen: true });
     expect(sim.state.projects[0].fronts).toHaveLength(1);
     expect(front).toMatchObject({ method: 'boredTwin', fromM: 0 });
@@ -462,13 +440,16 @@ describe('The Portal, played by hand', () => {
     const through = run.feed.filter((f) => f.kind === 'breakthrough');
     expect(through).toHaveLength(1);
     expect(through[0].text).toMatch(/^Breakthrough at Salesforce Transit Center/);
-    // Far cheaper and no later than the official plan; not yet Poland.
+    // Far cheaper and no later than the official plan, and inside the target on both halves; not yet Poland.
     expect(project.spentCents).toBeLessThan((project.receipt.ghost?.costCents ?? 0) * 0.4);
-    expect(project.receipt.ratios.yoursToPoland).toBeGreaterThan(2);
-    expect(project.receipt.ratios.yoursToPoland).toBeLessThan(8);
-    expect(project.scorecard.stars).toBeGreaterThanOrEqual(1);
-    expect(snap.objectives.find((o) => o.id === 'official-budget')?.status).toBe('done');
-    expect(snap.objectives.find((o) => o.id === 'official-date')?.status).toBe('done');
+    expect(project.receipt.ratios.yoursToPoland).toBeGreaterThan(1.2);
+    expect(project.receipt.ratios.yoursToPoland).toBeLessThan(2);
+    expect(project.scorecard.polandTarget).toMatchObject({ met: true });
+    expect(project.scorecard.stars).toBe(3);
+    expect(snap.objectives.map((o) => [o.id, o.status])).toEqual([
+      ['connect', 'done'],
+      ['near-poland', 'done'],
+    ]);
     // Lines the player removed say so, and name the reform that did it.
     const line = (id: ReceiptLineId) => {
       const l = project.receipt.lines.find((x) => x.id === id);
@@ -476,7 +457,9 @@ describe('The Portal, played by hand', () => {
       return l;
     };
     expect(line('designSystems').status).toBe('removed');
-    expect(line('designSystems').reforms).toEqual([{ id: 'twoTracks', title: 'Two tracks are enough', enacted: true }]);
+    expect(line('designSystems').reforms).toEqual([
+      { id: 'twinBoreStandard', title: 'Polish tunnel: two tracks, twin bore', enacted: true },
+    ]);
     expect(line('priceLevel').status).toBe('paid');
     expect(line('priceLevel').reforms.every((r) => !r.enacted)).toBe(true);
     expect(line('priceLevel').factor.yours).toBeCloseTo(1.61, 3);
@@ -486,10 +469,10 @@ describe('The Portal, played by hand', () => {
 
   test(`political capital: ${THE_PORTAL.start.politicalCapital} at the start buys ${reformLog.filter((r) => r.tick === 0 && (REFORMS.find((x) => x.id === r.reform)?.cost.pc ?? 0) > 0).length} reforms on day one; by opening ${sim.state.reforms.length} of ${REFORMS.length} are enacted`, () => {
     const dayOne = reformLog.filter((r) => r.tick === 0 && (REFORMS.find((x) => x.id === r.reform)?.cost.pc ?? 0) > 0);
-    // M2: the 2x Poland target needs the contract and design reforms in force at tender, so the mission starts
-    // with the capital for them (round 2 started with 40 PC and two or three reforms).
-    expect(dayOne.length).toBeGreaterThanOrEqual(8);
-    // About half the tree by the end of mission 1.
+    // The 2x Poland target needs the contract and design reforms in force at tender, so the mission starts with
+    // the capital for the six that cut the cost of this line, and for nothing else.
+    expect(dayOne.map((r) => r.reform)).toEqual(WISH.slice(0, 6));
+    // About half the list by the end of mission 1.
     expect(sim.state.reforms.length / REFORMS.length).toBeGreaterThan(0.4);
     expect(sim.state.reforms.length / REFORMS.length).toBeLessThan(0.65);
     // Earned at milestones and month by month: phases, the breakthrough, and the opening on top.

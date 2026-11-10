@@ -187,11 +187,14 @@ export function evaluateObjectives(state: SimState): GameSnapshot['objectives'] 
         break;
       }
       case 'maxRatioToPoland': {
-        if (winner && winner.polandCostCents > 0) {
-          const r = projectSpentCents(winner) / winner.polandCostCents;
-          status = r <= o.ratio ? 'done' : 'failed';
-          detail = `${r.toFixed(1)}x Poland, target ${o.ratio}x`;
-        } else detail = `target ${o.ratio}x what Poland would have paid`;
+        // The target: the cost and the time of the line that delivers the mission, each against Poland on the same
+        // route. The same two ratios as Scorecard.polandTarget.
+        if (winner && winner.polandCostCents > 0 && winner.polandDays > 0) {
+          const cost = projectSpentCents(winner) / winner.polandCostCents;
+          const time = (winner.openedTick - winner.approvedTick) / winner.polandDays;
+          status = cost <= o.ratio && time <= o.ratio ? 'done' : 'failed';
+          detail = `cost ${cost.toFixed(1)}x Poland, time ${time.toFixed(1)}x, target ${o.ratio}x on both`;
+        } else detail = `target ${o.ratio}x what Poland would have paid and taken`;
         break;
       }
       case 'minRiders': {

@@ -1,5 +1,5 @@
 /**
- * Reform and tech tree, and the cost/time profile it produces.
+ * The reforms, and the cost/time profile they produce.
  *
  * A profile is a flat record of numbers. It starts at the Bay Area status quo and each enacted reform
  * applies its effects (multiply, add or set). "Poland" is not a setting: it is the profile with every
@@ -28,7 +28,7 @@ export const EVENT_IDS = [
 ] as const;
 export type EventId = (typeof EVENT_IDS)[number];
 
-/** Status-quo profile. Reformed targets are in constants.ts; the tree below is built to reach them exactly. */
+/** Status-quo profile. Reformed targets are in constants.ts; the reforms below are built to reach them exactly. */
 export const STATUS_QUO_PROFILE = {
   // Unit prices: the product multiplies every hard cost.
   'unit.procurement': K.procurementFactor.value,
@@ -63,7 +63,8 @@ export const STATUS_QUO_PROFILE = {
   /** 1 = the bored tunnels are a 3.7 m single-lane small bore for pods, not a railway (the smallBoreLoop reform). */
   'tbm.smallBore': 0,
   // Event hazards, multipliers on the base annual rate.
-  'event.lawsuit.rate': 1,
+  /** SB 131 (the shorter lawsuit record) is law in 2026: doc 07 E4, litigation trigger probability x0.8. It was a reform every mission started with. */
+  'event.lawsuit.rate': 0.8,
   'event.lawsuit.delayCapDays': 100000,
   'event.utilitySurprise.rate': 1,
   'event.tbmStuck.rate': 1,
@@ -85,14 +86,19 @@ export interface ReformEffect {
 
 export interface ReformDef {
   id: string;
+  /** Kept for grouping only (the backlash posts, start.tech validation): the Reforms sheet is one list. */
   branch: Branch;
   title: string;
   /** One line, satirical but fair. */
   description: string;
   /** Real-world evidence reference. */
   evidence: string;
-  cost: { pc: number; cents: number };
+  /** Political capital only. `cents` is always 0 and stays for the shape of ReformView.cost. */
+  cost: { pc: number; cents: 0 };
+  /** Always empty: no reform has a prerequisite. Kept for the shape ReformView and its readers had before the merge. */
   prereqs: string[];
+  /** Ids of the 32-node tree of M2 this reform absorbed (its own old id included, where it had one). */
+  absorbs: readonly string[];
   effects: ReformEffect[];
   /** True for nodes that go past documented Polish practice; excluded from POLAND_PROFILE. */
   beyondPoland: boolean;
@@ -101,199 +107,117 @@ export interface ReformDef {
 const mul = (key: ProfileKey, value: number): ReformEffect => ({ key, op: 'mul', value });
 const add = (key: ProfileKey, value: number): ReformEffect => ({ key, op: 'add', value });
 const set = (key: ProfileKey, value: number): ReformEffect => ({ key, op: 'set', value });
-const pc = (n: number) => ({ pc: n, cents: 0 });
-const usd = (millions: number) => ({ pc: 0, cents: millions * 1e8 });
 
 function node(
   id: string,
   branch: Branch,
   title: string,
-  cost: { pc: number; cents: number },
-  prereqs: string[],
+  pc: number,
+  absorbs: readonly string[],
   effects: ReformEffect[],
   description: string,
   evidence: string,
   beyondPoland = false,
 ): ReformDef {
-  return { id, branch, title, description, evidence, cost, prereqs, effects, beyondPoland };
+  return { id, branch, title, description, evidence, cost: { pc, cents: 0 }, prereqs: [], absorbs, effects, beyondPoland };
 }
 
+/**
+ * Twelve reforms, none with a prerequisite, each priced in political capital only (owner decision, M3). They are
+ * the 32 nodes of the M2 tree merged along its prerequisite chains: every effect of every old node is in exactly
+ * one of them (the factor of each profile key is the product, or the sum, of the old ones), so the profile with
+ * nothing enacted, with everything enacted and POLAND_PROFILE are the numbers they were. What went is the states
+ * in between: half a chain can no longer be bought. The one old node that is not here is the shorter lawsuit
+ * record, in force in every mission from day one: it is part of STATUS_QUO_PROFILE now.
+ * Capital costs are game tuning, measured by the scripted runs of packages/scenarios (m3.test.ts).
+ */
 export const REFORMS: readonly ReformDef[] = [
   // ---------------------------------------------------------- permitting and law
   node(
-    'narrowRecord',
-    'permitting',
-    'Shorter lawsuit record',
-    pc(10),
-    [],
-    [mul('event.lawsuit.rate', 0.8)],
-    'The lawsuit may no longer cite every email anyone ever sent about the project.',
-    'doc 07 E4 (SB 131); litigation trigger probability x0.8',
-  ),
-  node(
-    'nepaPageLimits',
-    'permitting',
-    'Shorter environmental review',
-    pc(15),
-    [],
-    [mul('time.planning', 0.5)],
-    'The environmental statement must now be shorter than the tunnel.',
-    'doc 07 E3 (FRA 2023 assignment; EIS 3.5 years to 2)',
-  ),
-  node(
-    'megaprojectCertification',
-    'permitting',
-    'Megaproject certification',
-    pc(30),
-    ['stageGates'],
-    [mul('time.planning', 0.5), set('event.lawsuit.delayCapDays', 270)],
-    'Courts get 270 days to decide whether a railway is bad for the environment.',
-    'doc 07 E2 (SPUR rec. 9, AB 900 precedent; litigation capped at 0.75 years)',
-  ),
-  node(
     'railSpecustawa',
     'permitting',
-    'One permit, 90 days',
-    pc(45),
-    ['megaprojectCertification'],
-    [mul('time.planning', 0.5), mul('time.permitting', 0.6), mul('event.lawsuit.rate', 0.25)],
-    'One permit, a 90-day clock, and a fine for the office that misses it. Compensation is paid; vetoes are not.',
-    'doc 07 R1; doc 11 section 1.4 (specustawa: single ZRID decision, 90 days, no annulment after works start)',
+    'One permit, 90 days, local money',
+    40,
+    ['nepaPageLimits', 'megaprojectCertification', 'railSpecustawa', 'fundLocally'],
+    [
+      // Page limits, certification and the single decision each halve the review.
+      mul('time.planning', 0.5 * 0.5 * 0.5),
+      // The single decision, then no federal grant queue.
+      mul('time.permitting', 0.6 * (17 / 22.8)),
+      mul('event.lawsuit.rate', 0.25),
+      set('event.lawsuit.delayCapDays', 270),
+      mul('event.fundingGap.rate', 0.3),
+    ],
+    'A short environmental statement, one permit on a 90-day clock, courts get 270 days, and no waiting for a federal grant. Compensation is paid; vetoes are not.',
+    'doc 07 E3 (EIS 3.5 years to 2); doc 07 E2 (SPUR rec. 9: litigation capped at 0.75 years); doc 07 R1 and doc 11 section 1.4 (specustawa: single ZRID decision, 90 days); doc 07 F3 (no 2 to 4 year CIG stage; Madrid regional budget)',
   ),
   node(
     'specustawa',
     'permitting',
     'Specustawa: special zone, no permits',
-    pc(60),
-    [],
+    60,
+    ['specustawa'],
     [set('time.planning', 0), set('time.permitting', 0), mul('time.utilities', 0.5), mul('event.lawsuit.rate', 0)],
     'A special act draws a zone around the line. Inside it planning and permitting take no time, land is handed over by law and nobody may sue. Poland itself still takes 7 months.',
     'doc 11 section 1.4 (specustawa: one ZRID decision, immediately enforceable, title passes by law, no annulment after works start); doc 07 R1 (right-of-way time 2 to 8 years down to 1). Zero months goes past Polish practice, where the decision still takes 7: a game rule, not a measurement',
     true,
   ),
   node(
-    'fundLocally',
-    'permitting',
-    'Skip the federal queue',
-    pc(20),
-    [],
-    [mul('time.permitting', 17 / 22.8), mul('event.fundingGap.rate', 0.3)],
-    'Pay for it yourselves and stop waiting for a grant agreement.',
-    'doc 07 F3 (removes the 2 to 4 year CIG stage; Madrid regional budget)',
-  ),
-  node(
     'utilityStatute',
     'permitting',
-    'Utility relocation statute',
-    pc(25),
-    [],
-    [mul('time.utilities', 13 / 24), mul('unit.thirdParty', 1.05 / 1.2)],
-    'Utilities must move their pipes by a date printed in a law, not in a letter.',
-    'doc 07 U1 (SB 445 concept; utilities factor 1.2 to 1.05, time -50 percent)',
-  ),
-  node(
-    'masterPermitting',
-    'permitting',
-    'Master permitting authority',
-    pc(30),
-    ['utilityStatute'],
-    [mul('unit.thirdParty', 1 / 1.05), mul('time.constructionFactor', 1 / 1.2)],
-    'One office issues the street permits. The city may still ask for a new park, in writing, once.',
-    'doc 07 U2 (CLEE recommendation; betterment demands -70 percent)',
-  ),
-  node(
-    'potholeFirst',
-    'permitting',
-    'Pothole first',
-    usd(5),
-    [],
-    [mul('event.utilitySurprise.rate', 0)],
-    'Dig small holes to find the pipes before digging the big hole. Costs money, needs no politics.',
-    'doc 07 U3 (Van Ness grand jury: unmarked utilities)',
+    'Utilities move by law',
+    30,
+    ['utilityStatute', 'masterPermitting', 'potholeFirst'],
+    [
+      mul('time.utilities', 13 / 24),
+      mul('unit.thirdParty', (1.05 / 1.2) * (1 / 1.05)),
+      mul('time.constructionFactor', 1 / 1.2),
+      mul('event.utilitySurprise.rate', 0),
+    ],
+    'Pipes are found by digging small holes first and moved by a date printed in a law. One office issues the street permits.',
+    'doc 07 U1 (SB 445 concept; utilities factor 1.2 to 1.05, time -50 percent); doc 07 U2 (CLEE: betterment demands -70 percent); doc 07 U3 (Van Ness grand jury: unmarked utilities)',
   ),
   // ---------------------------------------------------------- procurement and staffing
   node(
-    'stageGates',
-    'procurement',
-    'Stage gates and business cases',
-    pc(15),
-    [],
-    [add('soft.contingency', -0.175)],
-    'The estimate is checked before it is announced. Half the contingency stops being a spending target.',
-    'doc 07 G2 (SPUR rec. 3 and 4); doc 06 section 3.3 ("all money in the budget will be spent")',
-  ),
-  node(
     'inHouseEngineering',
     'procurement',
-    'In-house engineering corps',
-    pc(25),
-    [],
-    [add('soft.fixed', -0.15), mul('soft.overheadPerYear', 0.5), mul('time.procurement', 0.72)],
-    'Hire engineers who work for the agency, so consultants stop supervising consultants.',
-    'doc 07 S1 (Madrid nine in-house engineers, Milan MM; soft-cost factor 1.3 to 1.05, decisions x3)',
-  ),
-  node(
-    'payBands',
-    'procurement',
-    'Competitive pay bands',
-    pc(20),
-    ['inHouseEngineering'],
-    [add('soft.fixed', -0.05)],
-    'Pay the engineers enough that they stay. A tabloid will notice.',
-    'doc 07 S2 (SPUR p.29; staff attrition halves)',
+    'In-house engineers, checked estimates',
+    40,
+    ['stageGates', 'inHouseEngineering', 'payBands', 'leanSupervision'],
+    [
+      add('soft.fixed', -0.15 - 0.05),
+      mul('soft.overheadPerYear', 0.5),
+      add('soft.contingency', -0.175),
+      mul('time.procurement', 0.72),
+      mul('unit.labour', 1.2 / 1.3),
+    ],
+    'Engineers who work for the agency, paid enough to stay. They check the estimate before it is announced, and consultants stop supervising consultants.',
+    'doc 07 S1 (Madrid nine in-house engineers; soft-cost factor 1.3 to 1.05); doc 07 S2 (SPUR p.29: staff attrition halves); doc 07 G2 (SPUR rec. 3 and 4: stage gates); doc 06 section 3.3 (Green Line Extension: 1 supervisor per 1.8 trades workers against 2.5 to 3)',
   ),
   node(
     'bestValueAward',
     'procurement',
-    'Best-value award',
-    pc(20),
-    [],
-    [mul('unit.procurement', 1 / 1.2), mul('event.changeOrder.rate', 0.5), mul('event.contractorBankruptcy.rate', 0.25)],
-    'Half the score is for knowing how to build it. The lowest bidder is no longer the only bidder that matters.',
-    'doc 07 P1 (TCP; Madrid 30/20/50 scoring); doc 06 section 2.2 (Lodz lowest-bid bankruptcy)',
-  ),
-  node(
-    'itemizedContracts',
-    'procurement',
-    'Itemized contracts',
-    pc(10),
-    ['inHouseEngineering', 'bestValueAward'],
+    'Open, itemized contracts',
+    40,
+    ['bestValueAward', 'itemizedContracts', 'openTenders', 'importSupplyChain'],
     [
-      // Best-value award (1.2) and open tenders (1.1) take the first part of the 1.5; this takes the rest.
-      mul('unit.procurement', 1.32 / 1.5),
+      // Best-value award (1.2), open tenders (1.1) and itemized change orders take the 1.5 between them.
+      mul('unit.procurement', (1 / 1.2) * (1.32 / 1.5) * (1 / 1.1)),
       add('soft.contingency', -0.175),
-      mul('event.changeOrder.rate', 0.5),
       mul('time.procurement', 12 / 16.56),
+      mul('systems.factor', 1 / 1.15),
+      mul('event.changeOrder.rate', 0.5 * 0.5),
+      mul('event.contractorBankruptcy.rate', 0.25),
     ],
-    'Changes are priced from a list agreed in advance. Someone at the agency can now read the bill of quantities.',
-    'doc 07 P2 (TCP: itemised change orders save 10 to 20 percent; Italy, Spain)',
-  ),
-  node(
-    'openTenders',
-    'procurement',
-    'Small lots, world bidders',
-    pc(25),
-    [],
-    [mul('unit.procurement', 1 / 1.1)],
-    'Split the job so more than three firms on Earth can bid for it.',
-    'doc 07 P3 (Madrid, Chile; bid prices -10 percent)',
-  ),
-  node(
-    'importSupplyChain',
-    'procurement',
-    'Buy at world prices',
-    pc(10),
-    ['openTenders'],
-    [mul('systems.factor', 1 / 1.15)],
-    'Track, power and signalling from whoever makes them best.',
-    'doc 07 F1 (Buy America waiver rule; rolling stock and systems only)',
+    'Small lots the world can bid for, half the score for knowing how to build it, changes priced from a list agreed in advance, systems from whoever makes them best.',
+    'doc 07 P1 (TCP; Madrid 30/20/50 scoring); doc 07 P2 (itemised change orders save 10 to 20 percent); doc 07 P3 (bid prices -10 percent); doc 07 F1 (Buy America waiver, systems only); doc 06 section 2.2 (Lodz lowest-bid bankruptcy)',
   ),
   node(
     'roundTheClock',
     'procurement',
     'Round-the-clock sites, lean crews',
-    pc(25),
-    [],
+    20,
+    ['roundTheClock'],
     [mul('unit.labour', 1 / 1.2), mul('time.constructionFactor', 0.8)],
     'Same wages, a negotiated premium, three shifts, and a crew sized for the machine rather than for the agreement.',
     'doc 07 L1 (Madrid 24 hours; TCP: 46 per shift on Second Avenue against 30 feasible)',
@@ -301,155 +225,63 @@ export const REFORMS: readonly ReformDef[] = [
   node(
     'emergencyAward',
     'procurement',
-    'Emergency award',
-    { pc: 20, cents: 15 * 1e8 },
-    [],
-    [mul('time.procurement', 0.5)],
-    'Shortlist three firms and pay each to price the job properly. Award in half the time; the stipends are the $15M.',
-    'doc 06 section 2.2 (Lodz: 13 months from tender to contract); the halving and the size of the stipends are game ASSUMPTIONS',
+    'Fast award, closed street',
+    40,
+    ['emergencyAward', 'parallelWorks'],
+    [mul('time.procurement', 0.5), mul('time.utilities', 0.5)],
+    'Three shortlisted firms price the job properly and the award takes half the time. The street shuts once and every utility crew works at the same time.',
+    'doc 06 section 2.2 (Lodz: 13 months from tender to contract); doc 07 section 4 (right-of-way and utilities take 2 to 8 years). Both halvings are game ASSUMPTIONS',
     true,
-  ),
-  node(
-    'parallelWorks',
-    'procurement',
-    'Close the street, every crew at once',
-    { pc: 30, cents: 40 * 1e8 },
-    [],
-    [mul('time.utilities', 0.5)],
-    'Shut the street once and let every utility crew work at the same time. Half the time; compensating the shops is the $40M.',
-    'doc 07 section 4 (right-of-way and utilities take 2 to 8 years); full closure against staged traffic management, the halving and the size of the compensation are game ASSUMPTIONS',
-    true,
-  ),
-  node(
-    'leanSupervision',
-    'procurement',
-    'Supervision at international ratios',
-    pc(15),
-    ['inHouseEngineering'],
-    [mul('unit.labour', 1.2 / 1.3)],
-    'One supervisor per three workers instead of one per two. The workers were consulted and are fine.',
-    'doc 06 section 3.3 (Green Line Extension: 1 supervisor per 1.8 trades workers against a 2.5 to 3 norm)',
   ),
   // ---------------------------------------------------------- design standards
   node(
-    'twoTracks',
+    'twinBoreStandard',
     'design',
-    'Two tracks are enough',
-    pc(15),
-    [],
-    [set('design.threeTrack', 0)],
-    'A third track for trains that may arrive in a few decades is removed from the tunnel, the box and the systems.',
-    'doc 05 section 3.1 (3-track tunnel; "CHSRA may not arrive for decades"); doc 11 section 6.2 (190 m2 mined section)',
-  ),
-  node(
-    'shallowBoxes',
-    'design',
-    'Shallow, compact boxes',
-    pc(10),
-    [],
-    [set('design.deepBox', 0)],
-    'The tunnel goes one level under the street instead of two.',
-    'doc 06 section 3.3 (TCP: box depth and length drive station and cut-and-cover cost); doc 11 section 6.2 (22 m by 18 m box)',
-  ),
-  node(
-    'noMezzanines',
-    'design',
-    'No full-length mezzanines',
-    pc(15),
-    [],
-    [set('design.oversizeStations', 0)],
-    'The station box is as long as the train. The concourse the size of the platform is dropped.',
-    'doc 06 section 3.3 (TCP station overbuilding 2.06x in New York; boxes 2 to 2.6 platform lengths) and section 7.5 (1.6 for the Bay Area)',
+    'Polish tunnel: two tracks, twin bore',
+    40,
+    ['twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
+    [set('design.threeTrack', 0), set('design.deepBox', 0), set('design.terminalOversize', 0), set('design.twinBoreDefault', 1)],
+    'Two ordinary 6.6 m tubes one level under the street, as in Warsaw, and a terminal for the trains of this decade. Enacted before tender it redraws your tunnels as twin bore.',
+    'doc 05 section 3.1 (3-track tunnel, 6 terminal tracks; "CHSRA may not arrive for decades"); doc 06 sections 2.1 and 3.1 (Warsaw twin 6.3 m EPB); doc 11 sections 6.2 and 6.4 (190 m2 mined section; single bore is a x2.2 design gap)',
   ),
   node(
     'stationCatalogue',
     'design',
-    'Standard station catalogue',
-    pc(15),
-    [],
-    [set('design.bespoke', 0), mul('systems.factor', 1 / 1.15)],
-    'Every station is the last station again. Each city may pick the tile colour.',
-    'doc 07 S3 (Madrid copy-paste stations); doc 06 section 7.5 (systems standardisation 1.15)',
-  ),
-  node(
-    'rightSizeTerminal',
-    'design',
-    'Right-size the terminal',
-    pc(10),
-    [],
-    [set('design.terminalOversize', 0)],
-    'Fit out the platforms that will see a train this decade.',
-    'doc 05 section 3.1 (6 tracks and 3 island platforms at the Transit Center)',
-  ),
-  node(
-    'twinBoreStandard',
-    'design',
-    'Twin-bore standard',
-    pc(10),
-    ['twoTracks'],
-    [set('design.twinBoreDefault', 1)],
-    'Two ordinary 6.6 m tubes become the standard, as in Warsaw. Unlocks twin bore and redraws caverns as twin tubes.',
-    'doc 06 sections 2.1 and 3.1 (Warsaw twin 6.3 m EPB; BART SV II single-bore dispute); doc 11 section 6.4 (single bore is a x2.2 design gap)',
+    'Standard compact stations',
+    30,
+    ['noMezzanines', 'stationCatalogue'],
+    [set('design.oversizeStations', 0), set('design.bespoke', 0), mul('systems.factor', 1 / 1.15)],
+    'The box is as long as the train and every station is the last station again. Each city may pick the tile colour.',
+    'doc 06 section 3.3 (TCP station overbuilding 2.06x in New York) and section 7.5 (1.6 for the Bay Area; systems standardisation 1.15); doc 07 S3 (Madrid copy-paste stations)',
   ),
   // ---------------------------------------------------------- tunnelling technology
   node(
-    'groundInvestigation',
-    'tunnelling',
-    'Ground investigation programme',
-    usd(20),
-    [],
-    [mul('event.tbmStuck.rate', 0.3)],
-    'Drill boreholes before the machine finds out what is down there.',
-    'doc 06 section 2.2 (Lodz: collapse above TBM Katarzyna, machine idle since Nov 2024); doc 11 section 3.3 (S19: 17 months against 9 planned)',
-  ),
-  node(
-    'segmentPlantLogistics',
-    'tunnelling',
-    'Segment plant and conveyors',
-    usd(30),
-    [],
-    [mul('tbm.rate', 1.1), mul('tbm.breakdown', 0.6)],
-    'The machine stops waiting for rings and muck trucks.',
-    'doc 06 section 6.3 (machines bore 20 to 40 percent of the time; Warsaw 10 to 12 m/day)',
-  ),
-  node(
     'rightMachine',
     'tunnelling',
-    'Right machine for the ground',
-    usd(25),
-    ['groundInvestigation'],
-    [set('tbm.geologyRelief', 0.5), mul('event.tbmStuck.rate', 0.5)],
-    'Variable-density TBM for Bay Mud and mixed faces. Costs more than hoping.',
-    'doc 06 sections 6.1 and 7.4 (machine type by ground; wrong machine: rate x0.3)',
-  ),
-  node(
-    'continuousAdvance',
-    'tunnelling',
-    'Continuous advance',
-    usd(40),
-    ['segmentPlantLogistics'],
-    [mul('tbm.rate', 1.6)],
-    'Rings go in while the machine keeps pushing. The 1.6x is the manufacturer speaking.',
-    'doc 06 section 6.6 (Herrenknecht: up to 1.6x daily advance; manufacturer figure, not independently verified)',
-    true,
+    'Know the ground, pick the machine',
+    20,
+    ['groundInvestigation', 'segmentPlantLogistics', 'rightMachine'],
+    [mul('event.tbmStuck.rate', 0.3 * 0.5), mul('tbm.rate', 1.1), mul('tbm.breakdown', 0.6), set('tbm.geologyRelief', 0.5)],
+    'Boreholes before the machine finds out what is down there, a machine built for that ground, and a segment plant so it stops waiting for rings.',
+    'doc 06 section 2.2 (Lodz: collapse above TBM Katarzyna), sections 6.1 and 7.4 (machine type by ground), section 6.3 (machines bore 20 to 40 percent of the time); doc 11 section 3.3 (S19: 17 months against 9 planned)',
   ),
   node(
     'prufrockClass',
     'tunnelling',
-    'Mile-a-week machine (claimed)',
-    usd(100),
-    ['continuousAdvance'],
-    [mul('tbm.rate', 2)],
-    'A vendor claim nobody has measured. The game gives you 2x.',
-    'doc 06 section 6.5 (Prufrock: 1 mile/week claimed; LVCC bores about 15 m/day with a conventional machine)',
+    'Faster machines (claimed)',
+    30,
+    ['continuousAdvance', 'prufrockClass'],
+    [mul('tbm.rate', 1.6 * 2)],
+    'Rings go in while the machine keeps pushing, then a mile a week. Both figures are the vendors speaking; the game gives you 3.2x.',
+    'doc 06 section 6.6 (Herrenknecht: up to 1.6x daily advance, manufacturer figure) and section 6.5 (Prufrock: 1 mile/week claimed; LVCC bores about 15 m/day with a conventional machine)',
     true,
   ),
   node(
     'smallBoreLoop',
     'tunnelling',
     'The Vegas-style small bore',
-    { pc: 15, cents: 60 * 1e8 },
-    [],
+    50,
+    ['smallBoreLoop'],
     [set('tbm.smallBore', 1)],
     'One 3.7 m single-lane bore instead of two railway tubes, launched from a surface ramp. Much cheaper and faster. The catch: no train fits. Pods only.',
     'Precedent: The Boring Company, Las Vegas Convention Center Loop (twin 3.7 m bores of about 1.3 km each, opened 2021, cars with drivers); doc 06 section 6.5. The cost, speed and capacity factors are game assumptions (constants.ts smallBore*), UNVERIFIED',
@@ -458,16 +290,49 @@ export const REFORMS: readonly ReformDef[] = [
 ];
 
 /**
+ * Old reform id to the reform that absorbed it, for saves written before the merge (sim.ts migrateV2). `null`: the
+ * old reform is part of the status quo now and is dropped. An id that is neither here nor a current reform fails
+ * the load.
+ */
+export const REFORM_MIGRATION: Readonly<Record<string, string | null>> = (() => {
+  const table: Record<string, string | null> = { narrowRecord: null };
+  for (const r of REFORMS) {
+    for (const old of r.absorbs) {
+      if (Object.hasOwn(table, old)) throw new Error(`sim: reform "${old}" is absorbed twice (by "${table[old]}" and "${r.id}")`);
+      table[old] = r.id;
+    }
+  }
+  return table;
+})();
+
+/** Reform ids of an old save as the current ones: mapped, in order, without repeats. Throws on an id nobody absorbed. */
+export function migrateReformIds(ids: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!Object.hasOwn(REFORM_MIGRATION, id)) {
+      if (id === POLISH_PRICE_LEVEL.id) {
+        if (!out.includes(id)) out.push(id);
+        continue;
+      }
+      throw new Error(`sim: save names reform "${id}", which no longer exists and has no successor in REFORM_MIGRATION`);
+    }
+    const now = REFORM_MIGRATION[id];
+    if (now !== null && !out.includes(now)) out.push(now);
+  }
+  return out;
+}
+
+/**
  * Not a reform: the Polish price level. Wages, rents and materials cost 1.61 times more in the Bay Area at the
  * market exchange rate (doc 11 sections 4.2 and 5.1), and nothing the player can enact changes that. It is part
- * of POLAND_PROFILE so that "what Poland would have paid" is priced in Poland; the tree never offers it and
+ * of POLAND_PROFILE so that "what Poland would have paid" is priced in Poland; the list never offers it and
  * enactReform refuses it.
  */
 export const POLISH_PRICE_LEVEL: ReformDef = node(
   'polishPriceLevel',
   'procurement',
   'Polish price level',
-  pc(0),
+  0,
   [],
   [set('unit.priceLevel', 1)],
   'Build it in Poland.',

@@ -443,8 +443,11 @@ export interface LedgerState {
   monthly: number[];
 }
 
-/** 2: sub-steps, driven headings, design choices, feed, hand dig (round 2). Version 1 saves are migrated on load. */
-export const SCHEMA_VERSION = 2;
+/**
+ * 2: sub-steps, driven headings, design choices, feed, hand dig (round 2). 3: the twelve merged reforms (M3).
+ * Version 1 and 2 saves are migrated on load.
+ */
+export const SCHEMA_VERSION = 3;
 
 export interface SimState extends SimStateV {
   schemaVersion: number;
@@ -676,24 +679,26 @@ export interface ScoreColumn {
   source: string;
 }
 
-export const STAR_AXES = ['cost', 'date', 'riders'] as const;
-export type StarAxis = (typeof STAR_AXES)[number];
-
 export interface Scorecard {
   projectId: string;
   /** False while the line is not open: every "yours" figure is then a forecast. */
   final: boolean;
   yours: ScoreColumn;
-  /** The sponsor's figure, or the model's status-quo run when the project has no real counterpart. */
+  /** The official plan: the sponsor's figure, or the model's status-quo run when the project has no real counterpart. */
   ghost: ScoreColumn;
   poland: ScoreColumn;
+  /** Information only: riders do not move the stars. */
   ridersPerDay: number;
   costPerRiderCents: number;
-  /** 0 to 3: the minimum of the axes. */
-  stars: number;
-  /** One line that says how `stars` follows from the axes, and which axis holds it down. */
+  /**
+   * 0 while the line is not open. Open: 1, plus 1 when the cost is at most 2x Poland, plus 1 when the time is
+   * (receipt.ts starsOf, from `polandTarget`).
+   */
+  stars: 0 | 1 | 2 | 3;
+  /** One line that says which halves of the target the stars stand for. */
   starsReason?: string;
-  axes: { id: StarAxis; stars: number; reason: string }[];
+  /** Not produced since M3 (the three-axis rating is gone). Optional so a fixture that still carries it compiles. */
+  axes?: { id: string; stars: number; reason: string }[];
   /** One sentence for the top of the card, numbers from the columns. */
   verdict: string;
   /** The win target stated in the briefing: at most `limit` times Poland's cost and at most `limit` times Poland's time. */
@@ -1161,21 +1166,27 @@ export interface ReformView {
   title: string;
   description: string;
   evidence: string;
+  /** Political capital. `cents` is always 0 since M3: one currency per reform. */
   cost: { pc: number; cents: number };
+  /** Always empty since M3: no reform has a prerequisite. */
   prereqs: string[];
   effects: { key: string; op: 'mul' | 'add' | 'set'; value: number }[];
   beyondPoland: boolean;
+  /** Never 'locked' since M3: what is not enacted is available, and only its price can block it. */
   status: 'enacted' | 'available' | 'locked';
   // ---- round 2
   /** Available and the player has the political capital and cash. */
   affordable: boolean;
-  /** Why it cannot be enacted now ("Needs Stage gates first", "Costs 30 political capital, you have 12"), or null. */
+  /** Why it cannot be enacted now ("Costs 40 political capital, you have 12"), or null. */
   blockedReason: string | null;
   /** Effect on the mission project. Null when enacted, or when there is no project to measure against. */
   preview: ReformPreview | null;
   /** Receipt lines this reform shrinks or removes. */
   receiptLines: ReceiptLineId[];
-  /** Design options this reform unlocks. */
+  /**
+   * Design options this reform unlocks. The reform that unlocks the twin bore also selects it for every line
+   * whose design can still change, and its preview is of both.
+   */
   unlocks: DesignOptionId[];
 }
 

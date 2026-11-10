@@ -20,7 +20,7 @@
  */
 import type { MissionResult } from '@bayvox/core';
 import { DAYS_PER_YEAR } from './constants.ts';
-import { dateAtTick, isoToDays, monthYear } from './dates.ts';
+import { dateAtTick, isoToDays } from './dates.ts';
 import type { DesignRun, Forecast } from './forecast.ts';
 import { designFlags, hardCost, type ProjectGeometry, polishGeometry } from './model.ts';
 import { POLAND_PROFILE, type ProfileKey, profileFor, REFORMS } from './reforms.ts';
@@ -40,7 +40,6 @@ import {
   type ScenarioDef,
   type ScoreColumn,
   type Scorecard,
-  type StarAxis,
 } from './types.ts';
 
 interface LineDef {
@@ -98,7 +97,8 @@ export const RECEIPT_LINE_DEFS: Record<ReceiptLineId, LineDef> = {
   reformCash: {
     group: 'institutional',
     label: 'Reforms and machines bought with cash',
-    evidence: 'your own purchases in the reform tree: surveys, plant and machines are paid by the project they are bought for',
+    evidence:
+      'cash paid for reforms in a game saved before they were priced in political capital only; no reform costs cash now, so the line is zero in a new game',
   },
   escalation: {
     group: 'delay',
@@ -471,17 +471,6 @@ export function yoursColumn(
 
 // ---------------------------------------------------------------- scorecard
 
-/** Stars by where a figure sits between Poland (0) and the ghost (1): 3 up to a quarter of the way, 2 up to 0.6, 1 below the ghost. */
-const THREE_STARS = 0.25;
-const TWO_STARS = 0.6;
-
-function starsAt(position: number): number {
-  if (position <= THREE_STARS) return 3;
-  if (position <= TWO_STARS) return 2;
-  if (position < 1) return 1;
-  return 0;
-}
-
 function money(cents: number): string {
   return Math.abs(cents) >= 1e11 ? `$${(cents / 1e11).toFixed(2)}B` : `$${(cents / 1e8).toFixed(0)}M`;
 }
@@ -489,11 +478,21 @@ function money(cents: number): string {
 export interface ScoreInput {
   receipt: Receipt;
   ridersPerDay: number;
-  /** Riders the reference plan would carry, or 0 when the scenario has none. */
-  referenceRiders: number;
   /** Scenario start, for years-to-open of the ghost. */
   start: string;
   polandSource: string;
+}
+
+/**
+ * Stars of a line (owner decision, M3): none until it is open, 1 for opening it, 2 when one half of the target
+ * is met (cost at most 2x Poland, or time at most 2x Poland), 3 when both are. Riders and housing are on the
+ * card as information and do not move the stars.
+ */
+export function starsOf(final: boolean, target: PolandTarget): 0 | 1 | 2 | 3 {
+  if (!final) return 0;
+  const cost = target.costRatio > 0 && target.costRatio <= target.limit;
+  const time = target.timeRatio > 0 && target.timeRatio <= target.limit;
+  return cost && time ? 3 : cost || time ? 2 : 1;
 }
 
 export function buildScorecard(i: ScoreInput): Scorecard {
@@ -518,7 +517,7 @@ export function buildScorecard(i: ScoreInput): Scorecard {
         costCents: r.ghost.costCents,
         costPerKmCents: r.ghost.costPerKmCents,
         lengthKm: r.ghost.lengthKm,
-        // A sponsor figure without a date (Dumbarton) has none here either: '' and 0, and the date axis is scored on the model.
+        // A sponsor figure without a date (Dumbarton) has none here either: '' and 0.
         openDate: r.ghost.openDate,
         yearsToOpen: r.ghost.openDate ? (isoToDays(r.ghost.openDate) - isoToDays(i.start)) / DAYS_PER_YEAR : 0,
         source: r.ghost.source,
@@ -543,49 +542,20 @@ export function buildScorecard(i: ScoreInput): Scorecard {
     yearsToOpen: pl.yearsToOpen,
     source: i.polandSource,
   };
-
-  // Cost: position on a log scale between Poland's cost per km and the ghost's.
-  const rYours = ratio(yours.costPerKmCents, poland.costPerKmCents);
-  // The sponsor figure is measured against Poland on the sponsor's route (GhostView.polandPerKmCents).
-  const rGhost = r.ratios.ghostToPoland ?? ratio(ghost.costPerKmCents, poland.costPerKmCents);
-  let costStars: number;
-  if (yours.costPerKmCents <= 0) costStars = 0;
-  else if (rGhost > 1.05) costStars = starsAt(rYours <= 1 ? 0 : Math.log(rYours) / Math.log(rGhost));
-  else costStars = rYours <= 1.05 ? 3 : rYours <= 1.5 ? 2 : rYours <= 2 ? 1 : 0;
-  const costReason = `${money(yours.costPerKmCents)} per km: ${rYours.toFixed(1)}x Poland, where ${ghost.label} is ${rGhost.toFixed(1)}x`;
-
-  // Date: position between Poland's years to open and the ghost's; without a sponsor date, the model's status quo.
-  const dated = ghost.openDate !== '';
-  const slowYears = dated ? ghost.yearsToOpen : q.yearsToOpen;
-  const span = slowYears - poland.yearsToOpen;
-  let dateStars: number;
-  if (span > 0.25) dateStars = starsAt((yours.yearsToOpen - poland.yearsToOpen) / span);
-  else dateStars = yours.yearsToOpen <= poland.yearsToOpen + 0.5 ? 3 : yours.yearsToOpen <= poland.yearsToOpen + 1.5 ? 2 : 1;
-  const dateReason = `${r.final ? 'Opened' : 'Opens'} ${monthYear(yours.openDate)}, ${yours.yearsToOpen.toFixed(1)} years: Poland ${poland.yearsToOpen.toFixed(1)}, ${dated ? ghost.label : 'the status quo'} ${slowYears.toFixed(1)}`;
-
-  // Riders: against the reference plan when there is one, else per route-km.
-  let riderStars: number;
-  let riderReason: string;
-  if (i.referenceRiders > 0) {
-    const share = i.ridersPerDay / i.referenceRiders;
-    riderStars = share >= 0.9 ? 3 : share >= 0.6 ? 2 : share >= 0.3 ? 1 : 0;
-    riderReason = `${i.ridersPerDay.toLocaleString('en-US')} riders a day, ${Math.round(share * 100)} percent of the reference plan`;
-  } else {
-    const perKm = yours.lengthKm > 0 ? i.ridersPerDay / yours.lengthKm : 0;
-    riderStars = perKm >= 3000 ? 3 : perKm >= 1500 ? 2 : perKm > 0 ? 1 : 0;
-    riderReason = `${i.ridersPerDay.toLocaleString('en-US')} riders a day, ${Math.round(perKm).toLocaleString('en-US')} per route-km`;
-  }
-  const axes: { id: StarAxis; stars: number; reason: string }[] = [
-    { id: 'cost', stars: costStars, reason: costReason },
-    { id: 'date', stars: dateStars, reason: dateReason },
-    { id: 'riders', stars: riderStars, reason: riderReason },
-  ];
-  const stars = Math.min(costStars, dateStars, riderStars);
-  const AXIS_NAME: Record<StarAxis, string> = { cost: 'cost', date: 'opening date', riders: 'riders' };
-  const weakest = axes.filter((a) => a.stars === stars).map((a) => AXIS_NAME[a.id]);
-  const starsReason = stars === 3 ? 'Three stars on every axis.' : `Rating is your weakest axis: ${weakest.join(' and ')}.`;
-  const tense = r.final ? 'You paid' : 'You are on course to pay';
-  const verdict = `${tense} ${money(yours.costCents)}: ${rYours.toFixed(1)}x Poland per km. ${ghost.label}: ${rGhost.toFixed(1)}x.`;
+  const polandTarget = polandTargetOf(yours, poland);
+  const stars = starsOf(r.final, polandTarget);
+  const limit = polandTarget.limit;
+  const costX = `${polandTarget.costRatio.toFixed(1)}x`;
+  const timeX = `${polandTarget.timeRatio.toFixed(1)}x`;
+  let starsReason: string;
+  if (stars === 0) starsReason = 'No stars until the line is open.';
+  else if (stars === 3) starsReason = `Open, and within ${limit}x Poland on cost and on time.`;
+  else if (stars === 2) {
+    const costMet = polandTarget.costRatio <= limit;
+    starsReason = `Open, and within ${limit}x Poland on ${costMet ? 'cost' : 'time'}. ${costMet ? `Time is ${timeX}` : `Cost is ${costX}`}.`;
+  } else starsReason = `Open. Cost is ${costX} Poland and time ${timeX}: the target is ${limit}x on both.`;
+  // One number to beat: the cost against Poland. The time ratio and the official plan are lines of their own on the card.
+  const verdict = `${r.final ? 'You paid' : 'You are on course to pay'} ${money(yours.costCents)}: ${costX} Poland.`;
   return {
     projectId: r.projectId,
     final: r.final,
@@ -596,9 +566,8 @@ export function buildScorecard(i: ScoreInput): Scorecard {
     costPerRiderCents: i.ridersPerDay > 0 ? Math.round(yours.costCents / i.ridersPerDay) : 0,
     stars,
     starsReason,
-    axes,
     verdict,
-    polandTarget: polandTargetOf(yours, poland),
+    polandTarget,
   };
 }
 

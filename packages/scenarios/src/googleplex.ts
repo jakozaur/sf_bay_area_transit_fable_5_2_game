@@ -1,7 +1,7 @@
 /**
- * Googleplex spur: a fantasy branch between San Antonio Caltrain and the Googleplex, with Bay View as the
- * stretch (doc 05 section 5 anchors, doc 08 section 4.7 "a campus branch"). No agency has proposed it and
- * there is no official cost. The alignment is authored for the game and is fictional.
+ * Googleplex spur: a fantasy branch between San Antonio Caltrain and the Googleplex (doc 05 section 5
+ * anchors, doc 08 section 4.7 "a campus branch"). No agency has proposed it and there is no official cost.
+ * The stretch objective to Bay View went in M3: a mission has its connections and the one target. The alignment is authored for the game and is fictional.
  *
  * M2 (owner, 2026-11-10): the spur starts at San Antonio station, not Mountain View station: a straight
  * 2.6 km drive in place of 4.3 km round a curve, and one station fewer.
@@ -21,14 +21,13 @@
  * station (UNVERIFIED: the site DEM stops at the freeway).
  */
 import type { GameCommand, ScenarioDef } from '@bayvox/sim';
-import { cameraOver, EXISTING_CALTRAIN, usd, world, wp } from './helpers.ts';
+import { cameraOver, EXISTING_CALTRAIN, POLAND_TARGET, usd, world, wp } from './helpers.ts';
 import { HOUSING_NORTH_BAYSHORE, HOUSING_SAN_ANTONIO } from './housing.ts';
 
 export const GOOGLEPLEX_PROJECT_ID = 'googleplex-spur';
 
 const SAN_ANTONIO = world(46529.25, -23963.25);
 const GOOGLEPLEX = world(48574.1, -25554.9);
-const BAY_VIEW = world(50341.2, -25508.0);
 /** Launch pit and terminus north of Charleston Road, 170 m from Building 43. */
 const GOOGLEPLEX_STATION = world(48650, -25400);
 /** Where the straight line leaves the googleplex voxel site, under US-101. */
@@ -71,7 +70,8 @@ export const GOOGLEPLEX_SPUR: ScenarioDef = {
   description: 'A 2.6 km tunnel from San Antonio Caltrain to Google. Allow homes at the stations so it pays. Fictional.',
   briefing: {
     what: 'A fictional 2.6 km twin-bore branch: San Antonio Caltrain, north-east under US-101 to a station beside the Googleplex. Two stations, one straight drive. Nobody has proposed it.',
-    officialCost: "None. You race the game's estimate under today's rules.",
+    // One line (M3): the model's status quo, since no sponsor figure exists (m3.test.ts).
+    officialCost: "None. The game's estimate under today's rules: $5.92 billion, 11.7x Poland.",
     officialDate: 'No official date exists.',
     why: 'North Bayshore has about 45,000 jobs and no railway. San Antonio is the nearest Caltrain station to the campus, so the tunnel is short; the riders have to come from homes you allow around it.',
     source: "doc 05 section 5 (campus locations); a fictional project, and the jobs figure is the game's own estimate",
@@ -80,9 +80,11 @@ export const GOOGLEPLEX_SPUR: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(4e8),
     // The three mainline-terminal mandates are The Portal's; they do not apply to a metro-style spur.
-    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['twinBoreStandard'],
     tech: [],
-    politicalCapital: 50,
+    // M3: enough for four or five of the eleven reforms on offer before tender. The cost half of the 2x target is
+    // reached by buying from the top of the sheet and missed in list order or cheapest first (m3.test.ts).
+    politicalCapital: 160,
     funding: [
       {
         id: 'employer',
@@ -106,23 +108,7 @@ export const GOOGLEPLEX_SPUR: ScenarioDef = {
       b: { name: 'Googleplex', ...GOOGLEPLEX },
       radiusM: 650,
     },
-    {
-      id: 'bay-view',
-      title: 'Stretch: continue to Bay View',
-      kind: 'connect',
-      a: { name: 'San Antonio Caltrain', ...SAN_ANTONIO },
-      b: { name: 'Google Bay View', ...BAY_VIEW },
-      radiusM: 500,
-      stretch: true,
-    },
-    // The tunnel alone carries about 1,700 (cost-benefit table): the objective is met by allowing homes at a station.
-    {
-      id: 'riders',
-      title: 'Carry 2,500 riders a day (needs homes)',
-      kind: 'minRiders',
-      riders: 2_500,
-    },
-    { id: 'near-poland', title: 'Stretch: pay no more than 2x what Poland would', kind: 'maxRatioToPoland', ratio: 2, stretch: true },
+    POLAND_TARGET,
   ],
   costProfile: 'bayAreaStatusQuo',
   housing: [HOUSING_NORTH_BAYSHORE, HOUSING_SAN_ANTONIO],

@@ -43,11 +43,13 @@ describe('The Portal: reforms and gates', () => {
     // The second playtest: 13 PC at tender, 90 at the launch gate, four reforms there, 8.14x to 3.90x.
     expect(atGate.politicalCapital).toBeGreaterThan(80);
     const before = atGate.projects[0].receipt.columns.yours.costCents;
-    for (const id of ['bestValueAward', 'openTenders', 'roundTheClock', 'leanSupervision', 'utilityStatute'])
-      late.dispatch([{ t: 'enactReform', id }]);
+    const CONTRACT = ['bestValueAward', 'roundTheClock', 'utilityStatute'];
+    for (const id of CONTRACT) late.dispatch([{ t: 'enactReform', id }]);
+    expect(late.snapshot().notices).toEqual([]);
     const after = late.snapshot().projects[0].receipt;
-    // Round-the-clock sites still shorten the works (escalation, the standing organisation); the unit prices stay.
-    expect(after.columns.yours.costCents).toBeGreaterThan(before * 0.85);
+    // The unit prices stay what the contracts say. What these reforms do outside the contract still applies:
+    // shorter works, no contingency policy on the money not yet spent.
+    expect(after.columns.yours.costCents).toBeLessThan(before);
     for (const id of ['procurement', 'staffing', 'utilities'] as const) {
       const line = after.lines.find((l) => l.id === id);
       expect(line?.factor.yours, id).toBeCloseTo(line?.factor.statusQuo ?? 0, 6);
@@ -59,33 +61,60 @@ describe('The Portal: reforms and gates', () => {
     toGate(early, 'advancePhase');
     // At the tender gate the game says what the gate fixes, and the same capital buys the same reforms where they count.
     expect(early.snapshot().nextAction.hint).toMatch(/Tender locks the design and the contract prices/);
-    early.dispatch([{ t: 'enactReform', id: 'bestValueAward' }]);
-    early.dispatch([{ t: 'enactReform', id: 'roundTheClock' }]);
+    for (const id of CONTRACT) early.dispatch([{ t: 'enactReform', id }]);
     expect(early.snapshot().notices).toEqual([]);
     early.dispatch([{ t: 'advancePhase', projectId: PORTAL_PROJECT_ID }]);
     const tendered = early.snapshot().projects[0].receipt;
-    expect(tendered.columns.yours.costCents).toBeLessThan(before * 0.8);
-    expect(tendered.lines.find((l) => l.id === 'procurement')?.factor.yours).toBeLessThan(1.3);
+    // The same three reforms, bought five months earlier: the three unit-price lines are gone and the line costs
+    // well under what the late buyer pays.
+    expect(tendered.columns.yours.costCents).toBeLessThan(after.columns.yours.costCents * 0.7);
+    for (const id of ['procurement', 'staffing', 'utilities'] as const) {
+      const line = tendered.lines.find((l) => l.id === id);
+      expect(line?.factor.yours, id).toBeLessThan(line?.factor.statusQuo ?? 0);
+    }
+    expect(tendered.lines.find((l) => l.id === 'procurement')?.factor.yours).toBeCloseTo(1, 6);
   });
 
-  test('the twin bore of the official redesign costs two reforms, not one and a free click', () => {
+  test('the twin bore of the official redesign is one reform and no trip to the design sheet', () => {
     const sim = official();
-    sim.dispatch([{ t: 'enactReform', id: 'twoTracks' }]);
-    const twin = sim.snapshot().projects[0].design.options.find((o) => o.id === 'twinBore');
-    expect(twin?.lockedBy.map((l) => l.reformId)).toEqual(['twinBoreStandard']);
+    sim.dispatch([{ t: 'setSpeed', speed: 0 }]);
+    const design = () => sim.snapshot().projects[0].design;
+    expect(design().tunnel).toBe('mixed');
+    expect(
+      design()
+        .options.find((o) => o.id === 'twinBore')
+        ?.lockedBy.map((l) => l.reformId),
+    ).toEqual(['twinBoreStandard']);
     const standard = sim.snapshot().reforms.find((r) => r.id === 'twinBoreStandard');
-    expect(standard?.affordable).toBe(true);
-    // Two tracks (15), the standard (10) and the mezzanines (15): 40 PC, the whole capital of round 2.
-    expect(standard?.cost.pc).toBe(10);
-    expect(standard?.preview?.costDeltaCents).toBeLessThan(-2e10);
-    sim.dispatch([
-      { t: 'enactReform', id: 'twinBoreStandard' },
-      { t: 'enactReform', id: 'noMezzanines' },
-    ]);
+    expect(standard).toMatchObject({ affordable: true, cost: { pc: 40, cents: 0 }, unlocks: ['twinBore'] });
+    // The biggest saving on this line, and the first row of a sheet sorted by saving.
+    const savings = sim
+      .snapshot()
+      .reforms.map((r) => ({ id: r.id, saved: -(r.preview?.costDeltaCents ?? 0) }))
+      .sort((a, b) => b.saved - a.saved);
+    expect(savings[0].id).toBe('twinBoreStandard');
+    expect(standard?.preview?.costDeltaCents).toBeLessThan(-2e11);
+    const before = sim.snapshot().projects[0].receipt.columns.yours.costCents;
+    sim.dispatch([{ t: 'enactReform', id: 'twinBoreStandard' }]);
     expect(sim.snapshot().notices).toEqual([]);
     expect(sim.snapshot().politicalCapital).toBe(THE_PORTAL.start.politicalCapital - 40);
-    sim.dispatch([{ t: 'setDesign', projectId: PORTAL_PROJECT_ID, tunnel: 'twinBore', stationBox: 'compactBox' }]);
-    expect(sim.snapshot().projects[0].design).toMatchObject({ tunnel: 'twinBore', stationBox: 'compactBox' });
+    // The official mined cavern and cut-and-cover boxes are twin bore now, and the preview was the saving to the cent.
+    expect(design()).toMatchObject({ tunnel: 'twinBore', frozen: false });
+    expect(sim.snapshot().projects[0].segments.every((x) => x.method === 'boredTwin')).toBe(true);
+    expect(sim.snapshot().projects[0].receipt.columns.yours.costCents - before).toBe(standard?.preview?.costDeltaCents);
+    // The station reform makes the box compact the same way: the mandate goes, the design follows.
+    sim.dispatch([{ t: 'enactReform', id: 'stationCatalogue' }]);
+    expect(design()).toMatchObject({ tunnel: 'twinBore', stationBox: 'compactBox' });
+    // After tender neither reform moves the design.
+    const late = official();
+    late.dispatch([{ t: 'approveProject', projectId: PORTAL_PROJECT_ID }]);
+    toGate(late, 'advancePhase');
+    late.dispatch([
+      { t: 'advancePhase', projectId: PORTAL_PROJECT_ID },
+      { t: 'enactReform', id: 'twinBoreStandard' },
+    ]);
+    expect(late.state.reforms).toContain('twinBoreStandard');
+    expect(late.snapshot().projects[0].design).toMatchObject({ tunnel: 'mixed', frozen: true });
   });
 
   test('the campus missions and free build start with the standard their twin-bore plans are drawn to', () => {

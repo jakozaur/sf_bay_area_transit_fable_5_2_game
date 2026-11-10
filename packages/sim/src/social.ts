@@ -53,7 +53,7 @@ export const SOCIAL_HANDLES: readonly string[] = [
  * spent too), the rest come from `personal` and `pileOn`.
  * The voice: wounded residents catastrophising about trivial losses, aimed at the player ("you"). No post names
  * the game's currency or any other mechanic; SOCIAL_BANNED is the test for that.
- * Placeholders: `{what}` the thing that was decided, in the words of the reform tree or the event card;
+ * Placeholders: `{what}` the thing that was decided, in the words of the reform list or the event card;
  * `{usd}` the cash spent ("$60M"); `{div:N}` the cash in dollars divided by N. `money` templates are only drawn
  * when cash was spent.
  */

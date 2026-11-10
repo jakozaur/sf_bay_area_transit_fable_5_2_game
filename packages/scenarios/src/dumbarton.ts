@@ -1,6 +1,6 @@
 /**
- * Dumbarton to Meta: Redwood City Caltrain along the Dumbarton right-of-way to Meta at Willow Road,
- * optionally on across the Bay to Newark and Union City BART (doc 05 section 3.5).
+ * Dumbarton to Meta: Redwood City Caltrain along the Dumbarton right-of-way to Meta at Willow Road
+ * (doc 05 section 3.5). The stretch objective across the Bay to Union City BART went in M3.
  *
  * Coordinates are world metres (core frame) read off the baked data, verified 2026-11-10. The corridor is the
  * OSM track "Redwood Junction Industrial Lead" (the Dumbarton Cutoff as far as Chilco Street) and the short
@@ -19,7 +19,7 @@
  * no machine to drive.
  */
 import type { GameCommand, ScenarioDef } from '@bayvox/sim';
-import { cameraOver, EXISTING_BART, EXISTING_CALTRAIN, usd, world, wp } from './helpers.ts';
+import { cameraOver, EXISTING_BART, EXISTING_CALTRAIN, POLAND_TARGET, usd, world, wp } from './helpers.ts';
 import { HOUSING_META_BAYFRONT, HOUSING_SALT_WORKS } from './housing.ts';
 
 export const DUMBARTON_PROJECT_ID = 'dumbarton-meta';
@@ -28,7 +28,6 @@ const REDWOOD_CITY = world(35441.5, -32566.3);
 const NORTH_FAIR_OAKS = world(39508.0, -31740.0);
 const WILLOW_ROAD = world(42640.0, -31975.0);
 const META = world(42844.1, -32538.0);
-const UNION_CITY = world(54268.3, -44369.8);
 
 /** The corridor SamTrans owns: surface track in the existing right-of-way as far as Meta. */
 const REFERENCE: GameCommand[] = [
@@ -82,7 +81,8 @@ export const DUMBARTON_TO_META: ScenarioDef = {
   description: 'The tracks to Meta exist and carry no passengers. Estimates grew from $50M to $1.6B. Lay the rails.',
   briefing: {
     what: 'A railway already runs most of the way: the Dumbarton Cutoff from Redwood Junction to Willow Road, 7.5 km, freight only. SamTrans has owned it since 1994.',
-    officialCost: '$1.6 billion, phased, for the whole 33 km corridor to Union City with a new bridge (2017). It was $50 million in 1998.',
+    // One line (M3). Per km, because the figure is for a longer corridor than the mission builds (m3.test.ts).
+    officialCost: '$1.6 billion for the whole 33 km corridor with a new bridge, 2.2x Poland per km (SamTrans, 2017).',
     officialDate: 'No date. The current study is for a busway, with construction after 2031.',
     why: 'Meta sits on the tracks, and the Redwood City salt works lie beside them. Surface rail on an existing right-of-way is the cheapest railway there is, and it still has not been built. Homes on the salt ponds would fill it.',
     source: 'doc 05 section 3.5 (SamTrans, Reimagine Dumbarton; cost history of the Dumbarton Rail Corridor, 1998 to 2017)',
@@ -91,9 +91,11 @@ export const DUMBARTON_TO_META: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(3e8),
     // The three mainline-terminal mandates are The Portal's; they do not apply to a surface line.
-    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['twinBoreStandard'],
     tech: [],
-    politicalCapital: 50,
+    // M3: enough for four or five of the eleven reforms on offer before tender. The cost half of the 2x target is
+    // reached by buying from the top of the sheet and missed in list order or cheapest first (m3.test.ts).
+    politicalCapital: 160,
     funding: [
       { id: 'measure', name: 'Regional measure share', amountCents: usd(6e8), release: 'permitting', source: 'game assumption' },
       {
@@ -117,23 +119,7 @@ export const DUMBARTON_TO_META: ScenarioDef = {
       b: { name: 'Meta, Menlo Park', ...META },
       radiusM: 800,
     },
-    {
-      id: 'cross-the-bay',
-      title: 'Stretch: cross the Bay to Union City BART',
-      kind: 'connect',
-      a: { name: 'Redwood City Caltrain', ...REDWOOD_CITY },
-      b: { name: 'Union City BART', ...UNION_CITY },
-      radiusM: 800,
-      stretch: true,
-    },
-    { id: 'budget', title: 'Spend under $1.6B', kind: 'maxCost', cents: usd(1.6e9) },
-    {
-      id: 'early',
-      title: 'Stretch: open before 2031',
-      kind: 'openBy',
-      date: '2031-12-31',
-      stretch: true,
-    },
+    POLAND_TARGET,
   ],
   costProfile: 'bayAreaStatusQuo',
   housing: [HOUSING_SALT_WORKS, HOUSING_META_BAYFRONT],

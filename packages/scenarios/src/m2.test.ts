@@ -2,16 +2,7 @@
  * M2: the Portal's 2x Poland target, the Silicon branch and the cost-benefit table, on the shipped scenarios.
  * The ratios in the test names are measured by the scripted runs below (seed 1, event cards off unless said).
  */
-import {
-  CONSTANTS,
-  createSim,
-  type GameCommand,
-  type GameSnapshot,
-  type PolandTarget,
-  REFORMS,
-  type ScenarioDef,
-  SOCIAL_POSTS_KEPT,
-} from '@bayvox/sim';
+import { CONSTANTS, createSim, type GameCommand, type GameSnapshot, type PolandTarget, type ScenarioDef } from '@bayvox/sim';
 import { describe, expect, test } from 'vitest';
 import { BAKED_SITES, BAKED_STATIONS } from './baked-anchors.ts';
 import {
@@ -31,32 +22,27 @@ import {
 
 const EM_DASH = String.fromCharCode(0x2014);
 
-/** Reforms that fix the design and the contract prices: they have to be in force at tender. */
-const BEFORE_TENDER = [
-  'twoTracks',
+/**
+ * The order of the Reforms sheet on a line that starts from nothing (biggest saving first), behind the specustawa.
+ * The measured runs of every mission against the 2x target are in m3.test.ts.
+ */
+const ZONE_FIRST = [
+  'specustawa',
   'twinBoreStandard',
-  'noMezzanines',
-  'shallowBoxes',
   'bestValueAward',
   'inHouseEngineering',
-  'itemizedContracts',
-  'openTenders',
-  'roundTheClock',
-  'leanSupervision',
   'utilityStatute',
+  'roundTheClock',
   'stationCatalogue',
-  'rightSizeTerminal',
-  'masterPermitting',
+  'emergencyAward',
 ];
-const AFTER_TENDER = ['stageGates', 'payBands', 'importSupplyChain', 'potholeFirst'];
-const FAST = ['parallelWorks', 'emergencyAward'];
 
 interface Played {
   target: PolandTarget;
   snap: GameSnapshot;
 }
 
-/** Plays a mission buying the first affordable reform of `order` each frame and choosing the Polish design once it is unlocked. */
+/** Plays a mission buying the first affordable reform of `order` each frame. No design command is sent: the tunnel reform picks the twin bore. */
 function play(scenario: ScenarioDef, order: readonly string[], events = false, seed = 1): Played {
   const sim = createSim(scenario, seed, null, { events });
   const run = playMission(sim, {
@@ -67,17 +53,6 @@ function play(scenario: ScenarioDef, order: readonly string[], events = false, s
         if (r && r.status !== 'enacted' && r.affordable) {
           out.push({ t: 'enactReform', id });
           break;
-        }
-      }
-      const p = snap.projects[0];
-      if (p && !p.designFrozen) {
-        for (const o of p.design.options) {
-          if ((o.id !== 'twinBore' && o.id !== 'compactBox') || o.selected || o.lockedBy.length > 0) continue;
-          out.push(
-            o.group === 'tunnel'
-              ? { t: 'setDesign', projectId: p.id, tunnel: 'twinBore' }
-              : { t: 'setDesign', projectId: p.id, stationBox: 'compactBox' },
-          );
         }
       }
       return out;
@@ -96,12 +71,7 @@ const x = (r: number) => `${r.toFixed(2)}x`;
 
 describe('The Portal: a train to the authors of Fable 5.2, at no more than 2x Poland', () => {
   const idle = play(THE_PORTAL, []);
-  const careful = play(THE_PORTAL, [...BEFORE_TENDER, ...AFTER_TENDER]);
-  const zone = play(THE_PORTAL, ['specustawa', ...BEFORE_TENDER, ...AFTER_TENDER, ...FAST]);
-  const careless = play(
-    THE_PORTAL,
-    REFORMS.map((r) => r.id),
-  );
+  const zone = play(THE_PORTAL, ZONE_FIRST);
 
   test('the theme and the target are stated up front; ids, the official figures and the place names are the real ones', () => {
     expect(THE_PORTAL.id).toBe('the-portal');
@@ -112,16 +82,9 @@ describe('The Portal: a train to the authors of Fable 5.2, at no more than 2x Po
     expect(THE_PORTAL.briefing?.what).toMatch(/fictional/);
     expect(THE_PORTAL.briefing?.officialCost).toMatch(/\$6\.84 billion/);
     expect(THE_PORTAL.reference?.officialCostCents).toBe(6.84e11);
-    expect(THE_PORTAL.objectives.map((o) => o.id)).toEqual([
-      'connect',
-      'official-budget',
-      'official-date',
-      'under-2b',
-      'early',
-      'near-poland',
-    ]);
-    const cost = THE_PORTAL.objectives.find((o) => o.id === 'near-poland');
-    expect(cost).toMatchObject({ kind: 'maxRatioToPoland', ratio: 2 });
+    expect(THE_PORTAL.objectives.map((o) => o.id)).toEqual(['connect', 'near-poland']);
+    const target = THE_PORTAL.objectives.find((o) => o.id === 'near-poland');
+    expect(target).toMatchObject({ kind: 'maxRatioToPoland', ratio: 2, title: 'Get within 2x Poland on cost and time' });
     expect(THE_PORTAL.objectives[0].title).toMatch(/Salesforce Transit Center/);
     const connect = THE_PORTAL.objectives[0];
     if (connect.kind !== 'connect') throw new Error('first objective is not the connection');
@@ -134,26 +97,21 @@ describe('The Portal: a train to the authors of Fable 5.2, at no more than 2x Po
     expect(idle.snap.socialPosts).toEqual([]);
   });
 
-  test(`a careful player without the new options ends at ${x(careful.target.costRatio)} and ${x(careful.target.timeRatio)}; with the specustawa first at ${x(zone.target.costRatio)} and ${x(zone.target.timeRatio)}: both meet 2x`, () => {
-    expect(careful.target.met).toBe(true);
-    expect(zone.target.met).toBe(true);
-    expect(zone.target.costRatio).toBeLessThanOrEqual(2);
-    expect(zone.target.timeRatio).toBeLessThanOrEqual(2);
-    // The zone buys time, and pays for it with the capital that would have bought cheaper contracts.
-    expect(zone.target.timeRatio).toBeLessThan(careful.target.timeRatio - 0.1);
+  test(`with the specustawa bought first the line ends at ${x(zone.target.costRatio)} on cost and ${x(zone.target.timeRatio)} on time: the zone buys time with the capital the cheaper contracts needed`, () => {
     expect(zone.target.timeRatio).toBeLessThan(1);
-    expect(zone.target.costRatio).toBeGreaterThan(careful.target.costRatio);
+    expect(zone.target.timeRatio).toBeLessThan(idle.target.timeRatio - 0.5);
+    expect(zone.target.costRatio).toBeLessThan(idle.target.costRatio / 4);
+    // 60 of the 200 went on the zone, so one of the six reforms that cut the cost was not in force at tender.
+    expect(zone.target.costRatio).toBeGreaterThan(2);
+    expect(zone.snap.projects[0].scorecard.stars).toBe(2);
     // The objective of the briefing and the scorecard agree.
-    expect(zone.snap.objectives.find((o) => o.id === 'near-poland')?.status).toBe('done');
+    expect(zone.snap.objectives.find((o) => o.id === 'near-poland')?.status).toBe('failed');
     expect(idle.snap.objectives.find((o) => o.id === 'near-poland')?.status).toBe('failed');
-    // Every reform bought with capital drew a post.
-    expect(zone.snap.socialPosts?.length).toBe(SOCIAL_POSTS_KEPT);
-    expect(zone.snap.socialPosts?.some((p) => p.cause === 'reform:specustawa') || (zone.snap.socialPosts?.[0].id ?? 0) > 1).toBe(true);
-  });
-
-  test(`buying down the tree in list order ends at ${x(careless.target.costRatio)} on cost: the capital does not win by itself`, () => {
-    expect(careless.target.met).toBe(false);
-    expect(careless.target.costRatio).toBeGreaterThan(3);
+    // Every reform bought drew a pile-on, the specustawa first.
+    expect(zone.snap.socialPosts?.[0]).toMatchObject({ id: 1, cause: 'reform:specustawa' });
+    expect(new Set(zone.snap.socialPosts?.map((p) => p.burst)).size).toBe(zone.snap.reforms.filter((r) => r.status === 'enacted').length);
+    // The tunnel reform redrew the official design as twin bore with no design command sent.
+    expect(zone.snap.projects[0].design.tunnel).toBe('twinBore');
   });
 
   test('with event cards on, the unreformed project runs at about 2x Poland on time (seeds 1 and 2: 1.96x and 2.22x); in the zone it does not', () => {
@@ -161,9 +119,8 @@ describe('The Portal: a train to the authors of Fable 5.2, at no more than 2x Po
     const idleTimes = [1, 2].map((seed) => play(THE_PORTAL, [], true, seed).target.timeRatio);
     expect(Math.min(...idleTimes)).toBeGreaterThan(1.9);
     expect(Math.max(...idleTimes)).toBeGreaterThan(2);
-    const t = play(THE_PORTAL, ['specustawa', ...BEFORE_TENDER, ...AFTER_TENDER, ...FAST], true, 2).target;
+    const t = play(THE_PORTAL, ZONE_FIRST, true, 2).target;
     expect(t.timeRatio).toBeLessThan(1);
-    expect(t.met).toBe(true);
   });
 });
 
@@ -217,7 +174,7 @@ describe('Silicon branch: Caltrain to Meta and Google in one line', () => {
   });
 
   const idle = play(SILICON_BRANCH, []);
-  const zone = play(SILICON_BRANCH, ['specustawa', ...BEFORE_TENDER, ...AFTER_TENDER]);
+  const zone = play(SILICON_BRANCH, ZONE_FIRST);
 
   test(`it plays to the end and serves both campuses; from nothing the status quo takes ${x(idle.target.timeRatio)} Poland's time, in the zone ${x(zone.target.timeRatio)}`, () => {
     for (const run of [idle, zone]) {
@@ -229,7 +186,9 @@ describe('Silicon branch: Caltrain to Meta and Google in one line', () => {
     // No head start here: planning and permits are years, and the specustawa is what takes them out.
     expect(idle.target.timeRatio).toBeGreaterThan(2);
     expect(zone.target.timeRatio).toBeLessThan(1.2);
+    // Riders are information on the card, not a condition: the line carries them all the same.
     expect(zone.snap.ridersPerDay).toBeGreaterThan(5000);
+    expect(SILICON_BRANCH.objectives.map((o) => o.id)).toEqual(['connect', 'connect-google', 'near-poland']);
   });
 });
 
@@ -354,9 +313,10 @@ describe('housing that justifies the campus lines', () => {
     expect(silicon.benefitCostRatio).toBeLessThan(1);
     expect(silicon.withHousing?.benefitCostRatio).toBeGreaterThan(1);
     expect(dumbarton.withHousing?.benefitCostRatio).toBeGreaterThan(5);
-    // The spur alone misses its 2,500 riders; one option is enough.
+    // The spur alone carries under 2,500 riders; one option lifts it over. Information on the card, not an objective.
     expect(spur.dailyRiders).toBeLessThan(2500);
     expect(spur.dailyRiders + Math.round(3000 * TRIPS)).toBeGreaterThan(2500);
+    expect(GOOGLEPLEX_SPUR.objectives.some((o) => o.kind === 'minRiders')).toBe(false);
   });
 
   test('the Googleplex spur from San Antonio is shorter and cheaper than the old one from Mountain View (4.28 km, $0.805B in Poland)', () => {

@@ -39,7 +39,8 @@ describe('evidence as the player reads it', () => {
       ...DESIGN_OPTIONS.map((o): [string, string] => [`design ${o.id}`, o.evidence]),
       ...Object.entries(RECEIPT_LINE_DEFS).map(([id, d]): [string, string] => [`receipt ${id}`, d.evidence]),
     ];
-    expect(lines.length).toBeGreaterThan(50);
+    // 12 reforms, 7 event cards, 6 design options and 16 receipt lines.
+    expect(lines.length).toBeGreaterThanOrEqual(41);
     for (const [who, evidence] of lines) {
       const shown = playerSource(evidence);
       expect(shown, `${who}: ${evidence}`).not.toMatch(/\bdoc \d|\bsections? \d/);

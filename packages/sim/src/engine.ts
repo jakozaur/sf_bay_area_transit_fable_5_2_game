@@ -5,7 +5,7 @@
 import { type Command, createRng, isInGrid, Material, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
 import { checkAlignment, minRadiusFor } from './checks.ts';
 import { DAYS_PER_YEAR, ESCALATION_DAILY, CONSTANTS as K, SUBSTEPS_PER_DAY } from './constants.ts';
-import { defaultMethod, designOption, optionLocks, stationBoxOf, stationSize } from './design.ts';
+import { defaultMethod, designOption, optionLocks, reformSelects, stationBoxOf, stationSize } from './design.ts';
 import { driveFromPlan, driveSubstep } from './drive.ts';
 import { EVENTS, type EventDef, type EventOption, eventById, eventTitle } from './events.ts';
 import { capsuleBetween, carveCapsules, chainages, nearestChainage, pointAt, segmentIndexAt } from './geometry.ts';
@@ -57,6 +57,7 @@ import {
   type StationState,
   TUNNEL_OPTION_METHOD,
   TUNNEL_OPTIONS,
+  type TunnelOptionId,
   type Waypoint,
 } from './types.ts';
 
@@ -87,8 +88,8 @@ const STATION_CARVE_RADIUS_SHARE = 0.4;
 const STATION_CARVE_STEP_M = 5;
 const STATION_EXCAVATION_SHARE = K.stationExcavationShare.value;
 /**
- * Political capital: a small monthly mandate plus milestones (doc 07 section 5: earned by delivering). Tuning,
- * round 2: The Portal starts with 40, enough for two or three reforms. Every finished phase pays 15, so each
+ * Political capital: a small monthly mandate plus milestones (doc 07 section 5: earned by delivering). It is the
+ * only currency of a reform. Each mission's starting capital is in its scenario. Every finished phase pays 15, so each
  * gate (tender, launch, opening) arrives with something to spend before the money that reform would have
  * saved is committed. The first playtest had 8 per phase and the capital piled up unspent after the build.
  */
@@ -992,26 +993,27 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (def.id === POLISH_PRICE_LEVEL.id) return reject(state, cmd, 'No reform changes the price level of the Bay Area');
       // A second click on the same button before the snapshot caught up: the reform is enacted, nothing to say.
       if (state.reforms.includes(def.id)) return;
-      const missing = def.prereqs.filter((id) => !state.reforms.includes(id)).map((id) => `"${reformById(id)?.title ?? id}"`);
-      if (missing.length > 0) return reject(state, cmd, `"${def.title}" needs ${missing.join(' and ')} first`);
       if (state.politicalCapital < def.cost.pc)
         return reject(state, cmd, `"${def.title}" costs ${def.cost.pc} political capital, you have ${state.politicalCapital}`);
-      if (def.cost.cents > 0 && state.cashCents < def.cost.cents)
-        return reject(state, cmd, `"${def.title}" costs $${(def.cost.cents / 1e8).toFixed(0)}M, cash is short`);
       state.politicalCapital -= def.cost.pc;
       if (def.cost.pc > 0 && !ctx.forecast)
         pushSocialBurst(state, {
           cause: `reform:${def.id}`,
           group: def.id === 'specustawa' ? 'specustawa' : def.id === 'smallBoreLoop' ? 'smallBore' : def.branch,
           what: def.title,
-          cents: def.cost.cents,
         });
-      // What a reform costs in cash is paid by the project it is bought for, so it is inside "all-in".
-      const planId = state.scenario.reference?.projectId ?? 'line';
-      const payer = state.projects.find((x) => x.id === planId && x.status !== 'open') ?? state.projects.find((x) => x.status !== 'open');
-      charge(state, payer ?? null, 'reforms', def.cost.cents, 0);
       state.reforms.push(def.id);
       const next = _profileFor(state.reforms);
+      // The reform that allows the twin bore also picks it for every line whose design can still change: the same
+      // state a setDesign command leaves. A line that went to tender is built as tendered.
+      const tunnel = reformSelects(def.id);
+      if (tunnel !== null) {
+        for (const project of state.projects) {
+          if (designLocked(project) !== null || !project.methods.some(isUnderground)) continue;
+          const refused = chooseTunnel(project, tunnel, ctx);
+          if (refused) reject(state, cmd, `"${def.title}" is enacted, but the tunnel was not redrawn. ${refused}`);
+        }
+      }
       for (const project of state.projects) if (project.status !== 'open') refreshEstimate(project, next);
       state.version++;
       feed(state, ctx, 'reformEnacted', null, def.id, `Reform enacted: ${def.title}`);
@@ -1098,12 +1100,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
         }
       }
       if (cmd.tunnel !== undefined) {
-        const method = TUNNEL_OPTION_METHOD[cmd.tunnel];
-        const methods = project.methods.map((m) => (isUnderground(m) ? method : m));
-        const refused = approvedEditProblem(project, project.waypoints, methods, ctx);
+        const refused = chooseTunnel(project, cmd.tunnel, ctx);
         if (refused) return reject(state, cmd, refused);
-        project.methods = methods;
-        project.tunnelChoice = cmd.tunnel;
       }
       if (cmd.stationBox !== undefined) project.stationBox = cmd.stationBox;
       refreshEstimate(project, profile);
@@ -1174,6 +1172,17 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       return;
     }
   }
+}
+
+/** Builds every underground segment of a project by one tunnel option. Returns why not, or null when it is done. */
+function chooseTunnel(project: ProjectState, tunnel: TunnelOptionId, ctx: StepContext): string | null {
+  const method = TUNNEL_OPTION_METHOD[tunnel];
+  const methods = project.methods.map((m) => (isUnderground(m) ? method : m));
+  const refused = approvedEditProblem(project, project.waypoints, methods, ctx);
+  if (refused) return refused;
+  project.methods = methods;
+  project.tunnelChoice = tunnel;
+  return null;
 }
 
 /** Headings a player can possess: machines that bore or mine a tube. Cut-and-cover fronts and track gangs are not driven. */

@@ -54,7 +54,7 @@ function toGate(sim: GameSim, gate: 'advancePhase' | 'launchTBM' | 'openLine'): 
 
 describe('an approved line stays buildable', () => {
   test('a stray waypoint that makes a hairpin is refused after approval, and nothing unbuildable reaches tender', () => {
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+    const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     sim.dispatch([...DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
     expect(sim.snapshot().projects[0].status).toBe('active');
     const before = sim.snapshot().projects[0];
@@ -83,7 +83,7 @@ describe('an approved line stays buildable', () => {
   });
 
   test('a line that is unbuildable at the tender gate (an older save) is sent back to the plan, not to tender', () => {
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+    const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     sim.dispatch([...DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
     toGate(sim, 'advancePhase');
     // What a save made before this rule could hold: the state itself carries the hairpin.
@@ -107,7 +107,7 @@ describe('depth costs money', () => {
   const deep = (y: number): Waypoint[] => LINE.map((w) => ({ ...w, y }));
 
   test('the same line 80 m down costs more than 20 m down, for the player and for Poland, whatever the method', () => {
-    for (const policies of [[], ['twoTracks', 'twinBoreStandard']]) {
+    for (const policies of [[], ['twinBoreStandard']]) {
       const cost = (y: number): { yours: number; poland: number } => {
         const sim = createSim(scenario(policies), 1, null, { events: false });
         sim.dispatch([{ t: 'setAlignment', projectId: TEST_PROJECT, name: 'Line', waypoints: deep(y) }, ...STATIONS]);
@@ -147,7 +147,7 @@ describe('depth costs money', () => {
   });
 
   test('a station keeps its street: when the line under it is lowered its platforms go down with it, and cost more', () => {
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+    const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     sim.dispatch(DESIGN);
     expect(sim.snapshot().projects[0].stations.map((s) => s.depthM)).toEqual([20, 20]);
     const before = yours(sim);
@@ -173,43 +173,86 @@ describe('depth costs money', () => {
   });
 });
 
-describe('the twin-bore standard is not a trap', () => {
-  test('with the third track gone the twin bore is still locked; the standard unlocks it and its tag is what choosing it costs', () => {
+describe('one step to the twin bore', () => {
+  const opt = (sim: GameSim) => {
+    const o = sim.snapshot().projects[0].design.options.find((x) => x.id === 'twinBore');
+    if (!o) throw new Error('no twin bore option');
+    return o;
+  };
+
+  test('under the status quo the twin bore is locked behind one reform, and that reform also picks it', () => {
     const sim = createSim(scenario(), 1, null, { events: false });
-    sim.dispatch(DESIGN);
-    sim.dispatch([{ t: 'enactReform', id: 'twoTracks' }]);
-    const opt = () => {
-      const o = sim.snapshot().projects[0].design.options.find((x) => x.id === 'twinBore');
-      if (!o) throw new Error('no twin bore option');
-      return o;
-    };
-    expect(opt().lockedBy.map((l) => l.reformId)).toEqual(['twinBoreStandard']);
+    sim.dispatch([...DESIGN, { t: 'setSpeed', speed: 0 }]);
+    expect(opt(sim).lockedBy).toEqual([{ reformId: 'twinBoreStandard', title: 'Polish tunnel: two tracks, twin bore' }]);
     sim.dispatch([{ t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore' }]);
-    expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/enact "Twin-bore standard" first/);
+    expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/enact "Polish tunnel: two tracks, twin bore" first/);
     expect(sim.snapshot().projects[0].design.tunnel).toBe('minedCavern');
-    // The reform is worth something the free click is not: its preview is a saving, and enacting it delivers the saving.
+    // The preview is of the reform and the pick together, and the tag of the locked option is the same figure.
     const reform = sim.snapshot().reforms.find((r) => r.id === 'twinBoreStandard');
-    expect(reform?.cost.pc).toBe(10);
     expect(reform?.unlocks).toEqual(['twinBore']);
+    expect(reform?.preview?.exact).toBe(true);
     expect(reform?.preview?.costDeltaCents).toBeLessThan(-1e9);
+    expect(reform?.preview?.costDeltaCents).toBe(opt(sim).deltaCents);
     const before = yours(sim);
     sim.dispatch([{ t: 'enactReform', id: 'twinBoreStandard' }]);
-    expect(yours(sim)).toBeLessThan(before);
-    expect(opt().lockedBy).toEqual([]);
+    expect(sim.snapshot().notices.filter((n) => n.command === 'enactReform')).toEqual([]);
+    expect(yours(sim) - before).toBe(reform?.preview?.costDeltaCents);
+    // No trip to the design sheet: the tunnel is the twin bore, in the state the design chooser would have left.
+    const project = sim.state.projects[0];
+    expect(project.tunnelChoice).toBe('twinBore');
+    expect(project.methods).toEqual(['boredTwin', 'boredTwin']);
     expect(sim.snapshot().projects[0].design.tunnel).toBe('twinBore');
-    // Every reform in the tree that is priced in political capital changes something a free click does not.
-    const fresh = createSim(scenario(), 1, null, { events: false });
-    fresh.dispatch(DESIGN);
-    fresh.dispatch([{ t: 'enactReform', id: 'twoTracks' }]);
-    const chooser = fresh.snapshot().projects[0].design.options.filter((o) => o.lockedBy.length === 0 && !o.selected);
-    for (const o of chooser) expect(o.id, 'a free option must not be the Polish tunnel').not.toBe('twinBore');
+    expect(opt(sim)).toMatchObject({ selected: true, lockedBy: [] });
+    const byHand = createSim(scenario(), 1, null, { events: false });
+    byHand.dispatch([
+      ...DESIGN,
+      { t: 'enactReform', id: 'twinBoreStandard' },
+      { t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore' },
+    ]);
+    const { methods, tunnelChoice, stationBox, hardEstimateCents } = byHand.state.projects[0];
+    expect({ methods: project.methods, tunnelChoice: project.tunnelChoice, stationBox: project.stationBox }).toEqual({
+      methods,
+      tunnelChoice,
+      stationBox,
+    });
+    expect(project.hardEstimateCents).toBe(hardEstimateCents);
+    // The other choices stay on the design sheet: the player may still go back to the cavern.
+    sim.dispatch([{ t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'minedCavern' }]);
+    expect(sim.snapshot().projects[0].design.tunnel).toBe('minedCavern');
+  });
+
+  test('surface segments are left alone, and a line that went to tender is built as tendered', () => {
+    const mixed = createSim(scenario(), 1, null, { events: false });
+    mixed.dispatch([
+      { t: 'setAlignment', projectId: TEST_PROJECT, name: 'Line', waypoints: LINE, methods: ['atGrade', 'cutAndCover'] },
+      { t: 'enactReform', id: 'twinBoreStandard' },
+    ]);
+    expect(mixed.state.projects[0].methods).toEqual(['atGrade', 'boredTwin']);
+    const surface = createSim(scenario(), 1, null, { events: false });
+    surface.dispatch([
+      { t: 'setAlignment', projectId: TEST_PROJECT, name: 'Line', waypoints: LINE, methods: ['atGrade', 'atGrade'] },
+      { t: 'enactReform', id: 'twinBoreStandard' },
+    ]);
+    expect(surface.state.projects[0]).toMatchObject({ methods: ['atGrade', 'atGrade'], tunnelChoice: null });
+    // After tender the design is frozen: the reform is enacted, the tunnel stays what was tendered.
+    const late = createSim(scenario(), 1, null, { events: false });
+    late.dispatch([...DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
+    toGate(late, 'advancePhase');
+    late.dispatch([{ t: 'advancePhase', projectId: TEST_PROJECT }]);
+    const tendered = late.snapshot().projects[0].design.tunnel;
+    const preview = late.snapshot().reforms.find((r) => r.id === 'twinBoreStandard')?.preview;
+    late.dispatch([{ t: 'enactReform', id: 'twinBoreStandard' }]);
+    expect(late.state.reforms).toContain('twinBoreStandard');
+    expect(late.snapshot().projects[0].design).toMatchObject({ tunnel: tendered, frozen: true });
+    expect(late.state.projects[0].tunnelChoice).toBeNull();
+    expect(preview?.notes?.join(' ')).toMatch(/went to tender and is built as tendered/);
   });
 });
 
 describe('price tags that are read with time standing are what the click does', () => {
   test('a reform preview and a design tag are forecast runs while the game is paused: exact to the cent', () => {
-    for (const id of ['twinBoreStandard', 'noMezzanines', 'stageGates', 'bestValueAward', 'roundTheClock', 'nepaPageLimits']) {
-      const sim = createSim(scenario(['twoTracks']), 1, null, { events: false });
+    for (const id of ['twinBoreStandard', 'stationCatalogue', 'inHouseEngineering', 'bestValueAward', 'roundTheClock', 'railSpecustawa']) {
+      const sim = createSim(scenario(), 1, null, { events: false });
       sim.dispatch(DESIGN);
       // The reform screen pauses the game: speed 0 is what the sim sees.
       sim.dispatch([{ t: 'setSpeed', speed: 0 }]);
@@ -226,7 +269,7 @@ describe('price tags that are read with time standing are what the click does', 
     }
     // Design tags: every unlocked option, chosen, lands on its tag.
     for (const pick of ['singleLargeBore', 'cutAndCover', 'twinBore'] as const) {
-      const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+      const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
       sim.dispatch([
         { t: 'setAlignment', projectId: TEST_PROJECT, name: 'Line', waypoints: LINE, methods: ['mined', 'mined'] },
         ...STATIONS,
@@ -241,20 +284,22 @@ describe('price tags that are read with time standing are what the click does', 
   });
 
   test('with time running the tags are the closed form, within a percent, and cost no forecast runs', () => {
-    const sim = createSim(scenario(['twoTracks']), 1, null, { events: false });
-    sim.dispatch(DESIGN);
-    const before = sim.snapshot();
-    const preview = before.reforms.find((r) => r.id === 'stageGates')?.preview;
-    expect(preview?.exact).toBe(false);
-    sim.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
-    const actual = yours(sim) - before.projects[0].receipt.columns.yours.costCents;
-    expect(Math.abs((preview?.costDeltaCents ?? 0) / actual - 1)).toBeLessThan(0.03);
+    for (const id of ['inHouseEngineering', 'twinBoreStandard']) {
+      const sim = createSim(scenario(), 1, null, { events: false });
+      sim.dispatch(DESIGN);
+      const before = sim.snapshot();
+      const preview = before.reforms.find((r) => r.id === id)?.preview;
+      expect(preview?.exact, id).toBe(false);
+      sim.dispatch([{ t: 'enactReform', id }]);
+      const actual = yours(sim) - before.projects[0].receipt.columns.yours.costCents;
+      expect(Math.abs((preview?.costDeltaCents ?? 0) / actual - 1), id).toBeLessThan(0.03);
+    }
   });
 });
 
 describe('reforms and the tender', () => {
   const run = (when: 'beforeTender' | 'atLaunch' | 'never'): GameSim => {
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+    const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     sim.dispatch([...DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
     toGate(sim, 'advancePhase');
     if (when === 'beforeTender') sim.dispatch([{ t: 'enactReform', id: 'bestValueAward' }]);
@@ -269,35 +314,39 @@ describe('reforms and the tender', () => {
     const early = run('beforeTender');
     const late = run('atLaunch');
     expect(never.state.projects[0].contract).toEqual({ procurement: 1.5, labour: 1.3, thirdParty: 1.2 });
-    expect(early.state.projects[0].contract?.procurement).toBeCloseTo(1.25, 9);
-    // 1.5 to 1.25 on every hard dollar: a sixth off the civil works and the stations.
-    expect(yours(early)).toBeLessThan(yours(never) * 0.9);
-    // The second playtest banked its capital to the launch gate and halved the price there. Not any more.
-    expect(yours(late)).toBe(yours(never));
+    expect(early.state.projects[0].contract?.procurement).toBeCloseTo(1, 9);
+    // 1.5 to 1 on every hard dollar: a third off the civil works and the stations.
+    expect(yours(early)).toBeLessThan(yours(never) * 0.8);
+    // The second playtest banked its capital to the launch gate and halved the price there. Not any more: the
+    // contract price stays, and what the late reform still saves (contingency, systems supply) is the smaller part.
+    const procurement = (sim: GameSim) => sim.snapshot().projects[0].receipt.lines.find((l) => l.id === 'procurement')?.cents.yours ?? 0;
+    expect(late.state.projects[0].contract?.procurement).toBe(1.5);
+    // To the dollar: the two runs round their daily spend separately.
+    expect(Math.abs(procurement(late) - procurement(never))).toBeLessThan(100_000);
+    expect(procurement(early)).toBe(0);
+    expect(yours(never) - yours(late)).toBeLessThan((yours(never) - yours(early)) / 2);
     // The hint at the tender gate says what the gate fixes, and the preview at the launch gate says why it is zero.
-    const atTender = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+    const atTender = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     atTender.dispatch([...DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
     toGate(atTender, 'advancePhase');
     expect(atTender.snapshot().nextAction.hint).toMatch(/Tender locks the design and the contract prices/);
     const offer = never.snapshot().reforms.find((r) => r.id === 'bestValueAward')?.preview;
-    expect(offer?.costDeltaCents).toBe(0);
     expect(offer?.notes?.join(' ')).toMatch(/contracts of Line were let at tender/);
     // What is not under contract still follows the reforms: the contingency policy, the consultants.
     const before = yours(never);
-    never.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
+    never.dispatch([{ t: 'enactReform', id: 'inHouseEngineering' }]);
     expect(yours(never)).toBeLessThan(before * 0.95);
     // A permitting reform bought after permitting says that its time is spent.
-    const nepa = never.snapshot().reforms.find((r) => r.id === 'fundLocally')?.preview;
+    const nepa = never.snapshot().reforms.find((r) => r.id === 'railSpecustawa')?.preview;
     expect(nepa?.daysDelta).toBe(0);
     expect(nepa?.notes?.join(' ')).toMatch(/Permitting and funding agreement is behind Line/);
   });
 
-  test('machine-speed tech on a line whose stations set the date says so before the cash is spent', () => {
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+  test('machine-speed tech on a line whose stations set the date says so before the capital is spent', () => {
+    const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     sim.dispatch(DESIGN);
-    const r = sim.snapshot().reforms.find((x) => x.id === 'segmentPlantLogistics');
+    const r = sim.snapshot().reforms.find((x) => x.id === 'prufrockClass');
     expect(r?.preview?.daysDelta).toBe(0);
-    expect(r?.preview?.costDeltaCents).toBeGreaterThan(0);
     expect(r?.preview?.notes?.join(' ')).toMatch(
       /Boring takes \d+ months, \d+ months with this\. The station boxes take \d+ months and set the opening date/,
     );
@@ -308,17 +357,17 @@ describe('reforms and the tender', () => {
     expect(days.cutAndCover).toBeGreaterThan(days.twinBore);
     for (const o of options) expect(o.stationDays, o.id).toBeGreaterThan(600);
     // On a line with no machine the note is about that.
-    const surface = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+    const surface = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     surface.dispatch([{ t: 'setAlignment', projectId: TEST_PROJECT, name: 'Line', waypoints: LINE, methods: ['atGrade', 'atGrade'] }]);
-    const none = surface.snapshot().reforms.find((x) => x.id === 'segmentPlantLogistics')?.preview;
+    const none = surface.snapshot().reforms.find((x) => x.id === 'prufrockClass')?.preview;
     expect(none?.notes?.join(' ')).toMatch(/has no boring machine/);
     // A card reform: the estimate cannot show what it buys, and says so.
-    const pothole = sim.snapshot().reforms.find((x) => x.id === 'potholeFirst')?.preview;
+    const pothole = sim.snapshot().reforms.find((x) => x.id === 'utilityStatute')?.preview;
     expect(pothole?.notes?.join(' ')).toMatch(/Event cards are priced when they are drawn/);
   });
 
   test('political capital stops piling up: the monthly mandate ends at the cap, milestones still pay', () => {
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+    const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     sim.dispatch(DESIGN);
     sim.run(365 * 60, (s) => autopilotCommands(s.state));
     expect(sim.state.projects[0].status).toBe('open');
@@ -352,7 +401,11 @@ describe('the receipt compares like with like', () => {
     // One sponsor figure, one ratio: 11.8 times on a hand-drawn line and 18.7 on the official one was the report.
     expect(b.receipt.ratios.ghostToPoland).toBe(a.receipt.ratios.ghostToPoland);
     expect(b.receipt.ghost?.polandPerKmCents).toBe(a.receipt.columns.poland.costPerKmCents);
-    expect(b.scorecard.verdict).toContain(`${(a.receipt.ratios.ghostToPoland ?? 0).toFixed(1)}x.`);
+    // The verdict is the one number to beat, your cost against Poland; the official plan is a line of its own.
+    expect(b.scorecard.verdict).toBe(
+      `You are on course to pay $${(b.scorecard.yours.costCents / 1e11).toFixed(2)}B: ${b.scorecard.polandTarget?.costRatio.toFixed(1)}x Poland.`,
+    );
+    expect(b.scorecard.ghost).toMatchObject({ label: 'Official plan', kind: 'sponsor', costCents: 5_000_000_000_00 });
     // On the official route the status quo column is the official plan; on a drawn line it is that line under
     // the rules of day one, so the three columns have one length and start from one base.
     expect(a.receipt.columns.statusQuo.basis).toMatch(/^The official plan, under the rules of 2026/);
@@ -363,7 +416,7 @@ describe('the receipt compares like with like', () => {
       expect(r.columns.yours.baseCents).toBe(r.columns.poland.baseCents);
     }
     // The count on the receipt is the count on the reform screen: reforms in force, day one included.
-    const withLaw = createSim(scenario(['narrowRecord'], { reference }), 1, null, { events: false });
+    const withLaw = createSim(scenario(['roundTheClock'], { reference }), 1, null, { events: false });
     withLaw.dispatch([{ t: 'useOfficialPlan' }]);
     expect(withLaw.snapshot().projects[0].receipt.columns.yours.basis).toMatch(/, 1 reform in force$/);
     expect(withLaw.snapshot().reforms.filter((r) => r.status === 'enacted')).toHaveLength(1);
@@ -374,16 +427,11 @@ describe('the receipt compares like with like', () => {
     expect(own.snapshot().projects[0].receipt.columns.poland.basis).toMatch(/twin 6\.6 m bores/);
   });
 
-  test('the star rating says which axis holds it down, and objective dates read as dates', () => {
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+  test('no stars before the line is open, and objective dates read as dates', () => {
+    const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
     sim.dispatch(DESIGN);
     const card = sim.snapshot().projects[0].scorecard;
-    const weakest = card.axes.filter((a) => a.stars === card.stars);
-    expect(card.stars).toBe(Math.min(...card.axes.map((a) => a.stars)));
-    if (card.stars < 3) {
-      expect(card.starsReason).toMatch(/^Rating is your weakest axis: /);
-      for (const a of weakest) expect(card.starsReason).toContain(a.id === 'date' ? 'opening date' : a.id);
-    }
+    expect(card).toMatchObject({ final: false, stars: 0, starsReason: 'No stars until the line is open.' });
     const date = sim.snapshot().objectives.find((o) => o.id === 'date');
     expect(date?.detail).toBe('target 31 Mar 2040');
     sim.run(365 * 40, (s) => (s.state.projects[0].status === 'open' ? false : autopilotCommands(s.state)));
@@ -462,7 +510,7 @@ describe('station types have price tags', () => {
 describe('a longer line opens later', () => {
   test('fit-out grows with the route beyond 10 km, up to four times; short lines are unchanged', () => {
     const opens = (km: number): number => {
-      const sim = createSim(scenario(['twoTracks', 'twinBoreStandard']), 1, null, { events: false });
+      const sim = createSim(scenario(['twinBoreStandard']), 1, null, { events: false });
       const wps: Waypoint[] = [];
       // Straight east in 2 km steps: any length, no curves.
       for (let i = 0; i <= km / 2; i++) wps.push({ x: 5000 + i * 2000, y: -20, z: -50_000, geology: 'softGround' });
@@ -498,7 +546,7 @@ describe('the Polish design built by hand is not cheaper than the Polish design'
   test('a twin bore driven through voxels that are rock, with the right machine bought, has no negative design line', () => {
     // The plan says Bay Mud; the voxels say rock. Poland's column prices the plan's ground with the right machine.
     const mud: Waypoint[] = LINE.map((w) => ({ ...w, geology: 'bayMud' }));
-    const sim = createSim(scenario(['twoTracks', 'twinBoreStandard', 'groundInvestigation', 'rightMachine']), 3, null, {
+    const sim = createSim(scenario(['twinBoreStandard', 'rightMachine']), 3, null, {
       events: false,
       ground: () => 7,
     });

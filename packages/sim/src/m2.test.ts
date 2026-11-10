@@ -32,19 +32,32 @@ import {
 import { TEST_DESIGN, TEST_PROJECT, TEST_WAYPOINTS, testScenario } from './test-scenario.ts';
 
 const EM_DASH = String.fromCharCode(0x2014);
-const rich = () => testScenario({ start: { ...testScenario().start, politicalCapital: 1000, budgetCents: 1e13 } });
+/** Twelve small housing sites, so a spree spends capital more often than the feed keeps posts. */
+const SITES: HousingOptionDef[] = Array.from({ length: 12 }, (_, i) => ({
+  id: `site-${i + 1}`,
+  title: `Homes on lot ${i + 1}`,
+  blurb: 'A synthetic site for the tests.',
+  hectares: 1,
+  homesPerHectare: 100,
+  capitalCost: 5,
+  at: { x: 20_000 + i * 50, z: -65_000 },
+  source: 'test',
+}));
+const rich = () => testScenario({ housing: SITES, start: { ...testScenario().start, politicalCapital: 1000, budgetCents: 1e13 } });
 const enact = (id: string): GameCommand => ({ t: 'enactReform', id });
 
-/** Every reform that costs political capital, prerequisites first. */
+/** Every reform and every housing site: each one spends political capital. Returns the number of spends. */
 function spendingSpree(sim: GameSim): number {
   let spends = 0;
-  for (let pass = 0; pass < 6; pass++) {
-    for (const r of REFORMS) {
-      if (sim.state.reforms.includes(r.id) || !r.prereqs.every((p) => sim.state.reforms.includes(p))) continue;
-      sim.dispatch([enact(r.id)]);
-      if (r.cost.pc > 0) spends++;
-    }
+  for (const r of REFORMS) {
+    sim.dispatch([enact(r.id)]);
+    spends++;
   }
+  for (const site of SITES) {
+    sim.dispatch([{ t: 'enactHousing', optionId: site.id }]);
+    spends++;
+  }
+  expect(sim.snapshot().notices).toEqual([]);
   return spends;
 }
 
@@ -113,31 +126,32 @@ describe('social media backlash', () => {
   test('a post appears exactly when political capital is spent, tied to what was done', () => {
     const sim = createSim(rich(), 7);
     expect(sim.snapshot().socialPosts).toEqual([]);
-    // Cash only: no capital spent, no post.
+    // A refused command spends nothing and says nothing.
     sim.dispatch([enact('potholeFirst')]);
+    expect(sim.snapshot().notices.at(-1)?.reason).toBe('no reform "potholeFirst"');
     expect(sim.snapshot().socialPosts).toEqual([]);
-    sim.dispatch([enact('stageGates')]);
+    sim.dispatch([enact('inHouseEngineering')]);
     // One spend, one pile-on: 2 to 4 posts from different accounts with the same burst id.
     const one = sim.snapshot().socialPosts ?? [];
     expect(one.length).toBeGreaterThanOrEqual(SOCIAL_BURST_MIN);
     expect(one.length).toBeLessThanOrEqual(SOCIAL_BURST_MAX);
-    expect(one[0]).toMatchObject({ id: 1, tick: 0, cause: 'reform:stageGates', burst: 1 });
+    expect(one[0]).toMatchObject({ id: 1, tick: 0, cause: 'reform:inHouseEngineering', burst: 1 });
     expect(one.map((p) => p.id)).toEqual(one.map((_, i) => i + 1));
     expect(new Set(one.map((p) => p.handle)).size).toBe(one.length);
     expect(new Set(one.map((p) => p.text)).size).toBe(one.length);
     for (const p of one) {
       expect(SOCIAL_HANDLES).toContain(p.handle);
-      expect(p).toMatchObject({ cause: 'reform:stageGates', burst: 1, tick: 0 });
+      expect(p).toMatchObject({ cause: 'reform:inHouseEngineering', burst: 1, tick: 0 });
       expect(p.text).not.toMatch(/\{[a-z]+(:\d+)?\}/);
       expect(Number.isInteger(p.likes) && (p.likes ?? 0) > 0, 'likes').toBe(true);
       expect(Number.isInteger(p.reposts) && (p.reposts ?? -1) >= 0 && (p.reposts ?? 0) <= (p.likes ?? 0), 'reposts').toBe(true);
     }
-    expect(one[0].text).toContain('Stage gates and business cases');
+    expect(one[0].text).toContain('In-house engineers, checked estimates');
     // The second post is the personal ruin, by the same title, and never the price.
-    expect(one[1].text).toContain('Stage gates and business cases');
-    expect(SOCIAL_TEMPLATES.ruin).toContain(one[1].text.replaceAll('Stage gates and business cases', '{what}'));
-    // A refused or repeated command spends nothing and says nothing.
-    sim.dispatch([enact('stageGates'), enact('railSpecustawa')]);
+    expect(one[1].text).toContain('In-house engineers, checked estimates');
+    expect(SOCIAL_TEMPLATES.ruin).toContain(one[1].text.replaceAll('In-house engineers, checked estimates', '{what}'));
+    // A repeated command spends nothing and says nothing.
+    sim.dispatch([enact('inHouseEngineering')]);
     expect(sim.snapshot().socialPosts).toHaveLength(one.length);
     sim.dispatch([enact('specustawa')]);
     const two = (sim.snapshot().socialPosts ?? []).slice(one.length);
@@ -148,33 +162,35 @@ describe('social media backlash', () => {
     expect(two[0].handle).not.toBe(one[one.length - 1].handle);
   });
 
-  test('a dollar comparison uses the real cash, divided by the factor of the template, and is only drawn when cash was spent', () => {
+  test('a dollar comparison divides real cash by the factor of its template; no reform spends cash, so no pile-on draws one', () => {
     const why = { cause: 'reform:x', group: 'any', what: 'The thing', cents: 60 * 1e8 };
     expect(fillSocialTemplate('{usd} on {what} is {div:12} burritos', why)).toBe('$60M on The thing is 5,000,000 burritos');
-    // Cash comparisons are only drawn when cash was spent: a capital-only spend never quotes dollars.
+    // Reforms are paid in political capital only: nothing a spree posts quotes dollars.
     const sim = createSim(rich(), 11);
     spendingSpree(sim);
-    for (const p of sim.snapshot().socialPosts ?? []) {
-      const reform = REFORMS.find((r) => `reform:${r.id}` === p.cause);
-      if (reform && reform.cost.cents === 0) expect(p.text, p.text).not.toMatch(/\$0\b/);
-    }
-    // The small bore costs cash too: over a few seeds the second post is the dollar comparison or the plain ruin.
-    const seen = new Set<string>();
+    for (const p of sim.snapshot().socialPosts ?? []) expect(p.text, p.text).not.toMatch(/\$\d/);
+    // The small bore used to cost cash too: its second post is the plain ruin on every seed.
     for (let seed = 1; seed <= 12; seed++) {
       const s = createSim(rich(), seed);
       s.dispatch([enact('smallBoreLoop')]);
       const posts = s.snapshot().socialPosts ?? [];
       expect(posts[0].cause).toBe('reform:smallBoreLoop');
       expect(SOCIAL_TEMPLATES.smallBore).toContain(posts[0].text.replaceAll('The Vegas-style small bore', '{what}'));
-      seen.add(
-        posts[1].text.includes('$60M')
-          ? 'money'
-          : SOCIAL_TEMPLATES.ruin.includes(posts[1].text.replaceAll('The Vegas-style small bore', '{what}'))
-            ? 'ruin'
-            : 'neither',
-      );
+      expect(SOCIAL_TEMPLATES.ruin, `seed ${seed}`).toContain(posts[1].text.replaceAll('The Vegas-style small bore', '{what}'));
     }
-    expect([...seen].sort()).toEqual(['money', 'ruin']);
+  });
+
+  test('every reform draws its first post from the templates of its own group', () => {
+    for (const r of REFORMS) {
+      const group = r.id === 'specustawa' ? 'specustawa' : r.id === 'smallBoreLoop' ? 'smallBore' : r.branch;
+      expect(SOCIAL_TEMPLATES[group]?.length, `${r.id}: group ${group}`).toBeGreaterThanOrEqual(3);
+      const sim = createSim(rich(), 2);
+      sim.dispatch([enact(r.id)]);
+      const posts = sim.snapshot().socialPosts ?? [];
+      expect(posts.length, r.id).toBeGreaterThanOrEqual(SOCIAL_BURST_MIN);
+      expect(posts[0].cause, r.id).toBe(`reform:${r.id}`);
+      expect(SOCIAL_TEMPLATES[group], r.id).toContain(posts[0].text.replaceAll(r.title, '{what}'));
+    }
   });
 
   test('the same seed and commands give the same posts; another seed gives others; the event dice are untouched', () => {
@@ -212,12 +228,12 @@ describe('social media backlash', () => {
 
   test('posts survive save and load, a restart clears them, and a save from before M2 loads without them', () => {
     const sim = createSim(rich(), 5);
-    sim.dispatch([...TEST_DESIGN, enact('twoTracks'), enact('bestValueAward')]);
+    sim.dispatch([...TEST_DESIGN, enact('twinBoreStandard'), enact('bestValueAward')]);
     sim.run(40);
     const loaded = loadSim(sim.save());
     expect(loaded.snapshot().socialPosts).toEqual(sim.snapshot().socialPosts);
-    loaded.dispatch([enact('openTenders')]);
-    sim.dispatch([enact('openTenders')]);
+    loaded.dispatch([enact('roundTheClock')]);
+    sim.dispatch([enact('roundTheClock')]);
     expect(loaded.snapshot().socialPosts).toEqual(sim.snapshot().socialPosts);
     expect(loaded.hash()).toBe(sim.hash());
     const old = createSim(rich(), 5);
@@ -227,11 +243,11 @@ describe('social media backlash', () => {
     delete state.nextSocialId;
     const before = loadSim({ ...save, stateHash: hashState(save.sim as SimState) });
     expect(before.snapshot().socialPosts).toEqual([]);
-    before.dispatch([enact('stageGates')]);
+    before.dispatch([enact('inHouseEngineering')]);
     expect(before.snapshot().socialPosts?.length).toBeGreaterThanOrEqual(SOCIAL_BURST_MIN);
     sim.dispatch([{ t: 'startScenario' }]);
     expect(sim.snapshot().socialPosts).toEqual([]);
-    sim.dispatch([enact('stageGates')]);
+    sim.dispatch([enact('inHouseEngineering')]);
     expect(sim.snapshot().socialPosts?.[0].id).toBe(1);
   });
 
@@ -266,12 +282,12 @@ describe('the specustawa and the aggressive schedule options', () => {
     expect(spec.prereqs).toEqual([]);
     expect(spec.beyondPoland).toBe(true);
     expect(POLAND_PROFILE).not.toContain('specustawa');
-    for (const id of ['emergencyAward', 'parallelWorks']) {
+    for (const id of ['emergencyAward', 'prufrockClass', 'smallBoreLoop']) {
       const r = REFORMS.find((x) => x.id === id);
       expect(r?.beyondPoland, id).toBe(true);
-      // Honest costs: capital and cash.
+      // One currency: political capital.
       expect(r?.cost.pc, id).toBeGreaterThan(0);
-      expect(r?.cost.cents, id).toBeGreaterThan(0);
+      expect(r?.cost.cents, id).toBe(0);
       expect(POLAND_PROFILE).not.toContain(id);
     }
     for (const r of REFORMS) for (const text of [r.title, r.description, r.evidence]) expect(text.includes(EM_DASH), r.id).toBe(false);

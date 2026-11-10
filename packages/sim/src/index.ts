@@ -22,9 +22,11 @@ export {
   defaultMethod,
   designOption,
   optionLocks,
+  reformSelects,
   reformUnlocks,
   stationBoxOf,
   stationSize,
+  TWIN_BORE_REFORM,
   tunnelOf,
 } from './design.ts';
 export {
@@ -100,18 +102,20 @@ export {
   stationPln,
   systemsPlnPerM,
 } from './model.ts';
-export { POLAND_TARGET_LIMIT, polandTargetOf, RECEIPT_GROUP_LABELS, RECEIPT_LINE_DEFS, reformReceiptLines } from './receipt.ts';
+export { POLAND_TARGET_LIMIT, polandTargetOf, RECEIPT_GROUP_LABELS, RECEIPT_LINE_DEFS, reformReceiptLines, starsOf } from './receipt.ts';
 export {
   BRANCHES,
   type Branch,
   EVENT_IDS,
   type EventId,
+  migrateReformIds,
   POLAND_PROFILE,
   POLISH_PRICE_LEVEL,
   type Profile,
   type ProfileKey,
   profileFor,
   profileReforms,
+  REFORM_MIGRATION,
   REFORMS,
   type ReformDef,
   type ReformEffect,

@@ -43,14 +43,16 @@ describe('commands', () => {
         ],
       },
     ]);
+    // An id of the old 32-node tree is not a reform any more; no reform needs another first.
     sim.dispatch([{ t: 'enactReform', id: 'itemizedContracts' }]);
-    sim.dispatch([{ t: 'enactReform', id: 'railSpecustawa' }]);
+    const poor = createSim({ ...testScenario(), start: { ...testScenario().start, politicalCapital: 5 } }, 1);
+    poor.dispatch([{ t: 'enactReform', id: 'railSpecustawa' }]);
     const notices = sim.snapshot().notices.map((n) => n.reason);
     expect(notices[0]).toMatch(/no project "nope"/);
     expect(notices[1]).toMatch(/outside the world grid/);
+    expect(notices[2]).toBe('no reform "itemizedContracts"');
     // Notices are read by the player: they name reforms by title, not by id.
-    expect(notices[2]).toBe('"Itemized contracts" needs "In-house engineering corps" and "Best-value award" first');
-    expect(notices[3]).toMatch(/needs "Megaproject certification" first/);
+    expect(poor.snapshot().notices[0].reason).toBe('"One permit, 90 days, local money" costs 40 political capital, you have 5');
     expect(sim.state.projects.length).toBe(0);
     expect(sim.state.reforms).toEqual([]);
   });
@@ -102,32 +104,44 @@ describe('commands', () => {
     expect(sim.state.speed).toBe(1);
   });
 
-  test('reforms cost political capital or money and change the profile', () => {
+  test('reforms cost political capital, never money, and change the profile', () => {
     const sim = createSim(testScenario(), 1);
+    const cash = sim.state.cashCents;
     sim.dispatch([
-      { t: 'enactReform', id: 'stageGates' },
-      { t: 'enactReform', id: 'potholeFirst' },
+      { t: 'enactReform', id: 'inHouseEngineering' },
+      { t: 'enactReform', id: 'rightMachine' },
     ]);
-    expect(sim.state.politicalCapital).toBe(100 - 15);
-    expect(sim.state.ledger.total.reforms).toBe(5e8);
-    expect(sim.state.reforms).toEqual(['stageGates', 'potholeFirst']);
+    expect(sim.state.politicalCapital).toBe(100 - 40 - 20);
+    expect(sim.state.ledger.total.reforms).toBe(0);
+    expect(sim.state.cashCents).toBe(cash);
+    expect(sim.state.reforms).toEqual(['inHouseEngineering', 'rightMachine']);
     // A second click on Enact before the snapshot caught up: nothing is charged twice and nothing is said.
-    sim.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
-    expect(sim.state.politicalCapital).toBe(100 - 15);
+    sim.dispatch([{ t: 'enactReform', id: 'inHouseEngineering' }]);
+    expect(sim.state.politicalCapital).toBe(100 - 40 - 20);
     expect(sim.snapshot().notices).toEqual([]);
     // The Polish price level is part of the Poland profile, not something a player can enact.
     sim.dispatch([{ t: 'enactReform', id: 'polishPriceLevel' }]);
     expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/No reform changes the price level/);
-    expect(sim.state.reforms).toEqual(['stageGates', 'potholeFirst']);
+    expect(sim.state.reforms).toEqual(['inHouseEngineering', 'rightMachine']);
     const view = sim.snapshot().reforms;
-    expect(view.find((r) => r.id === 'stageGates')?.status).toBe('enacted');
-    expect(view.find((r) => r.id === 'megaprojectCertification')?.status).toBe('available');
-    expect(view.find((r) => r.id === 'railSpecustawa')?.status).toBe('locked');
+    expect(view.find((r) => r.id === 'inHouseEngineering')?.status).toBe('enacted');
+    // No reform waits for another: what is not enacted is available, and only its price can block it.
+    for (const r of view) {
+      expect(r.prereqs, r.id).toEqual([]);
+      expect(r.cost.cents, r.id).toBe(0);
+      expect(r.status, r.id).not.toBe('locked');
+    }
+    expect(view.find((r) => r.id === 'railSpecustawa')).toMatchObject({ status: 'available', affordable: true, blockedReason: null });
+    expect(view.find((r) => r.id === 'specustawa')).toMatchObject({
+      status: 'available',
+      affordable: false,
+      blockedReason: 'Costs 60 political capital, you have 40',
+    });
     // Not enough political capital for everything.
     const poor = createSim({ ...testScenario(), start: { ...testScenario().start, politicalCapital: 5 } }, 1);
-    poor.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
+    poor.dispatch([{ t: 'enactReform', id: 'inHouseEngineering' }]);
     expect(poor.state.reforms).toEqual([]);
-    expect(poor.snapshot().notices[0].reason).toMatch(/costs 15 political capital, you have 5/);
+    expect(poor.snapshot().notices[0].reason).toMatch(/costs 40 political capital, you have 5/);
   });
 
   test('an invalid scenario is refused with every problem listed', () => {
@@ -183,7 +197,7 @@ describe('determinism', () => {
     const sim = createSim(testScenario(), 1);
     sim.run(10);
     const save = sim.save();
-    expect(() => loadSim({ ...save, schemaVersion: 99 })).toThrow(/cannot load save schemaVersion 99; this build reads version 2/);
+    expect(() => loadSim({ ...save, schemaVersion: 99 })).toThrow(/cannot load save schemaVersion 99; this build reads version 3/);
     const tampered = JSON.parse(JSON.stringify(save));
     tampered.sim.cashCents += 1;
     expect(() => loadSim(tampered)).toThrow(/save is corrupt/);
@@ -333,15 +347,16 @@ describe('events', () => {
     const p = sim.state.projects[0];
     const hazard = (id: string, reforms: string[]) => eventHazardPerYear(eventById(id) as (typeof EVENTS)[number], p, profileFor(reforms));
     expect(p.phase).toBe('planning');
-    expect(hazard('lawsuit', [])).toBeCloseTo(0.15, 9);
-    expect(hazard('lawsuit', ['narrowRecord'])).toBeCloseTo(0.12, 9);
+    // The shorter lawsuit record (x0.8) is the law of 2026 and part of the status quo.
+    expect(hazard('lawsuit', [])).toBeCloseTo(0.12, 9);
+    expect(hazard('lawsuit', ['railSpecustawa'])).toBeCloseTo(0.03, 9);
     expect(hazard('tbmStuck', [])).toBe(0);
     p.phase = 'construction';
     expect(hazard('lawsuit', [])).toBe(0);
     expect(hazard('utilitySurprise', [])).toBeCloseTo(0.12, 9);
-    expect(hazard('utilitySurprise', ['potholeFirst'])).toBe(0);
-    expect(hazard('tbmStuck', ['groundInvestigation'])).toBeCloseTo(0.03, 9);
-    expect(hazard('changeOrder', ['bestValueAward'])).toBeCloseTo(0.25, 9);
+    expect(hazard('utilitySurprise', ['utilityStatute'])).toBe(0);
+    expect(hazard('tbmStuck', ['rightMachine'])).toBeCloseTo(hazard('tbmStuck', []) * 0.15, 9);
+    expect(hazard('changeOrder', ['bestValueAward'])).toBeCloseTo(hazard('changeOrder', []) * 0.25, 9);
     p.eventCounts.changeOrder = 3;
     expect(hazard('changeOrder', [])).toBe(0);
   });
@@ -381,9 +396,9 @@ describe('events', () => {
     expect(sim.state.projects[0].delayDays).toBeGreaterThan(300);
   });
 
-  test('megaproject certification caps the lawsuit delay at 270 days', () => {
+  test('the one-permit reform caps the lawsuit delay at 270 days', () => {
     const scenario = testScenario();
-    scenario.start.policies = ['stageGates', 'megaprojectCertification'];
+    scenario.start.policies = ['railSpecustawa'];
     let seed = 1;
     let sim: GameSim;
     for (;;) {

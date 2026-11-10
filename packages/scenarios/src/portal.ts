@@ -18,7 +18,7 @@
  * Street are this file's ASSUMPTIONS, chosen so the route is the official 1.3 mi (2.09 km).
  */
 import type { GameCommand, Method, ScenarioDef } from '@bayvox/sim';
-import { cameraOver, curve, EXISTING_BART, EXISTING_CALTRAIN, usd, world, wp } from './helpers.ts';
+import { cameraOver, curve, EXISTING_BART, EXISTING_CALTRAIN, POLAND_TARGET, usd, world, wp } from './helpers.ts';
 
 export const PORTAL_PROJECT_ID = 'portal';
 
@@ -98,7 +98,8 @@ export const THE_PORTAL: ScenarioDef = {
   description: 'A 2.1 km tunnel to a trainbox empty since 2018. Official plan: $6.84B, 2036.',
   briefing: {
     what: 'The gods of AI, authors of Fable 5.2, want a train to their (fictional) HQ by Salesforce Park: 2.1 km of tunnel from Caltrain at 4th and King to a trainbox empty since 2018.',
-    officialCost: '$6.84 billion for 2.1 km: about $3.3 billion per km (TJPA, 2025).',
+    // One line (M3). The ratio is the model's: the official figure per km over Poland on the official route (m3.test.ts).
+    officialCost: '$6.84 billion, 18.7x Poland (TJPA, 2025).',
     officialDate: 'Early 2036, if the federal grant is signed in July 2027.',
     why: 'Only New York has paid more per km. Poland would build this route, two stations included, for about $175 million per km.',
     source:
@@ -108,13 +109,14 @@ export const THE_PORTAL: ScenarioDef = {
     date: '2026-11-09',
     // Committed local money: $7.57B less the built trainbox ($0.73B), the FTA share and the $2.2B still needed.
     budgetCents: usd(1.26e9),
-    // Doc 07 section 5 design note: SB 131 (narrow record) is already law in 2026.
-    policies: ['narrowRecord'],
+    // SB 131 (the shorter lawsuit record) is law in 2026 and is part of the status quo (sim reforms.ts).
+    policies: [],
     tech: [],
-    // M2: the win target is 2x Poland on cost and on time. The contract and design reforms have to be in force at
-    // tender (about 250 PC) and the specustawa costs 60. With the 40 PC of round 2 the best scripted run ended at
-    // 6.3x Poland; with 300 a careful player lands under 2x and a careless one (tree order) does not.
-    politicalCapital: 300,
+    // M3: the target is 2x Poland on cost and on time, and the cost half is the hard one. Design and contract prices
+    // are fixed at tender, five months in, and the finished permitting phase adds 15 by then: enough for the six
+    // reforms that cut the cost (200 of the 440 the twelve cost) and nothing else. Bought from the top of the sheet
+    // the line ends under 2x; in list order or cheapest first it does not (measured in m3.test.ts).
+    politicalCapital: 200,
     funding: [
       {
         id: 'fta-cig',
@@ -153,12 +155,7 @@ export const THE_PORTAL: ScenarioDef = {
       b: { name: 'Salesforce Transit Center', ...TRANSIT_CENTER },
       radiusM: 400,
     },
-    { id: 'official-budget', title: 'Spend no more than the official $6.84B', kind: 'maxCost', cents: usd(6.84e9) },
-    { id: 'official-date', title: 'Open by the official date, Q1 2036', kind: 'openBy', date: '2036-03-31' },
-    { id: 'under-2b', title: 'Stretch: build it for under $2B', kind: 'maxCost', cents: usd(2e9), stretch: true },
-    { id: 'early', title: 'Stretch: open before 2033', kind: 'openBy', date: '2032-12-31', stretch: true },
-    // The win target. The scorecard grades it on cost and on time (Scorecard.polandTarget); this objective is the cost half.
-    { id: 'near-poland', title: 'The target: pay no more than 2x what Poland would', kind: 'maxRatioToPoland', ratio: 2, stretch: true },
+    POLAND_TARGET,
   ],
   costProfile: 'bayAreaStatusQuo',
   reference: {

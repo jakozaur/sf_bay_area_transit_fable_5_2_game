@@ -19,7 +19,7 @@ export {
 } from './cost-benefit.ts';
 export { DUMBARTON_PROJECT_ID, DUMBARTON_TO_META } from './dumbarton.ts';
 export { GOOGLEPLEX_PROJECT_ID, GOOGLEPLEX_SPUR } from './googleplex.ts';
-export { at, cameraOver, curve, usd, world, wp, xz } from './helpers.ts';
+export { at, cameraOver, curve, POLAND_TARGET, usd, world, wp, xz } from './helpers.ts';
 export { HOUSING_META_BAYFRONT, HOUSING_NORTH_BAYSHORE, HOUSING_SALT_WORKS, HOUSING_SAN_ANTONIO } from './housing.ts';
 export { type MissionOptions, type MissionRun, playMission } from './play.ts';
 export { PORTAL_PROJECT_ID, THE_PORTAL } from './portal.ts';

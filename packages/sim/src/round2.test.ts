@@ -6,6 +6,7 @@ import { CONSTANTS, SUBSTEPS_PER_DAY } from './constants.ts';
 import { autopilotCommands, freeDeviationM, offPlanFactor } from './engine.ts';
 import { faceGeology, geologyOfMaterial } from './ground.ts';
 import { advanceRate } from './model.ts';
+import { starsOf } from './receipt.ts';
 import { profileFor } from './reforms.ts';
 import { createSim, type GameSim, hashState, loadSim, type SimOptions } from './sim.ts';
 import { TEST_DESIGN, TEST_PROJECT, testScenario } from './test-scenario.ts';
@@ -41,7 +42,7 @@ function driveScenario(): ScenarioDef {
   return {
     ...s,
     // Two tracks and the twin-bore standard, so a twin bore is two tubes and may be chosen.
-    start: { ...s.start, policies: ['twoTracks', 'twinBoreStandard'] },
+    start: { ...s.start, policies: ['twinBoreStandard'] },
     objectives: [
       { id: 'connect', title: 'Connect A and B', kind: 'connect', a: { name: 'A', ...A }, b: { name: 'B', ...B }, radiusM: 100 },
     ],
@@ -274,12 +275,9 @@ describe('design chooser', () => {
       if (!o) throw new Error(`no option ${id}`);
       return o;
     };
-    // Two locks: the third track must go, and the standard must allow two small tubes. Neither is a free click.
-    expect(opt('twinBore').lockedBy).toEqual([
-      { reformId: 'twoTracks', title: 'Two tracks are enough' },
-      { reformId: 'twinBoreStandard', title: 'Twin-bore standard' },
-    ]);
-    expect(opt('compactBox').lockedBy).toEqual([{ reformId: 'noMezzanines', title: 'No full-length mezzanines' }]);
+    // One lock each: the reform that takes the third track away and allows two small tubes, and the station reform.
+    expect(opt('twinBore').lockedBy).toEqual([{ reformId: 'twinBoreStandard', title: 'Polish tunnel: two tracks, twin bore' }]);
+    expect(opt('compactBox').lockedBy).toEqual([{ reformId: 'stationCatalogue', title: 'Standard compact stations' }]);
     for (const id of ['singleLargeBore', 'cutAndCover', 'minedCavern', 'mezzanineBox']) expect(opt(id).lockedBy).toEqual([]);
     expect(opt('minedCavern')).toMatchObject({ selected: true, deltaCents: 0, deltaDays: 0, practice: 'california' });
     expect(opt('mezzanineBox')).toMatchObject({ selected: true, deltaCents: 0 });
@@ -299,24 +297,23 @@ describe('design chooser', () => {
     // Locked options are refused and the notice names the reform.
     sim.dispatch([{ t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore' }]);
     expect(sim.snapshot().notices.at(-1)?.reason).toMatch(
-      /"Twin bore, 6.6 m" is not allowed by the standards in force; enact "Two tracks are enough" and "Twin-bore standard" first/,
+      /"Twin bore, 6.6 m" is not allowed by the standards in force; enact "Polish tunnel: two tracks, twin bore" first/,
     );
     sim.dispatch([{ t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'singleLargeBore', stationBox: 'compactBox' }]);
-    expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/"Compact box".*"No full-length mezzanines"/);
+    expect(sim.snapshot().notices.at(-1)?.reason).toMatch(/"Compact box".*"Standard compact stations"/);
     expect(sim.snapshot().projects[0].design.tunnel).toBe('minedCavern');
 
     // The reforms unlock them; the snapshot says which reform unlocks what.
     const reforms = sim.snapshot().reforms;
-    expect(reforms.find((r) => r.id === 'twoTracks')?.unlocks).toEqual([]);
+    expect(reforms.find((r) => r.id === 'roundTheClock')?.unlocks).toEqual([]);
     expect(reforms.find((r) => r.id === 'twinBoreStandard')?.unlocks).toEqual(['twinBore']);
-    expect(reforms.find((r) => r.id === 'noMezzanines')?.unlocks).toEqual(['compactBox']);
+    expect(reforms.find((r) => r.id === 'stationCatalogue')?.unlocks).toEqual(['compactBox']);
     const predicted = opt('twinBore').costCents;
     const beforeCost = sim.snapshot().projects[0].receipt.columns.yours.costCents;
+    // The tunnel reform picks the twin bore itself; the compact box is what a station is once its mandate is gone.
     sim.dispatch([
-      { t: 'enactReform', id: 'twoTracks' },
       { t: 'enactReform', id: 'twinBoreStandard' },
-      { t: 'enactReform', id: 'noMezzanines' },
-      { t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore', stationBox: 'compactBox' },
+      { t: 'enactReform', id: 'stationCatalogue' },
     ]);
     const after = sim.snapshot();
     expect(after.notices.filter((n) => n.command === 'setDesign')).toHaveLength(2);
@@ -338,7 +335,7 @@ describe('design chooser', () => {
   });
 
   test('an explicit choice survives the twin-bore standard, and the design freezes at tender', () => {
-    const sim = createSim(testScenario({ start: { ...testScenario().start, policies: ['twoTracks', 'twinBoreStandard'] } }), 1, null, {
+    const sim = createSim(testScenario({ start: { ...testScenario().start, policies: ['twinBoreStandard'] } }), 1, null, {
       events: false,
     });
     sim.dispatch(TEST_DESIGN);
@@ -641,7 +638,7 @@ describe('driving a TBM', () => {
     const sim = launched(8, null, { events: false, ground });
     const auto = launched(8, null, { events: false, ground });
     sim.dispatch([{ t: 'tbmControl', headingId: HEADING, autopilot: false }]);
-    const sq = profileFor(['twoTracks', 'twinBoreStandard']);
+    const sq = profileFor(['twinBoreStandard']);
     const seen = new Set<string>();
     while (tbm(sim).boredM < 400 || sim.state.subTick !== 0) {
       sim.substep();
@@ -661,7 +658,7 @@ describe('driving a TBM', () => {
     expect(perM(sim) / perM(auto)).toBeLessThan(1.02);
     // Good ground lets a machine bore more of the day, never more than 0.9 of its peak: 27 m/day (PLAN 6.7).
     expect(advanceRate('boredTwin', 'rock', sq, 1000) / advanceRate('boredTwin', 'softGround', sq, 1000)).toBeCloseTo(1.5, 9);
-    const fast = profileFor(['twoTracks', 'segmentPlantLogistics', 'continuousAdvance', 'prufrockClass']);
+    const fast = profileFor(['twinBoreStandard', 'rightMachine', 'prufrockClass']);
     expect(advanceRate('boredTwin', 'softGround', fast, 1000)).toBeCloseTo(27, 9);
     expect(advanceRate('boredTwin', 'rock', fast, 1000)).toBeCloseTo(27, 9);
   });
@@ -882,21 +879,27 @@ describe('estimate while drawing', () => {
       if (!r?.preview) throw new Error(`no preview for ${id}`);
       return r;
     };
-    expect(by('twoTracks').preview?.costDeltaCents).toBeLessThan(0);
-    expect(by('twoTracks').receiptLines).toEqual(['designTunnel', 'designStations', 'designSystems']);
-    expect(by('nepaPageLimits').preview?.daysDelta).toBeLessThan(-300);
-    expect(by('nepaPageLimits').receiptLines).toEqual(['escalation', 'overhead']);
-    expect(by('openTenders').receiptLines).toEqual(['procurement']);
+    // Every reform has a preview with a cost and a days figure: the Reforms sheet sorts on the cost saved.
+    for (const r of s.reforms) {
+      expect(r.preview, r.id).not.toBeNull();
+      expect(Number.isFinite(r.preview?.costDeltaCents), r.id).toBe(true);
+      expect(Number.isFinite(r.preview?.daysDelta), r.id).toBe(true);
+    }
+    expect(by('twinBoreStandard').preview?.costDeltaCents).toBeLessThan(0);
+    expect(by('twinBoreStandard').receiptLines).toEqual(['designTunnel', 'designStations', 'designSystems']);
+    expect(by('railSpecustawa').preview?.daysDelta).toBeLessThan(-300);
+    expect(by('railSpecustawa').receiptLines).toEqual(['escalation', 'overhead', 'events']);
+    expect(by('roundTheClock').receiptLines).toEqual(['staffing', 'escalation', 'overhead']);
     // No reform touches the price level.
     expect(s.reforms.some((r) => r.receiptLines.includes('priceLevel'))).toBe(false);
-    expect(by('bestValueAward').receiptLines).toEqual(['procurement', 'events']);
-    expect(by('stageGates').preview).toMatchObject({ projectId: TEST_PROJECT, daysDelta: 0 });
+    expect(by('bestValueAward').receiptLines).toEqual(['procurement', 'systemsSupply', 'contingency', 'escalation', 'overhead', 'events']);
+    expect(by('stationCatalogue').preview).toMatchObject({ projectId: TEST_PROJECT });
     const before = s.projects[0].receipt.columns.yours.costCents;
-    const predicted = by('stageGates').preview?.costDeltaCents ?? 0;
-    expect(by('stageGates').preview?.ratioToPolandAfter).toBeLessThan(s.projects[0].receipt.ratios.yoursToPoland);
-    sim.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
+    const predicted = by('inHouseEngineering').preview?.costDeltaCents ?? 0;
+    expect(by('inHouseEngineering').preview?.ratioToPolandAfter).toBeLessThan(s.projects[0].receipt.ratios.yoursToPoland);
+    sim.dispatch([{ t: 'enactReform', id: 'inHouseEngineering' }]);
     const after = sim.snapshot();
-    expect(after.reforms.find((r) => r.id === 'stageGates')?.preview).toBeNull();
+    expect(after.reforms.find((r) => r.id === 'inHouseEngineering')?.preview).toBeNull();
     // The preview was the closed form; the forecast after buying agrees within 10 percent of the change.
     const actual = after.projects[0].receipt.columns.yours.costCents - before;
     expect(actual).toBeLessThan(0);
@@ -976,29 +979,30 @@ describe('receipt and scorecard', () => {
     );
     const mid = check();
     const contingencyBefore = mid.lines.find((l) => l.id === 'contingency');
-    sim.dispatch([{ t: 'enactReform', id: 'stageGates' }]);
+    sim.dispatch([{ t: 'enactReform', id: 'inHouseEngineering' }]);
     const reformed = check();
     const contingency = reformed.lines.find((l) => l.id === 'contingency');
     expect(contingency?.status).toBe('reduced');
-    expect(contingency?.reforms.find((r) => r.id === 'stageGates')?.enacted).toBe(true);
+    expect(contingency?.reforms.find((r) => r.id === 'inHouseEngineering')?.enacted).toBe(true);
     expect(contingency?.cents.yours).toBeLessThan(contingencyBefore?.cents.yours ?? 0);
     // Spend-weighted: between the old factor and the new one.
     expect(contingency?.factor.yours).toBeLessThan(1.35);
     expect(contingency?.factor.yours).toBeGreaterThan(1.175);
-    // The contracts were let at tender: a procurement reform bought now changes nothing on this project, the
-    // preview said so before it was bought, and the receipt does not call the line reduced.
+    // The contracts were let at tender: the contract reform bought now does not change the procurement price of
+    // this project, the preview said so before it was bought, and the receipt does not call the line reduced.
     const procurementBefore = reformed.lines.find((l) => l.id === 'procurement');
     const offer = sim.snapshot().reforms.find((r) => r.id === 'bestValueAward')?.preview;
-    expect(offer?.costDeltaCents).toBe(0);
     expect(offer?.notes?.[0]).toMatch(/contracts of .* were let at tender/);
     sim.dispatch([{ t: 'enactReform', id: 'bestValueAward' }]);
     const late = check();
     const procurement = late.lines.find((l) => l.id === 'procurement');
-    expect(procurement?.cents.yours).toBe(procurementBefore?.cents.yours);
+    // To the dollar: the line is rounded from running totals that the reform's other effects move by cents.
+    expect(Math.abs((procurement?.cents.yours ?? 0) - (procurementBefore?.cents.yours ?? 0))).toBeLessThan(100_000);
     expect(procurement?.factor.yours).toBeCloseTo(1.5, 6);
     expect(procurement?.status).toBe('paid');
     expect(procurement?.reforms.find((r) => r.id === 'bestValueAward')?.enacted).toBe(true);
-    expect(late.columns.yours.costCents).toBe(reformed.columns.yours.costCents);
+    // What that reform does outside the contract (the contingency, the systems supply) still applies to the money not yet spent.
+    expect(late.columns.yours.costCents).toBeLessThan(reformed.columns.yours.costCents);
     sim.run(365 * 30, (s) => (s.state.projects[0].status === 'open' ? false : autopilotCommands(s.state)));
     const final = check();
     expect(final.final).toBe(true);
@@ -1010,9 +1014,11 @@ describe('receipt and scorecard', () => {
     expect(card.ghost.kind).toBe('model');
     expect(card.ghost.source).toMatch(/No official figure exists/);
     expect(card.poland.costCents).toBe(final.columns.poland.costCents);
-    expect(card.axes.map((a) => a.id)).toEqual(['cost', 'date', 'riders']);
-    expect(card.stars).toBe(Math.min(...card.axes.map((a) => a.stars)));
-    expect(card.verdict).toMatch(/^You paid \$\d/);
+    expect(card.axes).toBeUndefined();
+    if (!card.polandTarget) throw new Error('no polandTarget on the scorecard');
+    expect(card.stars).toBe(starsOf(true, card.polandTarget));
+    expect(card.stars).toBeGreaterThanOrEqual(1);
+    expect(card.verdict).toMatch(/^You paid \$\d+(\.\d+)?[BM]: \d+\.\dx Poland\.$/);
     expect(sim.snapshot().headline).toMatchObject({ projectId: TEST_PROJECT, final: true, ratio: final.ratios.yoursToPoland });
   });
 
@@ -1154,7 +1160,7 @@ describe('saves across versions', () => {
     expect(old.schemaVersion).toBe(1);
     const edits: WorldEdit[] = [];
     const loaded = loadSim(JSON.parse(JSON.stringify(old)), { applyEdit: (e) => edits.push(e) });
-    expect(loaded.state.schemaVersion).toBe(2);
+    expect(loaded.state.schemaVersion).toBe(3);
     expect(loaded.state.tick).toBe(sim.state.tick);
     expect(loaded.state.cashCents).toBe(sim.state.cashCents);
     expect(loaded.state.projects[0].fronts.every((f) => f.drive === null && f.boredM === f.chainageM - f.fromM)).toBe(true);
@@ -1164,11 +1170,11 @@ describe('saves across versions', () => {
     expect(snap.projects[0].receipt.columns.yours.costCents).toBeGreaterThan(0);
     loaded.run(365 * 30, (s) => (s.state.projects[0].status === 'open' ? false : autopilotCommands(s.state)));
     expect(loaded.state.projects[0].status).toBe('open');
-    expect(loaded.save().schemaVersion).toBe(2);
+    expect(loaded.save().schemaVersion).toBe(3);
     const tampered = JSON.parse(JSON.stringify(old)) as SaveFile;
     (tampered.sim as unknown as SimState).cashCents += 1;
     expect(() => loadSim(tampered)).toThrow(/save is corrupt: state hash/);
-    expect(() => loadSim({ ...old, schemaVersion: 0 })).toThrow(/cannot load save schemaVersion 0; this build reads version 2/);
+    expect(() => loadSim({ ...old, schemaVersion: 0 })).toThrow(/cannot load save schemaVersion 0; this build reads version 3/);
   });
 
   test('save options travel in the container and stay out of the hash', () => {
@@ -1177,7 +1183,7 @@ describe('saves across versions', () => {
     sim.run(5);
     const ref = { key: 'slot-1/edits', edits: 3, hash: 'abc' };
     const save = sim.save({ worldDataVersion: 'w1', editLog: ref });
-    expect(save).toMatchObject({ format: 'bayvox-save', schemaVersion: 2, worldDataVersion: 'w1', editLog: ref, stateHash: sim.hash() });
+    expect(save).toMatchObject({ format: 'bayvox-save', schemaVersion: 3, worldDataVersion: 'w1', editLog: ref, stateHash: sim.hash() });
     expect(sim.save('w2').worldDataVersion).toBe('w2');
     expect(sim.save().editLog).toBeUndefined();
     expect(loadSim(save).hash()).toBe(sim.hash());

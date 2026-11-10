@@ -32,7 +32,7 @@ function scenario(over: Partial<ScenarioDef> = {}): ScenarioDef {
   const s = testScenario();
   return {
     ...s,
-    start: { ...s.start, policies: ['twoTracks', 'twinBoreStandard'] },
+    start: { ...s.start, policies: ['twinBoreStandard'] },
     objectives: [
       { id: 'connect', title: 'Connect A and B', kind: 'connect', a: { name: 'A', ...A }, b: { name: 'B', ...B }, radiusM: 100 },
     ],
@@ -151,13 +151,10 @@ describe('machines and headings', () => {
       9,
     );
     expect(cap).toBeCloseTo(27, 9);
-    // Tier by tier: the base, the segment plant, continuous advance; the claimed mile-a-week machine hits the cap.
+    // Tier by tier: the base, the segment plant of the machine reform; the claimed faster machines on top hit the cap.
     expect(advanceRate('boredTwin', 'softGround', profileFor([]), 10_000)).toBeCloseTo(10.5, 9);
-    expect(advanceRate('boredTwin', 'softGround', profileFor(['segmentPlantLogistics']), 10_000)).toBeCloseTo(11.55, 9);
-    expect(advanceRate('boredTwin', 'softGround', profileFor(['segmentPlantLogistics', 'continuousAdvance']), 10_000)).toBeCloseTo(
-      18.48,
-      9,
-    );
+    expect(advanceRate('boredTwin', 'softGround', profileFor(['rightMachine']), 10_000)).toBeCloseTo(11.55, 9);
+    expect(advanceRate('boredTwin', 'softGround', profileFor(['rightMachine', 'prufrockClass']), 10_000)).toBeCloseTo(cap, 9);
     for (const g of ['softGround', 'bayMud', 'mixedFace', 'faultZone'] as const) {
       expect(advanceRate('boredTwin', g, all, 10_000), g).toBeLessThanOrEqual(cap + 1e-9);
       expect(advanceRate('boredSingleLarge', g, all, 10_000), g).toBeLessThanOrEqual(cap + 1e-9);
@@ -168,7 +165,7 @@ describe('machines and headings', () => {
     // A zigzag across the map, as the free-build crash was drawn: 60 km of whatever the standards give.
     const wps: Waypoint[] = [];
     for (let i = 0; i <= 12; i++) wps.push({ x: 15_000 + (i % 2) * 4_000, y: -20, z: -60_000 + i * 3_000 });
-    for (const policies of [[], ['twoTracks', 'twinBoreStandard']]) {
+    for (const policies of [[], ['twinBoreStandard']]) {
       const sim = createSim(scenario({ sandbox: true, objectives: [], start: { ...testScenario().start, policies } }), 1);
       sim.dispatch([{ t: 'setAlignment', projectId: 'line', waypoints: wps }]);
       const snap = sim.snapshot();
@@ -206,7 +203,7 @@ describe('machines and headings', () => {
       const gate = sim.snapshot().projects[0].phases.find((ph) => ph.id === 'utilities')?.gate;
       return gate?.label ?? '';
     };
-    expect(label(['boredTwin', 'boredTwin'], ['twoTracks'])).toBe('Launch the TBM');
+    expect(label(['boredTwin', 'boredTwin'], ['twinBoreStandard'])).toBe('Launch the TBM');
     expect(label(['mined', 'cutAndCover'])).toBe('Start mining');
     expect(label(['atGrade', 'atGrade'])).toBe('Start construction');
     // At the gate the stepper is on Build and the hint names the works, not a machine that is not there.
@@ -227,12 +224,7 @@ describe('machines and headings', () => {
 describe('numbers that agree', () => {
   test('Poland is the Polish design of the route: the par does not move when the player changes the design', () => {
     const sim = createSim(testScenario(), 1);
-    sim.dispatch([
-      ...TEST_DESIGN,
-      { t: 'enactReform', id: 'twoTracks' },
-      { t: 'enactReform', id: 'twinBoreStandard' },
-      { t: 'enactReform', id: 'noMezzanines' },
-    ]);
+    sim.dispatch([...TEST_DESIGN, { t: 'enactReform', id: 'twinBoreStandard' }, { t: 'enactReform', id: 'stationCatalogue' }]);
     const before = sim.snapshot().projects[0].receipt;
     const costs: number[] = [];
     for (const tunnel of ['twinBore', 'cutAndCover', 'singleLargeBore', 'minedCavern'] as const) {
@@ -309,11 +301,9 @@ describe('numbers that agree', () => {
       for (const o of p.design.options) if (o.selected) expect(o.costCents, o.id).toBe(p.receipt.columns.yours.costCents);
     };
     check();
-    sim.dispatch([
-      { t: 'enactReform', id: 'twoTracks' },
-      { t: 'enactReform', id: 'twinBoreStandard' },
-      { t: 'setDesign', projectId: TEST_PROJECT, tunnel: 'twinBore' },
-    ]);
+    // The reform that allows the twin bore also picks it: no setDesign is sent.
+    sim.dispatch([{ t: 'enactReform', id: 'twinBoreStandard' }]);
+    expect(sim.snapshot().projects[0].design.tunnel).toBe('twinBore');
     check();
     sim.dispatch([{ t: 'approveProject', projectId: TEST_PROJECT }]);
     sim.run(200);
@@ -325,7 +315,7 @@ describe('numbers that agree', () => {
   });
 
   test('a reform preview is what enacting does, to within 3 percent of the change', () => {
-    for (const id of ['twoTracks', 'noMezzanines', 'stageGates', 'bestValueAward', 'nepaPageLimits']) {
+    for (const id of ['twinBoreStandard', 'stationCatalogue', 'inHouseEngineering', 'bestValueAward', 'railSpecustawa']) {
       const sim = createSim(testScenario(), 1);
       sim.dispatch(TEST_DESIGN);
       const before = sim.snapshot();
@@ -338,7 +328,7 @@ describe('numbers that agree', () => {
     }
   });
 
-  test('a sponsor figure without a date has no date on the receipt or the scorecard, and the date axis is scored on the model', () => {
+  test('a sponsor figure without a date has no date on the receipt or the scorecard, and the stars do not need one', () => {
     const s = testScenario();
     const sim = createSim(
       {
@@ -358,7 +348,8 @@ describe('numbers that agree', () => {
     const p = sim.snapshot().projects[0];
     expect(p.receipt.ghost?.openDate).toBe('');
     expect(p.scorecard.ghost).toMatchObject({ kind: 'sponsor', openDate: '', yearsToOpen: 0 });
-    expect(p.scorecard.axes.find((a) => a.id === 'date')?.reason).toMatch(/the status quo \d/);
+    expect(p.scorecard.axes).toBeUndefined();
+    expect(p.scorecard.polandTarget?.timeRatio).toBeGreaterThan(0);
   });
 });
 
@@ -436,16 +427,16 @@ describe('money', () => {
     expect(sim.state.projects[0].eventCounts.cashCall).toBeLessThanOrEqual(2);
   });
 
-  test('cash paid for reforms and machines is part of the all-in cost, on its own receipt line', () => {
-    const sim = createSim(testScenario(), 1);
+  test('no reform is paid in cash: the funds, the books and the receipt line for reform cash do not move', () => {
+    const sim = createSim(testScenario({ start: { ...testScenario().start, politicalCapital: 1000 } }), 1);
     sim.dispatch(TEST_DESIGN);
-    const before = sim.snapshot().projects[0].receipt.columns.yours.costCents;
-    // A $20M programme with no effect on this line's estimate: the estimate goes up by what it cost.
-    sim.dispatch([{ t: 'enactReform', id: 'groundInvestigation' }]);
+    const cash = sim.state.cashCents;
+    sim.dispatch(REFORMS.map((r) => ({ t: 'enactReform' as const, id: r.id })));
+    expect(sim.state.reforms.length).toBe(REFORMS.length);
+    expect(sim.state.cashCents).toBe(cash);
     const p = sim.snapshot().projects[0];
-    expect(p.spentByCategory.reforms).toBe(20e8);
-    expect(p.receipt.lines.find((l) => l.id === 'reformCash')?.cents).toEqual({ yours: 20e8, statusQuo: 0, poland: 0 });
-    expect(p.receipt.columns.yours.costCents - before).toBe(20e8);
+    expect(p.spentByCategory.reforms).toBe(0);
+    expect(p.receipt.lines.find((l) => l.id === 'reformCash')?.cents).toEqual({ yours: 0, statusQuo: 0, poland: 0 });
   });
 
   test('phase pay: each finished phase brings 15 political capital, so every gate arrives with something to spend', () => {
@@ -458,7 +449,7 @@ describe('money', () => {
     // The gate card lists what that capital buys (ui); the strip hint says only what the gate does.
     expect(sim.snapshot().nextAction.hint).toBe('Tender locks the design and the contract prices.');
     expect(sim.snapshot().reforms.some((r) => r.affordable && r.cost.pc > 0)).toBe(true);
-    // A reform bought with cash alone is not "something to spend capital on".
+    // With no capital there is nothing to buy, and the hint does not say there is.
     const poor = createSim(testScenario({ start: { ...testScenario().start, politicalCapital: 0 } }), 1);
     poor.dispatch([...TEST_DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
     expect(poor.snapshot().nextAction.hint).not.toMatch(/political capital/);
@@ -492,12 +483,9 @@ describe('what the player is told', () => {
     expect(Math.abs(left - p.receipt.columns.yours.yearsToOpen * 365)).toBeLessThan(45);
   });
 
-  test('dates in sentences read as a month and a year, and a grade over the limit shows the excess', () => {
+  test('a grade over the limit shows the excess', () => {
     const sim = createSim(testScenario(), 1);
     sim.dispatch(TEST_DESIGN);
-    const reason = sim.snapshot().projects[0].scorecard.axes.find((a) => a.id === 'date')?.reason ?? '';
-    expect(reason).toMatch(/^Opens [A-Z][a-z]{2} \d{4}, /);
-    expect(reason).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     const steep: Waypoint[] = [
       { x: A.x, y: -20, z: A.z },
       { x: A.x + 1000, y: -20 + 30.2, z: A.z },

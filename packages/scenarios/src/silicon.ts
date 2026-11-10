@@ -16,7 +16,7 @@
  * bore under North Bayshore, so there is a machine to drive on the voxels; the rest is network-level track.
  */
 import type { GameCommand, Method, ScenarioDef } from '@bayvox/sim';
-import { cameraOver, EXISTING_CALTRAIN, usd, world, wp, xz } from './helpers.ts';
+import { cameraOver, EXISTING_CALTRAIN, POLAND_TARGET, usd, world, wp, xz } from './helpers.ts';
 import { HOUSING_META_BAYFRONT, HOUSING_NORTH_BAYSHORE, HOUSING_SALT_WORKS } from './housing.ts';
 
 export const SILICON_PROJECT_ID = 'silicon-branch';
@@ -120,7 +120,8 @@ export const SILICON_BRANCH: ScenarioDef = {
   description: 'One 17 km branch off Caltrain for Meta and Google: track, a viaduct, a short tunnel. Fictional.',
   briefing: {
     what: 'A fictional 17 km branch: Redwood City Caltrain, the Dumbarton right-of-way to Willow Road (Meta), a viaduct on the bay side of US-101, and a twin bore to a station under Shoreline Boulevard (Google). Nobody has proposed it.',
-    officialCost: "None. You race the game's estimate under today's rules.",
+    // One line (M3): the model's status quo, since no sponsor figure exists (m3.test.ts).
+    officialCost: "None. The game's estimate under today's rules: $9.00 billion, 9.9x Poland.",
     officialDate: 'No official date exists.',
     why: 'Two large employers sit a few kilometres from Caltrain with no railway between them. Most of the line is cheap track on a public right-of-way. It starts from nothing, so permits are most of the calendar: here a specustawa earns its price.',
     source:
@@ -130,10 +131,11 @@ export const SILICON_BRANCH: ScenarioDef = {
     date: '2026-11-09',
     budgetCents: usd(6e8),
     // The three mainline-terminal mandates are The Portal's; they do not apply to a branch line.
-    policies: ['narrowRecord', 'twoTracks', 'twinBoreStandard', 'shallowBoxes', 'rightSizeTerminal'],
+    policies: ['twinBoreStandard'],
     tech: [],
-    // Enough for the specustawa on day one, or for three ordinary reforms.
-    politicalCapital: 60,
+    // M3: enough for four or five of the eleven reforms on offer before tender. The cost half of the 2x target is
+    // reached by buying from the top of the sheet and missed in list order or cheapest first (m3.test.ts).
+    politicalCapital: 160,
     funding: [
       { id: 'measure', name: 'Regional measure share', amountCents: usd(1.5e9), release: 'permitting', source: 'game assumption' },
       {
@@ -165,8 +167,7 @@ export const SILICON_BRANCH: ScenarioDef = {
       b: { name: 'Googleplex', ...GOOGLEPLEX },
       radiusM: 650,
     },
-    { id: 'riders', title: 'Carry 5,000 riders a day', kind: 'minRiders', riders: 5_000 },
-    { id: 'near-poland', title: 'The target: pay no more than 2x what Poland would', kind: 'maxRatioToPoland', ratio: 2, stretch: true },
+    POLAND_TARGET,
   ],
   costProfile: 'bayAreaStatusQuo',
   housing: [HOUSING_SALT_WORKS, HOUSING_META_BAYFRONT, HOUSING_NORTH_BAYSHORE],

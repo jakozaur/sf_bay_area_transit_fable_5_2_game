@@ -1,5 +1,5 @@
 import { lonLatToWorld, type ProjectRecord } from '@bayvox/core';
-import type { Geology, Waypoint } from '@bayvox/sim';
+import type { Geology, ObjectiveDef, Waypoint } from '@bayvox/sim';
 
 /** Rounds to the centimetre so world coordinates in scenario data do not carry trig rounding noise. */
 function cm(v: number): number {
@@ -89,3 +89,14 @@ export function cameraOver(
 
 export const EXISTING_CALTRAIN: ProjectRecord = { id: 'caltrain', kind: 'existingRail', name: 'Caltrain', feeder: 'caltrain' };
 export const EXISTING_BART: ProjectRecord = { id: 'bart', kind: 'existingRail', name: 'BART', feeder: 'bart' };
+
+/**
+ * The one target every mission has besides its connections (owner decision, M3): the line that delivers the mission
+ * costs at most 2x what Poland would have paid for the route and takes at most 2x as long. The stars follow it.
+ */
+export const POLAND_TARGET: ObjectiveDef = {
+  id: 'near-poland',
+  title: 'Get within 2x Poland on cost and time',
+  kind: 'maxRatioToPoland',
+  ratio: 2,
+};

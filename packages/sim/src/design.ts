@@ -87,26 +87,32 @@ export function designOption(id: DesignOptionId): DesignOptionDef {
   return o;
 }
 
+/** The reform that lets the Polish twin bore be built, and the one that lets a station be a compact box. */
+export const TWIN_BORE_REFORM = 'twinBoreStandard';
+export const COMPACT_BOX_REFORM = 'stationCatalogue';
+
 /** Reforms that must be enacted before an option may be chosen under profile `p`. Empty: available now. */
 export function optionLocks(id: DesignOptionId, p: Profile): string[] {
-  if (id === 'twinBore') {
-    const locks: string[] = [];
-    // A 6.6 m tube holds one track: two of them cannot carry the three-track mandate.
-    if (p['design.threeTrack'] > 0) locks.push('twoTracks');
-    // And the agency's standard must allow two small tubes at all. The second playtest could pick the twin bore
-    // for free once the third track was gone, which left "Twin-bore standard" a reform that bought nothing.
-    if (p['design.twinBoreDefault'] <= 0) locks.push('twinBoreStandard');
-    return locks;
-  }
-  if (id === 'compactBox' && p['design.oversizeStations'] > 0) return ['noMezzanines'];
+  // A 6.6 m tube holds one track, so two of them cannot carry the three-track mandate, and the agency's standard
+  // must allow two small tubes at all. One reform lifts both.
+  if (id === 'twinBore' && (p['design.threeTrack'] > 0 || p['design.twinBoreDefault'] <= 0)) return [TWIN_BORE_REFORM];
+  if (id === 'compactBox' && p['design.oversizeStations'] > 0) return [COMPACT_BOX_REFORM];
   return [];
 }
 
 /** Design options a reform unlocks (static: the inverse of optionLocks). */
 export function reformUnlocks(reformId: string): DesignOptionId[] {
-  if (reformId === 'twinBoreStandard') return ['twinBore'];
-  if (reformId === 'noMezzanines') return ['compactBox'];
+  if (reformId === TWIN_BORE_REFORM) return ['twinBore'];
+  if (reformId === COMPACT_BOX_REFORM) return ['compactBox'];
   return [];
+}
+
+/**
+ * The tunnel option a reform also selects when it is enacted while the design can still change (before tender):
+ * the reform that allows the Polish twin bore picks it, so there is no second trip to the design sheet.
+ */
+export function reformSelects(reformId: string): TunnelOptionId | null {
+  return reformId === TWIN_BORE_REFORM ? 'twinBore' : null;
 }
 
 export function lockTitles(ids: readonly string[]): { reformId: string; title: string }[] {
