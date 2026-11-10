@@ -35,6 +35,32 @@ export interface CostBenefitRow {
   benefitCostRatio: number;
   /** The same benefits over `officialCostCents`. */
   officialBenefitCostRatio: number;
+  /**
+   * M2: the same plan with every housing option of the mission enacted (sim housing.ts: homes x trips per home x
+   * share on the line, ASSUMPTIONS). The cost side does not move: the homes are not paid for by the line.
+   * Absent for a mission without housing options.
+   */
+  withHousing?: { homes: number; dailyRiders: number; benefitCostRatio: number };
+}
+
+function benefitCentsOf(dailyRiders: number): number {
+  return dailyRiders * BENEFIT_DAYS_PER_YEAR * BENEFIT_USD_PER_TRIP * 100 * BENEFIT_PRESENT_VALUE_YEARS;
+}
+
+/** The reference plan with every housing option enacted: political capital is not the question here, so it is topped up. */
+function withHousingOf(s: ScenarioDef, polandCostCents: number): CostBenefitRow['withHousing'] {
+  const options = s.housing ?? [];
+  if (options.length === 0) return undefined;
+  const pc = options.reduce((n, o) => n + o.capitalCost, 0);
+  const sim = createSim({ ...s, start: { ...s.start, politicalCapital: s.start.politicalCapital + pc } }, 1, null, { events: false });
+  sim.dispatch([{ t: 'useOfficialPlan' }, ...options.map((o) => ({ t: 'enactHousing' as const, optionId: o.id }))]);
+  const card = sim.snapshot().projects.find((p) => p.id === s.reference?.projectId)?.scorecard;
+  if (!card?.housing) throw new Error(`scenarios costBenefit: "${s.id}" has housing options but its scorecard carries none`);
+  return {
+    homes: card.housing.homes,
+    dailyRiders: card.ridersPerDay,
+    benefitCostRatio: polandCostCents > 0 ? benefitCentsOf(card.ridersPerDay) / polandCostCents : 0,
+  };
 }
 
 function row(s: ScenarioDef): CostBenefitRow {
@@ -51,7 +77,8 @@ function row(s: ScenarioDef): CostBenefitRow {
   const polandCostCents = r.columns.poland.costCents;
   const officialCostCents = r.ghost ? Math.round(r.ghost.costPerKmCents * lengthKm) : r.columns.statusQuo.costCents;
   const dailyRiders = project.scorecard.ridersPerDay;
-  const benefitCents = dailyRiders * BENEFIT_DAYS_PER_YEAR * BENEFIT_USD_PER_TRIP * 100 * BENEFIT_PRESENT_VALUE_YEARS;
+  const benefitCents = benefitCentsOf(dailyRiders);
+  const withHousing = withHousingOf(s, polandCostCents);
   return {
     scenarioId: s.id,
     name: s.title,
@@ -63,6 +90,7 @@ function row(s: ScenarioDef): CostBenefitRow {
     polandCostPerRiderUsd: dailyRiders > 0 ? Math.round(polandCostCents / dailyRiders / 100) : 0,
     benefitCostRatio: polandCostCents > 0 ? benefitCents / polandCostCents : 0,
     officialBenefitCostRatio: officialCostCents > 0 ? benefitCents / officialCostCents : 0,
+    ...(withHousing ? { withHousing } : {}),
   };
 }
 

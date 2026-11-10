@@ -17,10 +17,12 @@
  */
 import type { GameCommand, Method, ScenarioDef } from '@bayvox/sim';
 import { cameraOver, EXISTING_CALTRAIN, usd, world, wp, xz } from './helpers.ts';
+import { HOUSING_META_BAYFRONT, HOUSING_NORTH_BAYSHORE, HOUSING_SALT_WORKS } from './housing.ts';
 
 export const SILICON_PROJECT_ID = 'silicon-branch';
 
 const REDWOOD_CITY = world(35441.5, -32566.3);
+const NORTH_FAIR_OAKS = world(39508.0, -31740.0);
 const WILLOW_ROAD = world(42640.0, -31975.0);
 const META = world(42844.1, -32538.0);
 const GOOGLEPLEX = world(48574.1, -25554.9);
@@ -48,7 +50,7 @@ const REFERENCE: GameCommand[] = [
       wp(36829.0, -31633.0, 5, 'softGround'),
       wp(37387.0, -31545.0, 4, 'softGround'),
       wp(38584.0, -31652.0, 4, 'softGround'),
-      wp(39508.0, -31740.0, 4, 'bayMud'),
+      wp(NORTH_FAIR_OAKS.x, NORTH_FAIR_OAKS.z, 4, 'bayMud'),
       wp(40646.0, -31849.0, 3, 'bayMud'),
       wp(41432.0, -31924.0, 3, 'bayMud'),
       wp(WILLOW_ROAD.x, WILLOW_ROAD.z, 3, 'bayMud'),
@@ -75,6 +77,15 @@ const REFERENCE: GameCommand[] = [
     name: 'Redwood City',
     template: 'surface',
     at: REDWOOD_CITY,
+  },
+  // M2: the stop for the salt works, as on the Dumbarton mission.
+  {
+    t: 'addStation',
+    projectId: SILICON_PROJECT_ID,
+    stationId: 'marsh-road',
+    name: 'North Fair Oaks (Marsh Road)',
+    template: 'surface',
+    at: NORTH_FAIR_OAKS,
   },
   {
     t: 'addStation',
@@ -159,6 +170,7 @@ export const SILICON_BRANCH: ScenarioDef = {
     { id: 'near-poland', title: 'The target: pay no more than 2x what Poland would', kind: 'maxRatioToPoland', ratio: 2, stretch: true },
   ],
   costProfile: 'bayAreaStatusQuo',
+  housing: [HOUSING_SALT_WORKS, HOUSING_META_BAYFRONT, HOUSING_NORTH_BAYSHORE],
   reference: {
     title: 'Dumbarton tracks, bay-front viaduct, twin bore under North Bayshore',
     projectId: SILICON_PROJECT_ID,

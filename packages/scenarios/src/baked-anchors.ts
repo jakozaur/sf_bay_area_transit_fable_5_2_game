@@ -47,6 +47,12 @@ export const BAKED_STATIONS: Record<string, { name: string; system: string; x: n
     x: 49319.25,
     z: -22540,
   },
+  sanAntonio: {
+    name: 'San Antonio',
+    system: 'Caltrain',
+    x: 46529.25,
+    z: -23963.25,
+  },
   redwoodCity: {
     name: 'Redwood City',
     system: 'Caltrain',

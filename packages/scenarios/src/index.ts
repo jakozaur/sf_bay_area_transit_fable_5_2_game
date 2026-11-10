@@ -4,7 +4,6 @@ import { autopilotCommands, type GameCommand, type GameSim, POLAND_PROFILE, type
 import { type CostBenefitRow, costBenefitOf } from './cost-benefit.ts';
 import { DUMBARTON_TO_META } from './dumbarton.ts';
 import { GOOGLEPLEX_SPUR } from './googleplex.ts';
-import { ORACLE_SHUTTLE } from './oracle.ts';
 import { THE_PORTAL } from './portal.ts';
 import { SANDBOX } from './sandbox.ts';
 import { SILICON_BRANCH } from './silicon.ts';
@@ -21,14 +20,19 @@ export {
 export { DUMBARTON_PROJECT_ID, DUMBARTON_TO_META } from './dumbarton.ts';
 export { GOOGLEPLEX_PROJECT_ID, GOOGLEPLEX_SPUR } from './googleplex.ts';
 export { at, cameraOver, curve, usd, world, wp, xz } from './helpers.ts';
-export { ORACLE_PROJECT_ID, ORACLE_SHUTTLE } from './oracle.ts';
+export { HOUSING_META_BAYFRONT, HOUSING_NORTH_BAYSHORE, HOUSING_SALT_WORKS, HOUSING_SAN_ANTONIO } from './housing.ts';
 export { type MissionOptions, type MissionRun, playMission } from './play.ts';
 export { PORTAL_PROJECT_ID, THE_PORTAL } from './portal.ts';
 export { SANDBOX } from './sandbox.ts';
 export { SILICON_BRANCH, SILICON_PROJECT_ID } from './silicon.ts';
 
 /** List order: The Portal first, then the campus branches, then free build (doc 08 section 4.7). Any may be played first. */
-export const SCENARIOS: readonly ScenarioDef[] = [THE_PORTAL, GOOGLEPLEX_SPUR, DUMBARTON_TO_META, SILICON_BRANCH, ORACLE_SHUTTLE, SANDBOX];
+export const SCENARIOS: readonly ScenarioDef[] = [THE_PORTAL, GOOGLEPLEX_SPUR, DUMBARTON_TO_META, SILICON_BRANCH, SANDBOX];
+
+/** Missions that shipped once and were removed, with the build that removed them: an old save or link names the reason. */
+export const REMOVED_SCENARIOS: Readonly<Record<string, string>> = {
+  'oracle-shuttle': 'the Oracle shuttle tunnel was removed in M2 (2026-11-10)',
+};
 
 /** The cost-benefit comparison of the shipped missions (cost-benefit.ts), for the mission picker. Computed on first call. */
 export function costBenefit(): readonly CostBenefitRow[] {
@@ -71,7 +75,12 @@ export function missionCards(progress: CampaignProgress, scenarios: readonly Sce
 /** Scenario by id. Throws naming the id and the known ones. */
 export function scenarioById(id: string): ScenarioDef {
   const s = SCENARIOS.find((x) => x.id === id);
-  if (!s) throw new Error(`scenarios: no scenario "${id}" (known: ${SCENARIOS.map((x) => x.id).join(', ')})`);
+  if (!s) {
+    const known = SCENARIOS.map((x) => x.id).join(', ');
+    const gone = Object.hasOwn(REMOVED_SCENARIOS, id) ? REMOVED_SCENARIOS[id] : null;
+    if (gone) throw new Error(`scenarios: no scenario "${id}": ${gone}; a save of it cannot be loaded (known: ${known})`);
+    throw new Error(`scenarios: no scenario "${id}" (known: ${known})`);
+  }
   return s;
 }
 

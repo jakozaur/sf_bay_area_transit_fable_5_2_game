@@ -20,6 +20,7 @@
  */
 import type { GameCommand, ScenarioDef } from '@bayvox/sim';
 import { cameraOver, EXISTING_BART, EXISTING_CALTRAIN, usd, world, wp } from './helpers.ts';
+import { HOUSING_META_BAYFRONT, HOUSING_SALT_WORKS } from './housing.ts';
 
 export const DUMBARTON_PROJECT_ID = 'dumbarton-meta';
 
@@ -84,7 +85,7 @@ export const DUMBARTON_TO_META: ScenarioDef = {
     what: 'A railway already runs most of the way: the Dumbarton Cutoff from Redwood Junction to Willow Road, 7.5 km, freight only. SamTrans has owned it since 1994.',
     officialCost: '$1.6 billion, phased, for the whole 33 km corridor to Union City with a new bridge (2017). It was $50 million in 1998.',
     officialDate: 'No date. The current study is for a busway, with construction after 2031.',
-    why: 'Meta sits on the tracks. Surface rail on an existing right-of-way is the cheapest railway there is, and it still has not been built.',
+    why: 'Meta sits on the tracks, and the Redwood City salt works lie beside them. Surface rail on an existing right-of-way is the cheapest railway there is, and it still has not been built. Homes on the salt ponds would fill it.',
     source: 'doc 05 section 3.5 (SamTrans, Reimagine Dumbarton; cost history of the Dumbarton Rail Corridor, 1998 to 2017)',
   },
   start: {
@@ -136,6 +137,7 @@ export const DUMBARTON_TO_META: ScenarioDef = {
     },
   ],
   costProfile: 'bayAreaStatusQuo',
+  housing: [HOUSING_SALT_WORKS, HOUSING_META_BAYFRONT],
   reference: {
     title: 'Surface rail in the existing right-of-way',
     ghostLabel: 'Corridor study (SamTrans, 2017)',

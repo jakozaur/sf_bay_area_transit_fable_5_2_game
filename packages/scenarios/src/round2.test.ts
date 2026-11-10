@@ -27,7 +27,6 @@ import {
   EMPTY_CAMPAIGN,
   GOOGLEPLEX_SPUR,
   missionCards,
-  ORACLE_SHUTTLE,
   PORTAL_PROJECT_ID,
   playMission,
   SANDBOX,
@@ -51,19 +50,12 @@ function referenceView(s: ScenarioDef): ProjectView {
 describe('missions', () => {
   const result: MissionResult = { stars: 2, costCents: 1, costPerKmCents: 1, openDate: '2033-01-01', ratioToPoland: 4 };
 
-  test('the title screen lists six missions in list order and none is locked (M2: any mission can be picked at any time)', () => {
+  test('the title screen lists five missions in list order (the Oracle shuttle was removed in M2) and none is locked (M2: any mission can be picked at any time)', () => {
     const cards = missionCards(EMPTY_CAMPAIGN);
-    expect(cards.map((c) => c.title)).toEqual([
-      'The Portal',
-      'Googleplex spur',
-      'Dumbarton to Meta',
-      'Silicon branch',
-      'Oracle shuttle tunnel',
-      'Free build',
-    ]);
-    expect(cards.map((c) => c.locked)).toEqual([false, false, false, false, false, false]);
-    expect(cards.map((c) => c.siteId)).toEqual(['portal', 'googleplex', 'meta', 'googleplex', 'oracle', 'portal']);
-    expect(cards.map((c) => c.freeBuild)).toEqual([false, false, false, false, false, true]);
+    expect(cards.map((c) => c.title)).toEqual(['The Portal', 'Googleplex spur', 'Dumbarton to Meta', 'Silicon branch', 'Free build']);
+    expect(cards.map((c) => c.locked)).toEqual([false, false, false, false, false]);
+    expect(cards.map((c) => c.siteId)).toEqual(['portal', 'googleplex', 'meta', 'googleplex', 'portal']);
+    expect(cards.map((c) => c.freeBuild)).toEqual([false, false, false, false, true]);
     for (const c of cards) expect(c.lockReason, c.id).toBeNull();
     // The Portal states its theme and its target up front.
     expect(cards[0].pitch).toMatch(/authors of Fable 5\.2/);
@@ -89,7 +81,7 @@ describe('missions', () => {
     expect(cards[0].briefing.officialCost).toMatch(/\$6\.84 billion/);
     expect(cards[0].briefing.officialDate).toMatch(/2036/);
     expect(cards[2].briefing.officialCost).toMatch(/\$1\.6 billion/);
-    for (const i of [1, 3, 4, 5]) expect(cards[i].briefing.officialCost).toMatch(/^No official figure/);
+    for (const i of [1, 3, 4]) expect(cards[i].briefing.officialCost).toMatch(/^No official figure/);
   });
 
   test('no mission is locked whatever has been opened, and results show on the card', () => {
@@ -97,7 +89,7 @@ describe('missions', () => {
     expect(one.every((c) => !c.locked)).toBe(true);
     expect(one[0]).toMatchObject({ completed: true, bestStars: 2 });
     expect(one[1]).toMatchObject({ completed: false, bestStars: null });
-    const two = missionCards({ schemaVersion: 1, missions: { 'oracle-shuttle': result, 'googleplex-spur': { ...result, stars: 0 } } });
+    const two = missionCards({ schemaVersion: 1, missions: { 'dumbarton-to-meta': result, 'googleplex-spur': { ...result, stars: 0 } } });
     expect(two.every((c) => !c.locked)).toBe(true);
     expect(two[1]).toMatchObject({ completed: true, bestStars: 0 });
     expect(two[0]).toMatchObject({ completed: false });
@@ -162,7 +154,6 @@ describe('scenario geography against the baked data', () => {
     }
     // Fantasy lines carry no official figure; real ones name their source.
     expect(GOOGLEPLEX_SPUR.reference?.officialCostCents).toBeUndefined();
-    expect(ORACLE_SHUTTLE.reference?.officialCostCents).toBeUndefined();
     expect(THE_PORTAL.reference?.ghostLabel).toBe('Official plan (TJPA, 2025)');
     expect(DUMBARTON_TO_META.reference?.officialLengthKm).toBe(33);
   });
@@ -189,21 +180,25 @@ describe('scenario geography against the baked data', () => {
   });
 
   test('the campus lines start at the real Caltrain stations and say how much of them the voxel sites cover', () => {
-    // Googleplex: Mountain View Caltrain is 2 km south of the site; the Bay View launch pit, the curve and the Googleplex station are inside.
+    // Googleplex (M2): the spur starts at San Antonio Caltrain, just outside the south-west corner of the site; the
+    // launch pit and the Googleplex station are inside, and the straight drive is shorter than the old one from Mountain View.
     const g = referenceView(GOOGLEPLEX_SPUR);
-    expect(near(connect(GOOGLEPLEX_SPUR).a, station('mountainView'))).toBeLessThan(1);
+    expect(station('sanAntonio')).toMatchObject({ name: 'San Antonio', system: 'Caltrain' });
+    expect(near(connect(GOOGLEPLEX_SPUR).a, station('sanAntonio'))).toBeLessThan(1);
+    expect(near(connect(GOOGLEPLEX_SPUR, 'bay-view').a, station('sanAntonio'))).toBeLessThan(1);
+    expect(near(station('sanAntonio'), connect(GOOGLEPLEX_SPUR).b)).toBeLessThan(near(station('mountainView'), connect(GOOGLEPLEX_SPUR).b));
     expect(inside('googleplex', connect(GOOGLEPLEX_SPUR).a)).toBe(false);
     expect(inside('googleplex', GOOGLEPLEX_SPUR.reference?.launchPit ?? { x: 0, z: 0 })).toBe(true);
     expect(g.stations.map((s) => [s.name, inside('googleplex', s.position)])).toEqual([
-      ['Bay View', true],
       ['Googleplex', true],
-      ['Mountain View', false],
+      ['San Antonio', false],
     ]);
-    expect(g.lengthM).toBeGreaterThan(4200);
-    expect(g.lengthM).toBeLessThan(4400);
-    expect(insideM(GOOGLEPLEX_SPUR, g) / g.lengthM).toBeGreaterThan(0.45);
-    expect(insideM(GOOGLEPLEX_SPUR, g) / g.lengthM).toBeLessThan(0.55);
-    expect(g.checks.minRadiusM).toBeGreaterThan(295);
+    expect(g.lengthM).toBeGreaterThan(2500);
+    expect(g.lengthM).toBeLessThan(2650);
+    expect(insideM(GOOGLEPLEX_SPUR, g) / g.lengthM).toBeGreaterThan(0.55);
+    expect(insideM(GOOGLEPLEX_SPUR, g) / g.lengthM).toBeLessThan(0.6);
+    // A straight line: no curve to check.
+    expect(g.checks.minRadiusM).toBeNull();
 
     // Dumbarton: Redwood City Caltrain to Willow Road on the freight lead; only the Meta end is in the site.
     const d = referenceView(DUMBARTON_TO_META);
@@ -224,15 +219,6 @@ describe('scenario geography against the baked data', () => {
       expect(best, `${w.x}, ${w.z}`).toBeLessThan(15);
     }
     expect(d.segments.every((s) => s.method === 'atGrade')).toBe(true);
-
-    // Oracle: Belmont Caltrain to the towers, all of it inside the site; San Carlos is the stretch anchor.
-    const o = referenceView(ORACLE_SHUTTLE);
-    expect(near(connect(ORACLE_SHUTTLE).a, station('belmont'))).toBeLessThan(1);
-    expect(near(connect(ORACLE_SHUTTLE, 'from-san-carlos').a, station('sanCarlos'))).toBeLessThan(1);
-    expect(insideM(ORACLE_SHUTTLE, o)).toBeCloseTo(o.lengthM, -1);
-    expect(o.lengthM).toBeGreaterThan(1300);
-    expect(o.lengthM).toBeLessThan(1450);
-    expect(near(o.stations[1].position, connect(ORACLE_SHUTTLE).b)).toBeLessThan(200);
   });
 });
 
@@ -715,6 +701,8 @@ describe('each reform moves the receipt the documented way', () => {
     'rightMachine',
     'continuousAdvance',
     'prufrockClass',
+    // The official plan of The Portal has no twin-tube drive for the small bore to replace.
+    'smallBoreLoop',
   ];
 
   test.each(REFORMS.map((r) => [r.id, r.title] as const))('%s (%s)', (id) => {

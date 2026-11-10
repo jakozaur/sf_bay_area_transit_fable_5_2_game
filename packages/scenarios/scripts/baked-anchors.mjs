@@ -18,6 +18,7 @@ const round = (v) => Math.round(v * 100) / 100;
 const WANTED = [
   ['fourthAndKing', 'San Francisco 4th & King Street', 'Caltrain'],
   ['mountainView', 'Mountain View', 'Caltrain'],
+  ['sanAntonio', 'San Antonio', 'Caltrain'],
   ['redwoodCity', 'Redwood City', 'Caltrain'],
   ['belmont', 'Belmont', 'Caltrain'],
   ['sanCarlos', 'San Carlos', 'Caltrain'],

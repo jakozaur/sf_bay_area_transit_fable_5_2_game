@@ -2,7 +2,16 @@
  * M2: the Portal's 2x Poland target, the Silicon branch and the cost-benefit table, on the shipped scenarios.
  * The ratios in the test names are measured by the scripted runs below (seed 1, event cards off unless said).
  */
-import { createSim, type GameCommand, type GameSnapshot, type PolandTarget, REFORMS, type ScenarioDef } from '@bayvox/sim';
+import {
+  CONSTANTS,
+  createSim,
+  type GameCommand,
+  type GameSnapshot,
+  type PolandTarget,
+  REFORMS,
+  type ScenarioDef,
+  SOCIAL_POSTS_KEPT,
+} from '@bayvox/sim';
 import { describe, expect, test } from 'vitest';
 import { BAKED_SITES, BAKED_STATIONS } from './baked-anchors.ts';
 import {
@@ -10,6 +19,8 @@ import {
   BENEFIT_PRESENT_VALUE_YEARS,
   BENEFIT_USD_PER_TRIP,
   costBenefit,
+  DUMBARTON_TO_META,
+  GOOGLEPLEX_SPUR,
   playMission,
   SCENARIOS,
   SILICON_BRANCH,
@@ -136,7 +147,7 @@ describe('The Portal: a train to the authors of Fable 5.2, at no more than 2x Po
     expect(zone.snap.objectives.find((o) => o.id === 'near-poland')?.status).toBe('done');
     expect(idle.snap.objectives.find((o) => o.id === 'near-poland')?.status).toBe('failed');
     // Every reform bought with capital drew a post.
-    expect(zone.snap.socialPosts?.length).toBe(20);
+    expect(zone.snap.socialPosts?.length).toBe(SOCIAL_POSTS_KEPT);
     expect(zone.snap.socialPosts?.some((p) => p.cause === 'reform:specustawa') || (zone.snap.socialPosts?.[0].id ?? 0) > 1).toBe(true);
   });
 
@@ -188,7 +199,13 @@ describe('Silicon branch: Caltrain to Meta and Google in one line', () => {
     // The Dumbarton leg passes through the meta site on the way.
     const meta = BAKED_SITES.meta;
     expect(wps.some((w) => w.x > meta.minX && w.x < meta.maxX && w.z > meta.minZ && w.z < meta.maxZ)).toBe(true);
-    expect(view.stations.map((s) => s.name)).toEqual(['Redwood City', 'Willow Road (Meta)', 'East Palo Alto', 'Googleplex']);
+    expect(view.stations.map((s) => s.name)).toEqual([
+      'Redwood City',
+      'North Fair Oaks (Marsh Road)',
+      'Willow Road (Meta)',
+      'East Palo Alto',
+      'Googleplex',
+    ]);
     // Surface track, a viaduct, and a twin bore at the end: there is a machine to drive on the voxels.
     expect(view.lengthM).toBeGreaterThan(15_000);
     expect(view.lengthM).toBeLessThan(19_000);
@@ -220,13 +237,7 @@ describe('cost-benefit comparison of the missions', () => {
   const rows = costBenefit();
 
   test('one row per mission with a reference plan, in list order, computed once', () => {
-    expect(rows.map((r) => r.scenarioId)).toEqual([
-      'the-portal',
-      'googleplex-spur',
-      'dumbarton-to-meta',
-      'siliconBranch',
-      'oracle-shuttle',
-    ]);
+    expect(rows.map((r) => r.scenarioId)).toEqual(['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch']);
     expect(costBenefit()).toBe(rows);
     for (const r of rows) {
       expect(r.name).toBe(scenarioById(r.scenarioId).title);
@@ -267,5 +278,119 @@ describe('cost-benefit comparison of the missions', () => {
     expect(portal.benefitCostRatio).toBeGreaterThan(1);
     expect(dumbarton.benefitCostRatio).toBeGreaterThan(1);
     for (const r of rows) expect(r.officialBenefitCostRatio, r.scenarioId).toBeLessThan(1);
+  });
+});
+
+describe('housing that justifies the campus lines', () => {
+  const rows = costBenefit();
+  const TRIPS = CONSTANTS.housingTripsPerHome.value * CONSTANTS.housingTransitShare.value;
+
+  test('the three campus missions offer options, the salt works on both lines that pass it; The Portal and free build offer none', () => {
+    const ids = (id: string) => (scenarioById(id).housing ?? []).map((o) => o.id);
+    expect(ids('googleplex-spur')).toEqual(['northBayshore', 'sanAntonioCenter']);
+    expect(ids('dumbarton-to-meta')).toEqual(['saltWorks', 'metaBayfront']);
+    expect(ids('siliconBranch')).toEqual(['saltWorks', 'metaBayfront', 'northBayshore']);
+    expect(ids('the-portal')).toEqual([]);
+    expect(ids('sandbox')).toEqual([]);
+    for (const s of SCENARIOS)
+      for (const o of s.housing ?? []) {
+        expect(o.capitalCost, o.id).toBeGreaterThan(0);
+        // Every number on the card is marked as what it is.
+        expect(o.source, o.id).toMatch(/ASSUMPTION/);
+        expect(o.source, o.id).toMatch(/UNVERIFIED/);
+        expect(`${o.title} ${o.blurb} ${o.source}`.includes(EM_DASH), o.id).toBe(false);
+      }
+    const salt = scenarioById('dumbarton-to-meta').housing?.[0];
+    expect(salt?.title).toBe('Build on the Redwood City salt works');
+    expect((salt?.hectares ?? 0) * (salt?.homesPerHectare ?? 0)).toBe(12_000);
+  });
+
+  test.each([GOOGLEPLEX_SPUR, DUMBARTON_TO_META, SILICON_BRANCH].map((s) => [s.id, s] as const))(
+    '%s: every option is within reach of a station of the reference plan and adds homes x 0.9 riders',
+    (_id, s) => {
+      const options = s.housing ?? [];
+      const sim = createSim({ ...s, start: { ...s.start, politicalCapital: 500 } }, 1, null, { events: false });
+      sim.dispatch([{ t: 'useOfficialPlan' }]);
+      let riders = sim.snapshot().projects[0].scorecard.ridersPerDay;
+      let homes = 0;
+      let capital = 500;
+      for (const o of options) {
+        sim.dispatch([{ t: 'enactHousing', optionId: o.id }]);
+        const snap = sim.snapshot();
+        expect(snap.notices).toEqual([]);
+        const added = Math.round(o.hectares * o.homesPerHectare * TRIPS);
+        homes += o.hectares * o.homesPerHectare;
+        riders += added;
+        capital -= o.capitalCost;
+        expect(snap.projects[0].scorecard.ridersPerDay, o.id).toBe(riders);
+        expect(snap.projects[0].scorecard.housing, o.id).toEqual({
+          homes,
+          ridersPerDayAdded: riders - (rows.find((r) => r.scenarioId === s.id)?.dailyRiders ?? 0),
+        });
+        expect(snap.politicalCapital).toBe(capital);
+        expect(snap.socialPosts?.at(-1)?.cause).toBe(`housing:${o.id}`);
+      }
+      expect(sim.snapshot().housing?.every((o) => o.enacted)).toBe(true);
+    },
+  );
+
+  test('the cost-benefit table carries the plan with every option enacted: same cost, more riders, a higher ratio', () => {
+    expect(rows[0].withHousing).toBeUndefined();
+    for (const r of rows.slice(1)) {
+      const h = r.withHousing;
+      if (!h) throw new Error(`${r.scenarioId} has no withHousing`);
+      const options = scenarioById(r.scenarioId).housing ?? [];
+      expect(h.homes).toBe(options.reduce((n, o) => n + o.hectares * o.homesPerHectare, 0));
+      expect(h.dailyRiders).toBe(r.dailyRiders + options.reduce((n, o) => n + Math.round(o.hectares * o.homesPerHectare * TRIPS), 0));
+      const benefit = h.dailyRiders * BENEFIT_DAYS_PER_YEAR * BENEFIT_USD_PER_TRIP * 100 * BENEFIT_PRESENT_VALUE_YEARS;
+      expect(h.benefitCostRatio).toBeCloseTo(benefit / r.polandCostCents, 9);
+      expect(h.benefitCostRatio).toBeGreaterThan(r.benefitCostRatio);
+    }
+    // What the homes change: the Googleplex spur and the Silicon branch do not pay for themselves at Polish prices
+    // without them and do with them.
+    const [, spur, dumbarton, silicon] = rows;
+    expect(spur.benefitCostRatio).toBeLessThan(1);
+    expect(spur.withHousing?.benefitCostRatio).toBeGreaterThan(1);
+    expect(silicon.benefitCostRatio).toBeLessThan(1);
+    expect(silicon.withHousing?.benefitCostRatio).toBeGreaterThan(1);
+    expect(dumbarton.withHousing?.benefitCostRatio).toBeGreaterThan(5);
+    // The spur alone misses its 2,500 riders; one option is enough.
+    expect(spur.dailyRiders).toBeLessThan(2500);
+    expect(spur.dailyRiders + Math.round(3000 * TRIPS)).toBeGreaterThan(2500);
+  });
+
+  test('the Googleplex spur from San Antonio is shorter and cheaper than the old one from Mountain View (4.28 km, $0.805B in Poland)', () => {
+    const spur = rows[1];
+    expect(spur.lengthKm).toBeGreaterThan(2.5);
+    expect(spur.lengthKm).toBeLessThan(2.65);
+    expect(spur.polandCostCents).toBeLessThan(0.805e11 * 0.7);
+    expect(GOOGLEPLEX_SPUR.briefing?.what).toMatch(/2\.6 km/);
+    expect(`${GOOGLEPLEX_SPUR.description} ${Object.values(GOOGLEPLEX_SPUR.briefing ?? {}).join(' ')}`).not.toMatch(
+      /Mountain View Caltrain|4\.3 km/,
+    );
+    expect(GOOGLEPLEX_SPUR.objectives[0].title).toBe('Connect San Antonio Caltrain to the Googleplex');
+  });
+
+  test('the small bore on the Googleplex spur: a fraction of the tunnel cost, and 60 percent of the riders, homes or no homes', () => {
+    const sim = createSim({ ...GOOGLEPLEX_SPUR, start: { ...GOOGLEPLEX_SPUR.start, politicalCapital: 500, budgetCents: 1e12 } }, 1, null, {
+      events: false,
+    });
+    sim.dispatch([{ t: 'useOfficialPlan' }]);
+    const rail = sim.snapshot().projects[0];
+    sim.dispatch([{ t: 'enactReform', id: 'smallBoreLoop' }]);
+    const pods = sim.snapshot().projects[0];
+    expect(sim.snapshot().notices).toEqual([]);
+    expect(pods.receipt.columns.yours.costCents).toBeLessThan(rail.receipt.columns.yours.costCents * 0.8);
+    expect(pods.scorecard.yours.yearsToOpen).toBeLessThanOrEqual(rail.scorecard.yours.yearsToOpen);
+    expect(pods.scorecard.ridersPerDay).toBe(Math.round(rail.scorecard.ridersPerDay * CONSTANTS.smallBoreRiderShare.value));
+    sim.dispatch([
+      { t: 'enactHousing', optionId: 'northBayshore' },
+      { t: 'enactHousing', optionId: 'sanAntonioCenter' },
+    ]);
+    // 13,147 riders on the railway with both options; the pods keep 7,888 of them, just under the 8,000 the tube carries.
+    const all = rows[1].withHousing?.dailyRiders ?? 0;
+    const kept = sim.snapshot().projects[0].scorecard.ridersPerDay;
+    expect(kept).toBe(Math.min(CONSTANTS.smallBoreRidersPerDay.value, Math.round(all * CONSTANTS.smallBoreRiderShare.value)));
+    expect(kept).toBeLessThan(all * 0.61);
   });
 });

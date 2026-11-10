@@ -1,7 +1,7 @@
 /** Regressions from the second playtest of round 2 (2026-11-10) that need the real scenarios. */
 import { autopilotCommands, createSim, type GameSim, type Waypoint } from '@bayvox/sim';
 import { describe, expect, test } from 'vitest';
-import { DUMBARTON_TO_META, GOOGLEPLEX_SPUR, ORACLE_SHUTTLE, PORTAL_PROJECT_ID, SANDBOX, THE_PORTAL } from './index.ts';
+import { DUMBARTON_TO_META, GOOGLEPLEX_SPUR, PORTAL_PROJECT_ID, SANDBOX, SILICON_BRANCH, THE_PORTAL } from './index.ts';
 
 function official(): GameSim {
   const sim = createSim(THE_PORTAL, 1, null, { events: false });
@@ -89,7 +89,7 @@ describe('The Portal: reforms and gates', () => {
   });
 
   test('the campus missions and free build start with the standard their twin-bore plans are drawn to', () => {
-    for (const scenario of [GOOGLEPLEX_SPUR, DUMBARTON_TO_META, ORACLE_SHUTTLE, SANDBOX]) {
+    for (const scenario of [GOOGLEPLEX_SPUR, DUMBARTON_TO_META, SILICON_BRANCH, SANDBOX]) {
       expect(scenario.start.policies, scenario.id).toContain('twinBoreStandard');
       if (!scenario.reference) continue;
       const sim = createSim(scenario, 1, null, { events: false });

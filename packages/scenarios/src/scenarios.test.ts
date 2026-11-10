@@ -82,17 +82,15 @@ const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.len
 describe('scenario data', () => {
   test('every scenario validates', () => {
     expect(validateAll()).toEqual([]);
-    expect(SCENARIOS.map((s) => s.id)).toEqual([
-      'the-portal',
-      'googleplex-spur',
-      'dumbarton-to-meta',
-      'siliconBranch',
-      'oracle-shuttle',
-      'sandbox',
-    ]);
+    expect(SCENARIOS.map((s) => s.id)).toEqual(['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch', 'sandbox']);
     expect(new Set(SCENARIOS.map((s) => s.id)).size).toBe(SCENARIOS.length);
     expect(scenarioById('the-portal')).toBe(THE_PORTAL);
     expect(() => scenarioById('atlantis')).toThrow(/no scenario "atlantis" \(known: the-portal/);
+    // M2: the Oracle shuttle is gone. An old save or link fails with one line that says so.
+    expect(() => scenarioById('oracle-shuttle')).toThrow(
+      /^scenarios: no scenario "oracle-shuttle": the Oracle shuttle tunnel was removed in M2/,
+    );
+    expect(SCENARIOS.some((s) => /oracle/i.test(`${s.id} ${s.title}`))).toBe(false);
     for (const s of SCENARIOS) expect(JSON.parse(JSON.stringify(s)), `${s.id} is plain JSON`).toEqual(s);
   });
 
@@ -319,6 +317,7 @@ describe('reforms on The Portal', () => {
     rightMachine: ['hazard:tbmStuck', 'tbmRate'],
     continuousAdvance: ['tbmRate'],
     prufrockClass: ['tbmRate'],
+    smallBoreLoop: ['tbmRate'],
   };
 
   test('every reform has a documented direction', () => {
