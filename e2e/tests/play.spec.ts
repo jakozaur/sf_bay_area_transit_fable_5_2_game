@@ -330,7 +330,7 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
   expect(ratio).toBeCloseTo(p.receipt.columns.yours.costPerKmCents / p.receipt.columns.poland.costPerKmCents, 6);
   expect(ratio).toBeGreaterThan(1.5);
   expect(ratio).toBeLessThan(statusQuoRatio);
-  await expect(page.getByTestId('score-verdict')).toContainText(`${ratio.toFixed(1)} times`);
+  await expect(page.getByTestId('score-verdict')).toContainText(`${ratio.toFixed(1)}x Poland per km`);
   await expect(page.getByTestId('receipt-line-priceLevel')).toBeVisible();
   await expect(page.getByTestId('receipt-reform-done-twoTracks').first()).toBeVisible();
   // At least one event card came up on the way and was answered by a click.
@@ -341,7 +341,7 @@ test('The Portal played start to finish with mouse and keyboard', async ({ page 
 
   // ---- next mission is unlocked; keep playing returns to the open line
   // The rating says which axis holds it down.
-  if (p.scorecard.stars < 3) await expect(page.getByTestId('score-stars-reason')).toContainText('weakest of the three');
+  if (p.scorecard.stars < 3) await expect(page.getByTestId('score-stars-reason')).toContainText('weakest axis');
   await expect(page.getByTestId('score-next')).toBeEnabled();
   await page.getByTestId('score-keep').click();
   await expect(page.getByTestId('topbar')).toBeVisible();
@@ -391,7 +391,6 @@ test('free build: an alignment drawn by clicking on the map gets a cost estimate
   const length = await page.getByTestId('readout-length').textContent();
   expect(length).toMatch(/\d+(\.\d+)? km/);
   await expect(page.getByTestId('readout-cost')).toContainText('$');
-  await expect(page.getByTestId('readout-ratio')).toContainText(/\d+(\.\d+)?x/);
   await expect(page.getByTestId('headline-ratio')).toContainText(/^\d+(\.\d+)?x$/);
   const drawn = (await game.snapshot()).projects[0];
   if (drawn === undefined) throw new Error('no project after drawing');

@@ -90,10 +90,12 @@ test('no Oracle mission in the list or the cost-benefit table; the campus rows s
   ]);
   // With every housing option enacted the ratio is higher than without.
   for (const id of ['googleplex-spur', 'dumbarton-to-meta', 'siliconBranch']) {
-    const plain = Number(((await page.getByTestId(`cb-${id}`).textContent()) ?? '').match(/(\d+\.\d\d)$/)?.[1]);
+    // The ratio is the last cell of the row.
+    const plain = Number(await page.getByTestId(`cb-${id}`).locator('td').last().textContent());
     const row = page.getByTestId(`cb-${id}-housing`);
     await expect(row).toContainText(/\+[\d,]+ homes/);
-    const withHomes = Number(((await row.textContent()) ?? '').match(/(\d+\.\d\d)$/)?.[1]);
+    const withHomes = Number(await row.locator('td').last().textContent());
+    expect(plain).toBeGreaterThan(0);
     expect(withHomes).toBeGreaterThan(plain);
   }
   await expect(page.getByTestId('cb-the-portal-housing')).toHaveCount(0);
@@ -121,7 +123,7 @@ test('enacting housing spends capital, adds riders and draws a pile-on in a wide
   await expect(page.getByTestId('housing')).toBeVisible();
   const option = before.housing?.find((o) => o.id === 'northBayshore');
   if (option === undefined) throw new Error('the Googleplex spur offers no North Bayshore housing');
-  await expect(page.getByTestId('housing-northBayshore')).toContainText('Assumptions');
+  await expect(page.getByTestId('housing-northBayshore')).toContainText('Needs a station within');
   await expect(page.getByTestId('housing-enact-northBayshore')).toContainText(`${option.capitalCost}`);
   await shot(page, 'housing-panel');
   const burst = await enactHousing(page, game, 'northBayshore');
@@ -195,11 +197,10 @@ test('the Vegas-style small bore is enactable: cheaper and faster, and it says w
   await page.getByTestId('branch-tunnelling').click();
   await expect(page.getByTestId('reform-head-smallBoreLoop')).toContainText('The Vegas-style small bore');
   await page.getByTestId('reform-head-smallBoreLoop').click();
-  const note = page.getByTestId('reform-smallBoreLoop-note');
+  const note = page.getByTestId('reform-body-smallBoreLoop');
   await expect(note).toContainText('3.7 m');
-  await expect(note).toContainText('a Caltrain train does not fit');
-  await expect(note).toContainText('far fewer riders');
-  await expect(note).toContainText('The Boring Company, Las Vegas Convention Center loop');
+  await expect(note).toContainText('no train fits');
+  await expect(note).toContainText('Pods, not trains');
   await page.getByTestId('reform-effects-smallBoreLoop').scrollIntoViewIfNeeded();
   await shot(page, 'small-bore');
   await page.getByTestId('enact-smallBoreLoop').click();
@@ -296,6 +297,10 @@ test('Dumbarton to Meta with homes on the salt works, played by clicks to the sc
   expect(p.scorecard.housing).toEqual({ homes: option.homes, ridersPerDayAdded: option.ridersPerDayAdded });
   await expect(page.getByTestId('score-housing')).toContainText('12,000 homes');
   await expect(page.getByTestId('score-backlash')).toContainText('angry at you');
+  // Built as California builds it, the line misses the 2x Poland target: no confetti.
+  expect(p.scorecard.polandTarget?.met).toBe(false);
+  await expect(page.getByTestId('score-target')).toContainText('2x Poland target: failed');
+  await expect(page.getByTestId('confetti')).toHaveCount(0);
   // The scorecard sheet stays inside the window with its buttons.
   const foot = await page.getByTestId('score-keep').boundingBox();
   const viewport = page.viewportSize();

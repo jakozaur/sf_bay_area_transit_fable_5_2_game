@@ -112,6 +112,10 @@ test('spending political capital draws a pile-on; a post closes, and close all c
   expect(three.length).toBeLessThanOrEqual(12);
   await expect(page.getByTestId(`post-${three.at(-1)?.id}`)).toBeVisible();
   await expect(post).toHaveCount(0);
+  // The posts are people shouting about their own lives: none of them names the game's currency.
+  const shown = await page.getByTestId('backlash').locator('li').allTextContents();
+  expect(shown.length).toBeGreaterThan(0);
+  for (const text of [...shown, ...three.map((p) => `${p.handle} ${p.text}`)]) expect(text).not.toMatch(/political capital|\bPC\b|points/i);
   // A reform paid in cash only is not a spend of political capital: no post.
   await enact(page, game, 'tunnelling', 'groundInvestigation');
   expect((await game.snapshot()).socialPosts).toHaveLength(three.length);
@@ -134,7 +138,7 @@ test('the specustawa takes the permit phases off the schedule and costs the most
 
   await page.getByTestId('nav-reforms').click();
   await page.getByTestId('specustawa-call').click();
-  await expect(page.getByTestId('reform-specustawa-note')).toContainText('zero time');
+  await expect(page.getByTestId('reform-body-specustawa')).toContainText('planning and permitting take no time');
   // The dearest reform on the tree.
   const cost = before.reforms.find((r) => r.id === 'specustawa')?.cost.pc ?? 0;
   expect(cost).toBe(Math.max(...before.reforms.map((r) => r.cost.pc)));
@@ -281,7 +285,8 @@ test('The Portal meets the 2x Poland target with the specustawa and the Polish r
   const start = (await game.snapshot()).projects[0]?.scorecard.polandTarget;
   expect(start?.met).toBe(false);
   expect(start?.costRatio).toBeGreaterThan(10);
-  await expect(page.getByTestId('hud-target-cost')).toHaveClass(/is-missed/);
+  // The cost half of the target is the colour of the big ratio box.
+  await expect(page.getByTestId('headline-ratio')).toHaveClass(/is-missed/);
 
   // ---- reforms before tender, the Polish design
   await page.getByTestId('nav-reforms').click();
@@ -327,5 +332,7 @@ test('The Portal meets the 2x Poland target with the specustawa and the Polish r
   expect(target.timeRatio).toBeLessThanOrEqual(2);
   expect(target.met).toBe(true);
   await expect(page.getByTestId('score-target')).toContainText('2x Poland target: passed');
+  // Inside the target: the full burst of confetti over the scorecard.
+  await expect(page.getByTestId('confetti')).toHaveAttribute('data-pieces', '120');
   expectNoErrors(game);
 });

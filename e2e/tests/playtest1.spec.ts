@@ -103,15 +103,13 @@ test('The Portal: the plan panel, the headline, the design tag and the receipt s
     const snap = await game.snapshot();
     const r = snap.projects[0]?.receipt;
     if (r === undefined) throw new Error('no project');
-    const perKm = await page.getByTestId('readout-costPerKm').textContent();
-    const head = await page.getByTestId('headline-yours').textContent();
-    // Same figure, same formatting, in the panel and in the top bar.
-    expect(dollars(perKm)).toBe(dollars(head));
+    // The per-km figure and the ratio to Poland are said once, in the top bar: the panel no longer repeats them
+    // (it did, to another rounding). The top bar is the receipt's own number.
+    await expect(page.getByTestId('readout-costPerKm')).toHaveCount(0);
+    await expect(page.getByTestId('readout-ratio')).toHaveCount(0);
+    expect(dollars(await page.getByTestId('headline-yours').textContent())).toBeCloseTo(r.columns.yours.costPerKmCents / 100, -8);
+    expect(dollars(await page.getByTestId('headline-poland').textContent())).toBeCloseTo(r.columns.poland.costPerKmCents / 100, -7);
     expect(dollars(await page.getByTestId('readout-cost').textContent())).toBeCloseTo(r.columns.yours.costCents / 100, -8);
-    const panelRatio = (await page.getByTestId('readout-ratio').textContent()) ?? '';
-    const headPoland = dollars(await page.getByTestId('headline-poland').textContent());
-    expect(dollars(panelRatio.slice(panelRatio.indexOf('(')))).toBe(headPoland);
-    expect(panelRatio).toContain(`${r.ratios.yoursToPoland.toFixed(1)}x`);
     // A date like every other date on screen.
     await expect(page.getByTestId('readout-opens')).toContainText(/[A-Z][a-z]{2} \d{4}$/);
     return { poland: r.columns.poland.costCents, ratio: (await page.getByTestId('headline-ratio').textContent()) ?? '' };
@@ -152,7 +150,7 @@ test('The Portal: the plan panel, the headline, the design tag and the receipt s
   expect(dollars(await page.getByTestId('receipt-total-yours').textContent())).toBeCloseTo(r.columns.yours.costCents / 100, -8);
   const price = page.getByTestId('receipt-line-priceLevel');
   await price.scrollIntoViewIfNeeded();
-  await expect(price).toContainText('Not a lever');
+  await expect(price).toContainText('No reform removes this');
   await expect(price.locator('.bv-chip')).toHaveCount(0);
   // No cents printed as money: every Poland cell of the design and lever rows is a plain 0.
   for (const id of ['designTunnel', 'designStations', 'designSystems', 'procurement', 'softCosts']) {
@@ -189,8 +187,8 @@ test('The Portal status quo: the launch gate says what it starts, the money runs
     throw new Error(`not reached within ${maxDays} game days: ${(await game.snapshot()).nextAction.hint}`);
   };
   await advance((s) => s.projects[0]?.awaiting === 'advancePhase', 2000);
-  // At the gate there is political capital to spend, and the strip says so with the way to spend it.
-  await expect(page.getByTestId('objective-hint')).toContainText('political capital');
+  // At the gate there is political capital to spend, and the strip offers the way to spend it.
+  await expect(page.getByTestId('objective-hint')).toContainText('Tender locks the design');
   await expect(page.getByTestId('strip-reforms')).toBeVisible();
   await page.getByTestId('next-action').click();
   await advance((s) => s.projects[0]?.awaiting === 'launchTBM', 4000);
