@@ -128,7 +128,7 @@ test('The Portal: the plan panel, the headline, the design tag and the receipt s
     await expect(page.getByTestId(`reform-${id}`)).toContainText('Enacted');
   }
   await expect(page.getByTestId('toasts')).not.toContainText('already enacted');
-  expect((await game.snapshot()).politicalCapital).toBe(40 - 15 - 10 - 15);
+  expect((await game.snapshot()).politicalCapital).toBe(300 - 15 - 10 - 15);
   await page.getByTestId('panel-close').click();
   await page.getByTestId('open-design').click();
   // The twin-bore standard has redrawn the mined cavern nobody chose as twin tubes; the trenches are still trenches.

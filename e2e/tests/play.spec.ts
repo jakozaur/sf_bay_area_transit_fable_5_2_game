@@ -69,15 +69,14 @@ async function setSpeed(page: Page, game: Session, speed: 1 | 10 | 100, answered
 test('the title screen boots over the whole Bay with the mission list', async ({ page }, testInfo) => {
   const game = await openTitle(page, testInfo);
   await expect(page.getByTestId('screen-title')).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/Bay Area\s*Boring/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(/Polish the\s*Public Transport/);
+  await expect(page.getByTestId('tagline')).toHaveText('Can you build a train to the HQ of the authors of Fable 5.2?');
+  await expect(page).toHaveTitle('Polish the Public Transport');
   await expect(page.getByTestId('title-play')).toBeEnabled();
-  // Five missions; only The Portal and Free build are open on a fresh profile, the others say what unlocks them.
-  await expect(page.locator('.bv-mission')).toHaveCount(5);
-  await expect(page.getByTestId('mission-the-portal')).toBeEnabled();
-  await expect(page.getByTestId('mission-sandbox')).toBeEnabled();
-  for (const id of ['googleplex-spur', 'dumbarton-to-meta', 'oracle-shuttle'])
-    await expect(page.getByTestId(`mission-${id}`)).toBeDisabled();
-  await expect(page.getByTestId('mission-googleplex-spur')).toContainText('Open The Portal first');
+  // Every mission can be picked on a fresh profile: no ordering, no lock.
+  for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'oracle-shuttle', 'sandbox'])
+    await expect(page.getByTestId(`mission-${id}`)).toBeEnabled();
+  await expect(page.locator('.bv-mission:disabled')).toHaveCount(0);
   await expect(page.getByTestId('title-continue')).toHaveCount(0);
   // No debug panel by default, and the map behind is the regional view: no voxels shown from that far.
   await expect(page.locator('.lil-gui')).toHaveCount(0);

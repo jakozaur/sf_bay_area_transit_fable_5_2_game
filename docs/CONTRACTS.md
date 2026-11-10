@@ -156,3 +156,16 @@ Three playtesters drove the game again; this is what changed in the contracts. A
 - **App.** A gate drops the game to 1x; approving puts the drawing tools away; the x-ray of a breakthrough and of the first train goes off by itself; restart and a deep link to another site look at the mission; a watch ends when its machine leaves the scene.
 
 Not done, known: the tunnel method and the machine-speed reforms still do not move the opening date where the station boxes take longer (the chooser and the previews now say so); a launch pit may stand in open water; waypoints may be placed in the Pacific; below about 700 px of width the top bar is cut down to the buttons, not laid out anew; the cut plane is still a fixed disc.
+
+## M2: Polish the Public Transport (2026-11-10)
+
+Additive, save schema stays 2.
+
+- **Any mission, any time.** `missionCards` returns `locked: false` for every mission; the session no longer refuses `brief` or `start`. Scenario ids and the `mission=` URL parameter accept upper-case letters (`siliconBranch`).
+- **Backlash.** `GameSnapshot.socialPosts?` (`SocialPost`, oldest first, last 20): one post per spend of political capital (reforms, event options that cost capital; cash-only spends draw none). Posts come from their own generator seeded from the sim seed and the post id, not from `state.rng`. Closing a post is UI state (`store.postsClosed`).
+- **The 2x target.** `Scorecard.polandTarget?` (`PolandTarget`, `POLAND_TARGET_LIMIT`): cost and years to open of the player's column over Poland's. The Portal starts with 300 political capital; its `near-poland` stretch objective is ratio 2.
+- **Reforms.** `specustawa` (60 PC: planning and permitting take one day each, utilities halved, no lawsuits), `emergencyAward`, `parallelWorks`. All three are `beyondPoland`: the Poland column does not move. `railSpecustawa` keeps its id under a new title.
+- **Scenarios.** `SILICON_BRANCH` (`siliconBranch`, fourth in `SCENARIOS`); `costBenefit()` (`CostBenefitRow`), whose three benefit constants are unverified assumptions.
+- **UI.** `mountUi(root, services, extras?)` with `UiExtras.costBenefit`: the app passes `costBenefit()`, the UI package still does not import scenarios.
+
+Measured through the interface (`e2e/tests/m2.spec.ts`, seed of the app, cards on): The Portal with the specustawa and the Polish reforms before tender ends at 1.94x Poland's cost and 0.83x its timeline. Known: on The Portal the timeline is inside 2x without the specustawa (1.6x with no reforms, the head start through permitting); the specustawa decides the timeline on the Silicon branch (2.0x to 1.0x), whose 2x cost is out of reach at 60 capital. No alignment parallel to Caltrain yet.
