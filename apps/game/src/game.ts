@@ -67,6 +67,16 @@ const SLOW_DRAW_SPACING = 4;
 const MAX_SIM_DT = 0.25;
 /** The x-ray the game switches on at a breakthrough goes off again after this many real seconds. */
 const BREAKTHROUGH_XRAY_S = 8;
+/** And the one it switches on to show the first train: the ride until the scorecard, and a little after it. */
+const OPENING_XRAY_S = 14;
+/**
+ * Closest map zoom where the focus is outside the voxel site: there are no streets to see there, only the 64 m
+ * raster, and from 50 m a patch of it is one flat colour (the second playtest zoomed into the Pacific and took
+ * the blue screen for a crash).
+ */
+const OFFSITE_MIN_DISTANCE_M = 1500;
+/** A hand-dug hole narrower than this on screen is not dug: the player could not see what the money bought. CSS pixels. */
+const DIG_MIN_HOLE_PX = 10;
 /** Ring of a mission target on the map: waiting for a station, and served by one. */
 const TARGET_COLOR = 0xff5a1f;
 const TARGET_SERVED_COLOR = 0x58d29a;
@@ -136,6 +146,8 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
     const startScenario = params.mission === null ? null : scenarioById(params.mission);
     const world = await createWorld(params);
     if (world.bookmarks.length === 0) throw new Error('boot: the world provides no camera bookmark');
+    /** The site the app booted on: a deep link to a mission on another site needs that mission's camera. */
+    const bootSite = world.siteId;
     console.info(`world: ${world.summary}`);
     const renderer = new VoxelRenderer({ canvas, world: world.store, antialias: params.aa });
     world.decorate(renderer.overlay);
@@ -328,6 +340,21 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
         if (world.edits !== undefined) return world.edits.dig(center, radiusM);
         return { removedM3: 0, dirtyChunks: dig(center, radiusM) };
       },
+      digBlocked(center, radiusM) {
+        // Voxels are drawn in the near field around the view's focus; everything else is 4 m columns and the far
+        // raster, which do not show a hole. The second playtest dug $40M of holes there and saw none of them.
+        if (lod !== undefined) {
+          if (!voxelsShown) return 'Zoom in to dig: from this far the ground is drawn as a map.';
+          const box = streamer.nearBox;
+          if (box === null || center.x < box[0] || center.x >= box[2] || center.z < box[1] || center.z >= box[3])
+            return 'Too far from the middle of the view to dig: move the view over the spot, then dig.';
+        }
+        const cam = cameraState();
+        const d = Math.hypot(center.x - cam.position.x, center.y - cam.position.y, center.z - cam.position.z);
+        const metresPerPx = (2 * d * Math.tan((cam.fovYDeg * Math.PI) / 360)) / Math.max(1, height);
+        if ((2 * radiusM) / metresPerPx < DIG_MIN_HOLE_PX) return 'Zoom in to dig: from here the hole would be a few pixels wide.';
+        return null;
+      },
     };
 
     const audio = createAudio();
@@ -345,9 +372,11 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
         if (drawn !== null || ref.type !== 'tbm' || !live()) return drawn;
         // A machine the sim has launched and no frame has drawn yet (the snapshot is published before the next
         // frame builds its scene): its pose in the snapshot is where it will be drawn.
+        // Not a machine that broke through and left the scene: a watch of it ends there. (It used to find the
+        // finished heading in the snapshot for ever, and the camera stayed underground where the machine had been.)
         for (const p of driver.snapshot().projects) {
           const t = p.tbms.find((x) => x.id === ref.id);
-          if (t !== undefined) return { position: t.position, yaw: t.yaw, pitch: t.pitch };
+          if (t !== undefined && t.status !== 'done') return { position: t.position, yaw: t.yaw, pitch: t.pitch };
         }
         return null;
       },
@@ -441,11 +470,26 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
           view.set(defaultView());
           stampsFor = null;
           openedProject = null;
-          // A deep link (?mission=) keeps the camera the URL asked for; otherwise each start looks at the mission.
-          if (reason !== 'restart' && !(params.mission !== null && frame === 0)) rig.setBookmark(scenario.camera, !params.freeze);
+          lastStage = driver.snapshot().mission.stage;
+          // A deep link (?mission=) keeps the camera the URL asked for, on the site the app booted on. A mission on
+          // another site gets its own camera (the boot view is of downtown San Francisco, where a Googleplex spur
+          // is not). Every other start, and a restart (the camera may be 20 m down beside a machine), looks at the mission.
+          const deepLink = params.mission !== null && frame === 0;
+          if (deepLink) {
+            if (bootSite !== undefined && scenario.siteId !== bootSite && params.cam === 0) rig.setBookmark(scenario.camera, false);
+            else if (bootSite !== undefined && scenario.siteId !== bootSite)
+              rig.setBookmark(world.bookmarks[Math.min(params.cam, world.bookmarks.length - 1)] as CameraBookmark, false);
+          } else if (reason !== 'restart' || world.siteId !== undefined) rig.setBookmark(scenario.camera, !params.freeze);
         },
-        fly: (pose) => rig.setBookmark(besideSheet(pose, SHEET_SHARE), !params.freeze),
-        flyToBay: () => rig.setBookmark(bayView, !params.freeze),
+        // Off the playing screens the view toggles of the last mission are gone: a cut disc under the briefing is debris.
+        fly: (pose) => {
+          view.set({ cut: false, xray: false });
+          rig.setBookmark(besideSheet(pose, SHEET_SHARE), !params.freeze);
+        },
+        flyToBay: () => {
+          view.set({ cut: false, xray: false });
+          rig.setBookmark(bayView, !params.freeze);
+        },
       },
     });
 
@@ -562,8 +606,11 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
     let stampsFor: GameSnapshot | null = null;
     /** Project whose line has just opened and whose first train the camera has not gone to yet. */
     let openedProject: string | null = null;
-    /** Real seconds until the x-ray the game switched on at a breakthrough goes off again; 0 when it did not. */
+    /** Real seconds until the x-ray the game switched on (a breakthrough, the first train) goes off again; 0 when it did not. */
     let xrayOffIn = 0;
+    /** Mission stage of the last frame: leaving the plan stage puts the drawing tools away. */
+    let lastStage: GameSnapshot['mission']['stage'] = 'plan';
+    let lastHold: GameSnapshot['clock']['hold'] = null;
 
     /** The machine the camera rides with: the one the drive tool possesses, or one being watched from the cutaway. */
     function possessed(): string | null {
@@ -635,7 +682,8 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
             // for a few seconds. The first playtest was left in x-ray for three game years after the banner.
             if (isPlaying) {
               if (time.speed.get() > 1) time.setSpeed(1);
-              if (!view.state.get().xray) {
+              // Seen through the ground only where the ground is voxels: from the whole-Bay view x-ray blanks the map.
+              if (!view.state.get().xray && voxelsShown) {
                 view.set({ xray: true });
                 xrayOffIn = BREAKTHROUGH_XRAY_S;
               }
@@ -652,10 +700,23 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
         xrayOffIn -= dt;
         if (xrayOffIn <= 0) {
           xrayOffIn = 0;
-          // Unless the line has opened meanwhile: then the x-ray belongs to the train ride.
-          if (snap.services.length === 0) view.set({ xray: false });
+          view.set({ xray: false });
         }
       }
+      if (isLive) {
+        const stage = snap.mission.stage;
+        if (stage !== lastStage) {
+          // The plan is approved: the drawing tools have nothing more to draw and their panels are put away.
+          const tool = host.active()?.id;
+          if (lastStage === 'plan' && isPlaying && (tool === 'plan' || tool === 'station')) host.port.activate(null);
+          lastStage = stage;
+        }
+      }
+      // A gate is a decision: it is not arrived at in fast forward, and the phase after it starts at the pace it is meant to be watched at.
+      const hold = snap.clock.hold;
+      // (With the interface up: on the bare canvas there is no gate card to read, and scripts set their own speed.)
+      if (ui !== null && hold === 'gate' && lastHold !== 'gate' && isPlaying && time.speed.get() > 1) time.setSpeed(1);
+      lastHold = hold;
       // The places the mission is about are ringed on the map while it is on screen; a ring turns green when a station serves it.
       syncTargets(isLive ? snap.mission.targets : [], isLive && possessedId === null);
       // Looking through the ground or under a cut, the tunnels are drawn open at the top: track and trains show.
@@ -668,6 +729,9 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
         const train = snap.services.find((sv) => sv.projectId === openedProject) === undefined ? undefined : scene.trains[0];
         openedProject = null;
         if (train !== undefined && host.active() === null) {
+          // The x-ray is the game's for the ride, not the player's for good: it goes off again by itself.
+          if (!view.state.get().xray) xrayOffIn = OPENING_XRAY_S;
+          else if (xrayOffIn > 0) xrayOffIn = OPENING_XRAY_S;
           view.set({ xray: true });
           camera.flyTo({
             position: { x: train.position.x + 40, y: train.position.y + 300, z: train.position.z + 260 },
@@ -681,6 +745,11 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       if (camera.following() !== null && host.active()?.id !== 'drive' && (axes.panX !== 0 || axes.panZ !== 0)) camera.follow(null);
       camera.track();
 
+      // Street-level zoom is for where there are streets: off the voxel site the map camera stays further out.
+      if (worldGround !== undefined) {
+        const focus = rig.target();
+        rig.setZoomFloor(inSite(focus.x, focus.z) ? null : OFFSITE_MIN_DISTANCE_M);
+      }
       rig.update(dt, axes);
       const cam = cameraState();
       if (isLive) {
@@ -718,7 +787,8 @@ export function startGame(canvas: HTMLCanvasElement, params: GameParams, uiRoot:
       renderer.setHighlight(hoverBox && hover !== null ? (pick(hover.x, hover.y)?.voxel ?? null) : null);
       if (animate) elapsed += dt;
       const v = view.state.get();
-      renderer.setView({ cutRadius: v.cutRadius, xray: v.xray, time: elapsed });
+      // X-ray thins the voxel ground. Zoomed out past the voxels there is no such ground, and x-ray would blank the map.
+      renderer.setView({ cutRadius: v.cutRadius, xray: v.xray && voxelsShown, time: elapsed });
       const p = cam.position;
       const t = cam.target;
       const key = `${renderer.revision}|${p.x},${p.y},${p.z}|${t.x},${t.y},${t.z}|${cam.fovYDeg},${cam.aspect},${cam.near},${cam.far},${cam.cutY}`;
