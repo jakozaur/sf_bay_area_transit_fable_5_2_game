@@ -75,7 +75,7 @@ describe('The Portal: reforms and gates', () => {
     expect(twin?.lockedBy.map((l) => l.reformId)).toEqual(['twinBoreStandard']);
     const standard = sim.snapshot().reforms.find((r) => r.id === 'twinBoreStandard');
     expect(standard?.affordable).toBe(true);
-    // 40 PC at the start: two tracks (15) and the standard (10) leave 15 for the mezzanines.
+    // Two tracks (15), the standard (10) and the mezzanines (15): 40 PC, the whole capital of round 2.
     expect(standard?.cost.pc).toBe(10);
     expect(standard?.preview?.costDeltaCents).toBeLessThan(-2e10);
     sim.dispatch([
@@ -83,7 +83,7 @@ describe('The Portal: reforms and gates', () => {
       { t: 'enactReform', id: 'noMezzanines' },
     ]);
     expect(sim.snapshot().notices).toEqual([]);
-    expect(sim.snapshot().politicalCapital).toBe(0);
+    expect(sim.snapshot().politicalCapital).toBe(THE_PORTAL.start.politicalCapital - 40);
     sim.dispatch([{ t: 'setDesign', projectId: PORTAL_PROJECT_ID, tunnel: 'twinBore', stationBox: 'compactBox' }]);
     expect(sim.snapshot().projects[0].design).toMatchObject({ tunnel: 'twinBore', stationBox: 'compactBox' });
   });

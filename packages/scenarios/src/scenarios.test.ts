@@ -11,7 +11,6 @@ import {
   isoToDays,
   loadSim,
   offsetPointAt,
-  PC_PER_MONTH,
   POLAND_PROFILE,
   type ProfileKey,
   profileFor,
@@ -83,7 +82,14 @@ const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.len
 describe('scenario data', () => {
   test('every scenario validates', () => {
     expect(validateAll()).toEqual([]);
-    expect(SCENARIOS.map((s) => s.id)).toEqual(['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'oracle-shuttle', 'sandbox']);
+    expect(SCENARIOS.map((s) => s.id)).toEqual([
+      'the-portal',
+      'googleplex-spur',
+      'dumbarton-to-meta',
+      'siliconBranch',
+      'oracle-shuttle',
+      'sandbox',
+    ]);
     expect(new Set(SCENARIOS.map((s) => s.id)).size).toBe(SCENARIOS.length);
     expect(scenarioById('the-portal')).toBe(THE_PORTAL);
     expect(() => scenarioById('atlantis')).toThrow(/no scenario "atlantis" \(known: the-portal/);
@@ -98,7 +104,7 @@ describe('scenario data', () => {
       start: { ...THE_PORTAL.start, date: '2026-13-40', budgetCents: 1.5 },
     };
     const problems = validateScenario(broken).join('\n');
-    expect(problems).toMatch(/id must be lower-case/);
+    expect(problems).toMatch(/id must be letters, digits and dashes/);
     expect(problems).toMatch(/start.date "2026-13-40" is not an ISO date/);
     expect(problems).toMatch(/budgetCents 1.5 must be a non-negative integer/);
     expect(problems).toMatch(/needs a connect objective/);
@@ -286,6 +292,7 @@ describe('reforms on The Portal', () => {
     nepaPageLimits: ['time', 'cost'],
     megaprojectCertification: ['time', 'cost'],
     railSpecustawa: ['time', 'cost', 'hazard:lawsuit'],
+    specustawa: ['time', 'cost', 'hazard:lawsuit'],
     fundLocally: ['time', 'cost', 'hazard:fundingGap'],
     utilityStatute: ['time', 'cost'],
     masterPermitting: ['time', 'cost'],
@@ -298,6 +305,8 @@ describe('reforms on The Portal', () => {
     openTenders: ['cost'],
     importSupplyChain: ['systems'],
     roundTheClock: ['time', 'cost'],
+    emergencyAward: ['time'],
+    parallelWorks: ['time'],
     leanSupervision: ['cost'],
     twoTracks: ['cost'],
     shallowBoxes: ['cost'],
@@ -355,7 +364,8 @@ describe('reforms on The Portal', () => {
     expect(after.factors[2].value).toBeLessThan(before.factors[2].value);
     // The Polish benchmark does not move.
     expect(after.poland.costCents).toBe(before.poland.costCents);
-    expect(sim.snapshot().politicalCapital).toBe(40 + 2 * PC_PER_MONTH - 15 - 15);
+    // Above PC_MONTHLY_CAP the monthly mandate adds nothing: the 300 PC of M2 only go down in these two months.
+    expect(sim.snapshot().politicalCapital).toBe(THE_PORTAL.start.politicalCapital - 15 - 15);
   });
 });
 

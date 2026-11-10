@@ -51,21 +51,24 @@ function referenceView(s: ScenarioDef): ProjectView {
 describe('missions', () => {
   const result: MissionResult = { stars: 2, costCents: 1, costPerKmCents: 1, openDate: '2033-01-01', ratioToPoland: 4 };
 
-  test('the title screen lists five missions in campaign order; only The Portal and free build start unlocked', () => {
+  test('the title screen lists six missions in list order and none is locked (M2: any mission can be picked at any time)', () => {
     const cards = missionCards(EMPTY_CAMPAIGN);
     expect(cards.map((c) => c.title)).toEqual([
       'The Portal',
       'Googleplex spur',
       'Dumbarton to Meta',
+      'Silicon branch',
       'Oracle shuttle tunnel',
       'Free build',
     ]);
-    expect(cards.map((c) => c.locked)).toEqual([false, true, true, true, false]);
-    expect(cards.map((c) => c.siteId)).toEqual(['portal', 'googleplex', 'meta', 'oracle', 'portal']);
-    expect(cards.map((c) => c.freeBuild)).toEqual([false, false, false, false, true]);
-    expect(cards[1].lockReason).toBe('Open The Portal first.');
-    expect(cards[3].lockReason).toBe('Open Dumbarton to Meta first.');
-    expect(cards[0].lockReason).toBeNull();
+    expect(cards.map((c) => c.locked)).toEqual([false, false, false, false, false, false]);
+    expect(cards.map((c) => c.siteId)).toEqual(['portal', 'googleplex', 'meta', 'googleplex', 'oracle', 'portal']);
+    expect(cards.map((c) => c.freeBuild)).toEqual([false, false, false, false, false, true]);
+    for (const c of cards) expect(c.lockReason, c.id).toBeNull();
+    // The Portal states its theme and its target up front.
+    expect(cards[0].pitch).toMatch(/authors of Fable 5\.2/);
+    expect(cards[0].pitch).toMatch(/2x Poland on cost and on time/);
+    expect(cards[0].briefing.what).toMatch(/fictional/);
     for (const c of cards) {
       expect(c.completed).toBe(false);
       expect(c.bestStars).toBeNull();
@@ -86,19 +89,18 @@ describe('missions', () => {
     expect(cards[0].briefing.officialCost).toMatch(/\$6\.84 billion/);
     expect(cards[0].briefing.officialDate).toMatch(/2036/);
     expect(cards[2].briefing.officialCost).toMatch(/\$1\.6 billion/);
-    for (const i of [1, 3, 4]) expect(cards[i].briefing.officialCost).toMatch(/^No official figure/);
+    for (const i of [1, 3, 4, 5]) expect(cards[i].briefing.officialCost).toMatch(/^No official figure/);
   });
 
-  test('each mission unlocks when the one before it has been opened, and results show on the card', () => {
+  test('no mission is locked whatever has been opened, and results show on the card', () => {
     const one = missionCards({ schemaVersion: 1, missions: { 'the-portal': result } });
-    expect(one.map((c) => c.locked)).toEqual([false, false, true, true, false]);
+    expect(one.every((c) => !c.locked)).toBe(true);
     expect(one[0]).toMatchObject({ completed: true, bestStars: 2 });
-    // Skipping ahead does not unlock what follows a mission that was never opened.
-    const gap = missionCards({ schemaVersion: 1, missions: { 'the-portal': result, 'dumbarton-to-meta': result } });
-    expect(gap.map((c) => c.locked)).toEqual([false, false, false, false, false]);
-    const two = missionCards({ schemaVersion: 1, missions: { 'the-portal': result, 'googleplex-spur': { ...result, stars: 0 } } });
-    expect(two.map((c) => c.locked)).toEqual([false, false, false, true, false]);
+    expect(one[1]).toMatchObject({ completed: false, bestStars: null });
+    const two = missionCards({ schemaVersion: 1, missions: { 'oracle-shuttle': result, 'googleplex-spur': { ...result, stars: 0 } } });
+    expect(two.every((c) => !c.locked)).toBe(true);
     expect(two[1]).toMatchObject({ completed: true, bestStars: 0 });
+    expect(two[0]).toMatchObject({ completed: false });
     expect(() => missionCards({ schemaVersion: 1 } as never)).toThrow(/progress.missions must be an object/);
     expect(() => missionCards(EMPTY_CAMPAIGN, [{ ...THE_PORTAL, briefing: undefined }])).toThrow(/scenario "the-portal" has no briefing/);
   });
@@ -497,8 +499,9 @@ describe('The Portal, played by hand', () => {
 
   test(`political capital: ${THE_PORTAL.start.politicalCapital} at the start buys ${reformLog.filter((r) => r.tick === 0 && (REFORMS.find((x) => x.id === r.reform)?.cost.pc ?? 0) > 0).length} reforms on day one; by opening ${sim.state.reforms.length} of ${REFORMS.length} are enacted`, () => {
     const dayOne = reformLog.filter((r) => r.tick === 0 && (REFORMS.find((x) => x.id === r.reform)?.cost.pc ?? 0) > 0);
-    expect(dayOne.length).toBeGreaterThanOrEqual(2);
-    expect(dayOne.length).toBeLessThanOrEqual(3);
+    // M2: the 2x Poland target needs the contract and design reforms in force at tender, so the mission starts
+    // with the capital for them (round 2 started with 40 PC and two or three reforms).
+    expect(dayOne.length).toBeGreaterThanOrEqual(8);
     // About half the tree by the end of mission 1.
     expect(sim.state.reforms.length / REFORMS.length).toBeGreaterThan(0.4);
     expect(sim.state.reforms.length / REFORMS.length).toBeLessThan(0.65);
@@ -513,7 +516,8 @@ describe('The Portal, played by hand', () => {
     expect(snap.politicalCapital).toBeLessThanOrEqual(
       THE_PORTAL.start.politicalCapital + earned - spent - cards + Math.floor((snap.tick - p.openedTick) / 30 + 1) * 4,
     );
-    expect(THE_PORTAL.start.politicalCapital + earned).toBeLessThan(pcTree * 0.65);
+    // Still not the whole tree: the player chooses.
+    expect(THE_PORTAL.start.politicalCapital + earned).toBeLessThan(pcTree);
     expect(THE_PORTAL.start.politicalCapital + earned).toBeGreaterThan(pcTree * 0.35);
   });
 

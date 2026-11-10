@@ -93,10 +93,12 @@ export const THE_PORTAL: ScenarioDef = {
   id: 'the-portal',
   siteId: 'portal',
   title: 'The Portal',
+  // M2 theme (owner's joke, fiction): the authors of the Fable 5.2 model have a secret HQ next to Salesforce Park
+  // and would like a train. The project facts below are the real ones.
   description:
-    'The trainbox under the Salesforce Transit Center opened in 2018. Trains: 0. Caltrain stops 2.1 km short, at 4th and King. Connect them. The official plan: $6.84 billion, open in 2036.',
+    'Can you build a train to the HQ of the authors of Fable 5.2? It is said to sit by Salesforce Park, over a trainbox opened in 2018. Trains: 0. Caltrain stops 2.1 km short. Target: at most 2x Poland on cost and on time. Official plan: $6.84 billion, 2036.',
   briefing: {
-    what: 'Caltrain ends at 4th and King. The Portal is 2.1 km of tunnel under Townsend and 2nd Street to the trainbox that has sat empty under the Salesforce Transit Center since 2018.',
+    what: 'The gods of AI, authors of Fable 5.2, want a train to their (fictional) secret HQ by Salesforce Park. The Portal: 2.1 km of tunnel from Caltrain at 4th and King to the trainbox empty since 2018. Target: at most 2x the Polish cost and 2x the Polish timeline.',
     officialCost: '$6.84 billion for 2.1 km, not counting the trainbox already built: about $3.3 billion per km (TJPA, July 2025).',
     officialDate: 'Open for use in the first quarter of 2036, if the federal grant is signed in July 2027.',
     why: 'It carries the Bay Area into its own downtown, at a price per km only New York has beaten. Warsaw builds metro for about $140 million per km, stations included; this route with its two stations would cost Poland about $175 million per km.',
@@ -110,8 +112,10 @@ export const THE_PORTAL: ScenarioDef = {
     // Doc 07 section 5 design note: SB 131 (narrow record) is already law in 2026.
     policies: ['narrowRecord'],
     tech: [],
-    // Two or three reforms on day one; the rest is earned at milestones (engine.ts PC_*).
-    politicalCapital: 40,
+    // M2: the win target is 2x Poland on cost and on time. The contract and design reforms have to be in force at
+    // tender (about 250 PC) and the specustawa costs 60. With the 40 PC of round 2 the best scripted run ended at
+    // 6.3x Poland; with 300 a careful player lands under 2x and a careless one (tree order) does not.
+    politicalCapital: 300,
     funding: [
       {
         id: 'fta-cig',
@@ -144,7 +148,7 @@ export const THE_PORTAL: ScenarioDef = {
   objectives: [
     {
       id: 'connect',
-      title: 'Run trains from 4th and King to the Salesforce Transit Center',
+      title: 'Run trains from 4th and King to the HQ of the authors of Fable 5.2, at the Salesforce Transit Center',
       kind: 'connect',
       a: { name: '4th and King', ...FOURTH_AND_KING },
       b: { name: 'Salesforce Transit Center', ...TRANSIT_CENTER },
@@ -154,7 +158,8 @@ export const THE_PORTAL: ScenarioDef = {
     { id: 'official-date', title: 'Open by the official date, Q1 2036', kind: 'openBy', date: '2036-03-31' },
     { id: 'under-2b', title: 'Stretch: build it for under $2B', kind: 'maxCost', cents: usd(2e9), stretch: true },
     { id: 'early', title: 'Stretch: open before 2033', kind: 'openBy', date: '2032-12-31', stretch: true },
-    { id: 'near-poland', title: 'Stretch: pay no more than 3x what Poland would', kind: 'maxRatioToPoland', ratio: 3, stretch: true },
+    // The win target. The scorecard grades it on cost and on time (Scorecard.polandTarget); this objective is the cost half.
+    { id: 'near-poland', title: 'The target: pay no more than 2x what Poland would', kind: 'maxRatioToPoland', ratio: 2, stretch: true },
   ],
   costProfile: 'bayAreaStatusQuo',
   reference: {
