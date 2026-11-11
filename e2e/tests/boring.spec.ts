@@ -84,7 +84,9 @@ test('the title screen says Boring Game and where the railway goes', async ({ pa
   await expect(page.getByTestId('screen-title')).not.toContainText('Polish the Public Transport');
   // The footer links to the source and says what the build cost at API prices.
   await expect(page.getByTestId('title-github')).toHaveAttribute('href', 'https://github.com/jakozaur/sf_bay_area_transit_fable_5_2_game');
-  await expect(page.getByTestId('title-build-cost')).toHaveText(/Built by Claude Fable 5\.2 for about \$\d+ at API prices\./);
+  await expect(page.getByTestId('title-build-cost')).toHaveText(
+    /Built by Claude Fable 5\.2 for about \$\d+ at API prices: \d+ prompts, \d+ hours, [\d,]+ lines\./,
+  );
   const foot = await page.getByTestId('title-github').boundingBox();
   if (foot === null) throw new Error('no layout box for the GitHub link');
   expect(foot.y + foot.height).toBeLessThanOrEqual(720);

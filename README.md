@@ -25,3 +25,22 @@ The backlash posts that follow every spend of political capital are adaptations 
 URL parameters (all optional): `mission=<scenario id>` (skip the title screen and start that mission: `the-portal`, `googleplex-spur`, `dumbarton-to-meta`, `siliconBranch`, `sandbox`), `site=<site id>` (voxel site behind the title screen), `hud=0` (no interface, bare canvas), `debug=1` (lil-gui panel with render counters), `world=site|synthetic`, `radius` (voxel near field in chunks, default 8), `detail=4|8|16|32` (city tier cell in metres), `far=64|128|256|512` (far tier cell in metres), `freeze=1` (stop the clock, for screenshots and tests), `workers=0` (mesh on the main thread), `aa=0`, `seed`, `cam=0..3` (start view with `mission`; a mission on another site than the boot site starts on its own mission view unless `cam` is 1 to 3).
 
 Tests beyond `pnpm check`: `pnpm e2e` includes a playthrough of The Portal by mouse and keyboard (`e2e/tests/play.spec.ts`; set `BAYVOX_SHOTS=<dir>` to keep its screenshots) and the regressions of the two playtests (`playtest1.spec.ts`, `playtest2.spec.ts`), `pnpm --filter @bayvox/ui pw` runs the interface against fixtures, `node packages/render/demo/shoot.mjs <dir>` shoots the entity models.
+
+Environmental review is in the game as a card, A Fish, 100 Miles Away: no real fine at that distance was found, and the card says so. The real cases behind it (the species list of the high-speed rail San Francisco to San Jose EIR/EIS, the Caltrain Guadalupe River bridge, what survives every CEQA exemption) are in the 2026-11-11 addendum of `docs/research/07-red-tape-policy.md`.
+
+## How it was built
+
+Built by Claude Fable 5.2 for about $700 at API prices: 15 prompts, 15 hours, 66,000 lines. Source: https://github.com/jakozaur/sf_bay_area_transit_fable_5_2_game
+
+|                |                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------- |
+| Author         | Claude Fable 5.2 in Claude Code, directed by one person                             |
+| Prompts typed  | 15, most of them dictated                                                           |
+| Working time   | about 15 hours over 3 days                                                          |
+| Model requests | about 3,500, with 5,300 tool calls                                                  |
+| Code           | 45,000 lines of TypeScript                                                          |
+| Tests          | 21,000 lines: 756 unit tests, 54 end-to-end tests                                   |
+| Tokens         | 6.9 million written, 848 million read from cache, 25 million written to cache       |
+| Cost           | about $700 at list API prices ($8 in, $40 out, $0.20 cache read per million tokens) |
+
+Counted from the Claude Code session transcripts on 11 Nov 2026; the derivation is in `packages/ui/src/about.ts`, and the game shows the same figures on its title screen and Credits sheet.

@@ -1,7 +1,7 @@
 /** Menu, controls help and credits. */
 import { Fragment, type JSX } from 'preact';
 import { useState } from 'preact/hooks';
-import { BUILD_COST_DETAIL, GITHUB_URL } from './about.ts';
+import { BUILD, BUILD_FACTS, GITHUB_URL } from './about.ts';
 import { Btn, Sheet, type StoreProps } from './bits.tsx';
 import { dateLong } from './format.ts';
 import { act } from './model.ts';
@@ -173,7 +173,17 @@ export function CreditsPanel({ store }: StoreProps): JSX.Element {
       </div>
       <div class="bv-sec bv-credits" data-testid="credits-build">
         <h3>How it was built</h3>
-        <p>{BUILD_COST_DETAIL}</p>
+        <dl class="bv-help">
+          {BUILD_FACTS.map(([what, value]) => (
+            <Fragment key={what}>
+              <dt>
+                <b>{what}</b>
+              </dt>
+              <dd>{value}</dd>
+            </Fragment>
+          ))}
+        </dl>
+        <p class="bv-note">Counted from the session transcripts on {BUILD.asOf}.</p>
         <p>
           Source:{' '}
           <a class="bv-link" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">

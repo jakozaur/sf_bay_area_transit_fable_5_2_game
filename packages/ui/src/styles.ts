@@ -73,6 +73,7 @@ export const CSS = `
 /* A pressed button under the pointer keeps its own colours: the plain hover rule would put dark text on dark. */
 .bv .bv-btn.on-ink[aria-pressed='true']:hover:not(:disabled) { background: var(--paper-2); border-color: #fff; color: var(--ink); }
 .bv .bv-link { text-decoration: underline; text-underline-offset: 2px; font-weight: 700; }
+.bv a.bv-link { color: inherit; }
 .bv .bv-link:hover { color: var(--hi-ink); }
 .bv .bv-link.on-ink:hover { color: var(--hi); }
 
