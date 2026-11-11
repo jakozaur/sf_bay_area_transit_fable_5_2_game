@@ -78,7 +78,7 @@ async function launch(page: Page, game: Session): Promise<void> {
 test('the title screen says Boring Game and where the railway goes', async ({ page }, testInfo) => {
   const game = await openTitle(page, testInfo);
   await expect(page.getByTestId('screen-title')).toBeVisible();
-  await expect(page).toHaveTitle('Boring Game');
+  await expect(page).toHaveTitle('Boring Game: build Bay Area rail tunnels at Polish prices');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Boring Game');
   await expect(page.getByTestId('tagline')).toHaveText('Polish SF Bay transit rail to reach the HQ of the authors of Fable 5.2');
   await expect(page.getByTestId('screen-title')).not.toContainText('Polish the Public Transport');
