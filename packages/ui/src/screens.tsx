@@ -2,6 +2,7 @@
 import type { MissionCard } from '@bayvox/core';
 import { playerSource, type ScoreColumn } from '@bayvox/sim';
 import { Fragment, type JSX } from 'preact';
+import { BUILD_COST_LINE, GITHUB_URL } from './about.ts';
 import { Bar, Btn, Bullet, cx, Dim, Stars, type StoreProps } from './bits.tsx';
 import { count, dateLong, dateMonth, money, moneyPerKm, ratio, years } from './format.ts';
 import { BacklashRecord } from './hud.tsx';
@@ -150,12 +151,22 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
           })}
         </ol>
         <div class="bv-title-foot">
-          <span>Map data: OpenStreetMap, Overture Maps, USGS, NOAA.</span>
-          <button type="button" class="bv-link on-ink" data-testid="title-credits" onClick={() => store.openPanel('credits')}>
-            Credits
-          </button>
+          <span>
+            Map data: OpenStreetMap, Overture Maps, USGS, NOAA. <span data-testid="title-build-cost">{BUILD_COST_LINE}</span>
+          </span>
+          <span class="bv-title-links">
+            <a class="bv-link on-ink" data-testid="title-github" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">
+              GitHub
+            </a>
+            <button type="button" class="bv-link on-ink" data-testid="title-credits" onClick={() => store.openPanel('credits')}>
+              Credits
+            </button>
+          </span>
         </div>
       </main>
+      <div class="bv-vibe" data-testid="title-vibe">
+        Heavily vibe coded project
+      </div>
       <CostBenefit store={store} onPick={brief} />
     </>
   );

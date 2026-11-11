@@ -1,9 +1,12 @@
 /**
- * Social media backlash: a pile-on of 2 to 4 posts every time the player spends political capital. Satire: every
- * handle and every post is invented, no real person or account is meant, and the target is the player: wounded
- * residents taking a reform as a personal catastrophe. The posts
- * are picked by a generator seeded from the sim seed and the id of the first post of the pile-on, so the same seed
- * and commands give the same posts and the event dice (state.rng) are not touched.
+ * Social media backlash: a pile-on of 2 to 4 posts every time the player spends political capital. Satire, and the
+ * target is the player. Every post is an adaptation of a real public comment made against housing in the Bay Area
+ * or against California rail, bent onto the game event that drew it; the comments, their context and their sources
+ * are in docs/research/12-opposition-comments.md, and each template carries the id of the item it adapts. The posts
+ * are not quotations of anyone and the accounts are invented: no real person, organisation or account is meant.
+ * Comments aimed at vulnerable people are in the record and deliberately not used (see that file).
+ * The posts are picked by a generator seeded from the sim seed and the id of the first post of the pile-on, so the
+ * same seed and commands give the same posts and the event dice (state.rng) are not touched.
  */
 import { createRng, nextInt } from '@bayvox/core';
 import type { SimState, SocialPost } from './types.ts';
@@ -30,7 +33,7 @@ export const SOCIAL_HANDLES: readonly string[] = [
   '@OneManOneParkingSpot',
   '@StudyItSomeMore',
   '@SaltPondSentinel_1901',
-  '@BrineShrimpCaucus',
+  '@ZucchiniNeedsSunlight',
   '@ViewOfTheEvaporator',
   '@LeafBlowerLibertarian',
   '@FourHourDesignReview',
@@ -42,172 +45,446 @@ export const SOCIAL_HANDLES: readonly string[] = [
   '@TrafficStudyTruth',
   '@MyDrivewayMyCastle',
   '@OpposedSince1987',
-  '@WhatAboutThePigeons',
+  '@WhatAboutTheOwls',
   '@SetbackEnthusiast',
-  '@GoldenShovelWatch',
+  '@HeritageTreeCounter',
 ];
+
+/** One template: the id of the item or pattern in docs/research/12-opposition-comments.md it adapts, and the text. */
+type Sourced = readonly [source: string, text: string];
 
 /**
  * Post templates by group. A spend draws a pile-on (pushSocialBurst): the first post comes from the group of the
- * cause (a cause without one falls back to `any`), the second is personal ruin (`ruin`, or `money` when cash was
- * spent too), the rest come from `personal` and `pileOn`.
- * The voice: wounded residents catastrophising about trivial losses, aimed at the player ("you"). No post names
- * the game's currency or any other mechanic; SOCIAL_BANNED is the test for that.
- * Placeholders: `{what}` the thing that was decided, in the words of the reform list or the event card;
- * `{usd}` the cash spent ("$60M"); `{div:N}` the cash in dollars divided by N. `money` templates are only drawn
- * when cash was spent.
+ * cause (a cause without one falls back to `any`; a housing option with a group of its own, `housing.<id>`, draws
+ * from both), the second is personal ruin (`ruin`, or `money` when cash was spent too), the rest come from
+ * `personal` and `pileOn`.
+ * The voice is the public comment period: residents taking a railway or a block of flats as a personal catastrophe,
+ * aimed at the player ("you"). No post names the game's currency or any other mechanic; SOCIAL_BANNED is the test.
+ * Placeholders: `{what}` the thing that was decided, in the words of the list or the event card; `{usd}` the cash
+ * spent ("$60M"); `{div:N}` the cash in dollars divided by N. `money` templates are only drawn when cash was spent.
  */
-export const SOCIAL_TEMPLATES: Readonly<Record<string, readonly string[]>> = {
+const TABLE: Readonly<Record<string, readonly Sourced[]>> = {
   specustawa: [
-    'You drew a zone on a map and now my 400-page comment letter is a hobby. How dare you. I laminated it.',
-    'Nobody may sue? I sue recreationally. It is my cardio. {what} has destroyed my life and my resting heart rate.',
-    'Are you stupid? Now the railway does not wait eleven years. My father waited eleven years. HIS father waited eleven years.',
-    'I cannot pronounce {what} and it has ruined me. I had the whole decade planned around the hearings.',
-    'No permits inside the zone. I LIVE inside the zone. Am I even permitted now? You have made me a peasant in my own cul-de-sac.',
-    'You imported a law from Poland to skip MY hearing. I bought a blazer for that hearing, you ugly little tyrant.',
-    'How can you do this to me. {what}. I was going to object in person, in writing and in interpretive dance.',
+    [
+      'H68',
+      'A special zone with no permits. This is Sacramento overreach, except you did it from Warsaw. You cannot blow up our neighbourhoods and bury them beneath a statute.',
+    ],
+    ['H8', 'If you are going to have to do something, ask the neighbourhood what they want. We want hearings. You took the hearings.'],
+    [
+      'H69',
+      'A zone where nobody may object is a declaration of war against our neighbourhoods. Mine is mostly a parking structure and I will defend it.',
+    ],
+    ['R10', 'We were hoodwinked. I voted for the railway. I did not vote for the railway being BUILT, here, in a zone, this decade.'],
+    ['H51', 'Your special zone is a document responding to a mandate for numbers without a vision. My vision was eleven years of scoping.'],
+    [
+      'R28',
+      'It is amazing to me that you moved this railway through a whole zone without any input from me or any of my neighbours. I had input. I had 400 pages of input.',
+    ],
+    [
+      'R32',
+      'We do not even belong in the state of California anymore. Nobody answers us. You answered once, with a zone, and it was worse.',
+    ],
+    [
+      'H9',
+      'I do not want my town to change. It is just heartbreaking and sickening to think we are facing a zone with no permits from you.',
+    ],
+    [
+      'H37',
+      'Inside your zone nobody will assess the noise impacts of loud student parties near the tracks. A court once cared about that. You do not.',
+    ],
   ],
   permitting: [
-    'How dare you. {what}. I was promised nine more years of review and I have nothing else going on.',
-    '{what}?? My objection was 212 pages. What do I do with it now? Read it to my children? They have heard it.',
-    'You are stupid. {what} has destroyed my life and I have not read what it is.',
-    'Because of {what} the scoping meeting is cancelled. That meeting was where I saw my friends. I have no friends now. Happy?',
-    'I do not oppose trains. I oppose {what}, the train, the tunnel and you personally. You have ruined my Tuesday evenings forever.',
-    '{what}. So things just get approved now? We will live like peasants, with no second scoping meeting to our name.',
-    'Dictator. I had a folding chair with my name on it at the planning commission. {what} has made it an ordinary chair.',
-    'My therapist says to name the feeling. The feeling is {what}. How can you destroy me like this?',
+    ['H1', 'Please IMMEDIATELY REMOVE {what} from everything. I am writing to communicate my IMMENSE objection to it and to you.'],
+    [
+      'H11',
+      '{what}?? Our town, in its entirety, is habitat for the mountain lion. Every parcel. Also the tracks. You cannot permit anything here in 90 days or in 90 years.',
+    ],
+    ['H23', 'You know there was an old marsh here. Under {what} nobody will study the marsh for six more years. I liked the marsh study.'],
+    ['H72', 'The traffic was not properly studied. Under {what} it gets studied in a WEEK, which is not properly, and you know it.'],
+    [
+      'H27',
+      'I do not see how you can see a 63 percent increase in shadow as insignificant. {what} means no second shadow study. I only trusted the second one.',
+    ],
+    ['R31', '{what} is ill-conceived and free of common sense. Common sense is a seven-year review and you know it.'],
+    ['R17', '{what}. I am actually shocked. This is why we are not friendly to you.'],
+    [
+      'H21',
+      'My consultant found an imminent and substantial endangerment in the soil, the air and the font of the notice. {what} gives him 90 days to find another. He bills by the decade.',
+    ],
+    ['H73', 'Solving the problems of the region is not our responsibility. You made it our responsibility with {what}. How dare you.'],
+    [
+      'R21',
+      '{what} is causing the unnecessary destruction of mature paperwork bordering on the right-of-way. Some of those binders were forty years old.',
+    ],
   ],
   procurement: [
-    '{what}. My cousin supervises the consultants who supervise the consultants. He cried at dinner. Into the good soup. How dare you.',
-    'Are you stupid? {what} means somebody will know what things cost BEFORE buying them. That is not how I was raised.',
-    'You have destroyed my life. {what}. I had a fourth study lined up. It was going to study the third study.',
-    'How dare you. Because of {what} my brother-in-law bills by the job now. By the JOB. We will have to eat the boat.',
-    '{what}?? I was going to send my daughter to college on change orders. Now she will have to be interesting instead.',
-    'First you came for the change orders. Then {what}. I am a simple man with eleven subcontracts and you have made me poor.',
-    'Bidders from abroad. Three shifts. {what}. Who is going to stand around the site with a clipboard now? Me? I have a bad knee, tyrant.',
-    'We will be peasants. {what} took the contingency, and the contingency was where my family kept its hopes.',
+    [
+      'R6',
+      '{what}? Where is the rest of the money coming from? Santa Claus? Oh. It costs LESS now. Then where is the rest of the money GOING? Answer me.',
+    ],
+    ['R35', 'It was a crazy pork-barrel project and with {what} you have taken out the pork. Now it is just a barrel. A laughingstock.'],
+    [
+      'R4',
+      'This is a boondoggle, and if you cannot do it right do not do it at all. {what} is you doing it right. I did not expect that and I resent it.',
+    ],
+    ['R3', 'Here comes {what}. There goes the neighbourhood. There goes the money for schools. I do not know how. I have a sign.'],
+    ['R5', '{what} is a monster that will destroy this city. A cheaper monster than the one planned, which makes it sneakier.'],
+    [
+      'H56',
+      'I am absolutely appalled by {what}, both from a design perspective and from the sheer greed on display. Whose greed? Yours. Probably.',
+    ],
+    [
+      'H58',
+      'Our politicians are selling us down the river. With {what} you are selling us down the river at a fair, itemized price, which is worse.',
+    ],
+    [
+      'R37',
+      'An extravagance ill-suited to present realities. That was my line about this railway. After {what} it is a bargain and you have taken my line.',
+    ],
+    ['H44', 'With {what} my street becomes a funnel of death. It is a cul-de-sac. The funnel has one end. You have doomed us.'],
+    ['R34', 'When you come in with {what} you put a cloud on my land. A small cloud, shaped like an invoice that adds up.'],
   ],
   design: [
-    'How dare you. We will be peasants. Poor people without even a THIRD TRACK that we might need in two years. {what}.',
-    'You have destroyed my life. {what}. I had plans for that mezzanine. I was going to stand on it and feel important.',
-    'Are you stupid? Who will need a third track in two years? ME. I will. {what} has left my family with two.',
-    'Two tracks?? What if I want to look at a third one. {what}. You have ruined me.',
-    '{what}. So the station will be the size of a train. Where does my sense of grandeur go? In a locker? There are no lockers.',
-    'Our city deserved a cathedral with platforms. You gave us {what}. My grandchildren will ask what a mezzanine was and I will have to draw one.',
-    'A standard station. STANDARD. {what}. I am not standard. My tile was going to be bespoke. You are ugly inside and out.',
-    'I was going to be poor in a normal way. Thanks to {what} I am poor next to a small, sensible station.',
-    '{what}?? What about the trains that may come in forty years? I will be 109 and I will have NOWHERE to put them, tyrant.',
+    [
+      'R8',
+      '{what}. The difference between a full mezzanine and a compact station is the difference between Park Avenue and blight. Is there recourse, or do we all just have to lie down on the tracks?',
+    ],
+    [
+      'R13',
+      'The worst is having this albatross above us. It is a tunnel, so it is below us. An albatross BELOW us. {what}. You think that looks good?',
+    ],
+    [
+      'R2',
+      '{what} is the equivalent of a seven-lane freeway through our corridor. It is two tracks in a tube. I measured it with my feelings.',
+    ],
+    ['R7', '{what} is a Berlin Wall, underground, where nobody can see it dividing us. You have split this city in a way I cannot locate.'],
+    ['R1', 'There is no wrong side of the trains in this town and we intend to keep it that way. {what} gives the trains two sides. TWO.'],
+    [
+      'H40',
+      'You cannot build a standard station and make it look like the Arc de Triomphe. {what}. I was promised a triumphal arch with platforms.',
+    ],
+    ['H41', '{what} looks like a Russian gulag. I have not seen the drawings. I have seen the word "standard".'],
+    ['H14', 'Why can you not make it three or four tracks? Why can you not make it in scale with the rest of the overdesign? {what}.'],
+    ['H59', '{what}? That is too small. Whatever you propose, I want it one notch different. You said compact. I say: too compact.'],
+    [
+      'R15',
+      'To divide our community with {what} would be appalling. Has a tunnel even been discussed? It IS a tunnel? Has a deeper one been discussed?',
+    ],
+    [
+      'H45',
+      '{what} is not something that fits the scale of the city. It is not the kind of railway everybody is used to. Everybody is used to none.',
+    ],
+    ['R22', 'An amazing number of trees need to be removed for {what}. It is underground? An amazing number of ROOTS, then. You monster.'],
+    [
+      'R20',
+      'We oppose {what} and anything that results in a structure. Also list every heritage tree and replace it three to one. Start with mine.',
+    ],
   ],
   tunnelling: [
-    '{what}. I have lived above undisturbed dirt for thirty years. It was MY dirt. How can you destroy me from below?',
-    'How dare you. {what}. The worms had a neighbourhood plan. I helped them write it.',
-    'You are stupid and you are under my house. {what}. My wine glasses will tremble once, in 2031, and I will never recover.',
-    'A faster hole. {what}. I had ten good years of complaining about the slow hole ahead of me and you took them.',
-    '{what}?? Do you know what is in that mud? My childhood. Probably. You have drilled through my childhood, despot.',
-    'Because of {what} the machine works at night. I do not hear it. I do not feel it. But I KNOW. You have ruined sleep for me.',
-    'We will be like peasants, with a tunnel. {what}. In my day a hole took a generation and we were grateful.',
+    [
+      'R36',
+      'I cannot imagine anyone, especially horses, enjoying {what} racing underneath. It would spook every horse and rider. I do not have a horse. I might GET a horse.',
+    ],
+    ['R12', 'Just by the rumour of {what}, the property values have gone down. Mine went up. That is how I know it is a trick, and yours.'],
+    [
+      'R9',
+      'I have my back against the rail and I am going to keep on fighting {what}. I am like a mother bear with her cubs. The cubs are my hedges.',
+    ],
+    ['R24', '{what} gives off EMF and it is hazardous to our health. So does my router. I am against you both.'],
+    [
+      'R25',
+      'Do you want {what} staring at your house? It is 30 metres down and cannot stare. It is not so much a NIMBY thing as it is common sense.',
+    ],
+    [
+      'R19',
+      'Before {what}, did you study modern diesel options? A modern diesel boring machine. Or no machine. Has "no machine" been studied?',
+    ],
+    [
+      'R26',
+      '{what} goes right under the dairy. It splits the cows in half. There will be cows on one side of the tunnel and cows on the other side. You did not think about the cows.',
+    ],
+    [
+      'R29',
+      'So you are saying the mud that gets {what} is more important than us? You are. You are saying the mud is more important than us.',
+    ],
+    [
+      'R38',
+      'I would not want {what} thundering under my neighbourhood forevermore either. It will take five weeks. That is basically forevermore.',
+    ],
+    [
+      'R23',
+      'The dirt under my house was a major visual buffer to the railway. {what} goes through the buffer. You cannot see it. That is not the same as fine.',
+    ],
+    [
+      'R40',
+      'You will regret {what}. You will regret not tunnelling slower. Everyone who ever tunnelled fast regretted it. I have no examples.',
+    ],
   ],
   smallBore: [
-    'A TUNNEL FOR CARS. In a tube. One lane. You have invented the road, but worse, and you did it to ME.',
-    'Are you stupid? It does not fit a train. You dug a railway tunnel that does not fit a RAILWAY. My model trains are humiliated.',
-    'Pods. PODS. I asked for nothing and you gave me pods in a drainpipe. How dare you destroy my life.',
-    '{what}. I have seen bigger straws. We will be peasants in a pipe, one behind another, forever.',
-    'No launch pit? Where am I supposed to stand and object? {what} has taken my hobby and my view of a pit.',
-    'It is a 3.7 metre hole. My ego does not fit in that. My hat barely fits in that. You have ruined me, dictator.',
-    'I told everyone at the club we were getting a real tunnel. {what}. I can never go back to the club.',
+    [
+      'R4',
+      'If you cannot do it right, do not do it at all. {what} does not fit a train. You dug a RAILWAY tunnel that does not fit a RAILWAY.',
+    ],
+    ['R35', '{what}: from a car park to a car park, in a pipe. You will be a laughingstock in Congress and at my club.'],
+    [
+      'R39',
+      'I am really happy that it is going to be pods, because pods will be quieter than the rail. Wait. You wanted me to be happy? Then I object to {what}.',
+    ],
+    [
+      'R13',
+      'You think one lane of cars in a tube looks good? {what}. I do not know one person who would not rather see the whole thing be a real train, or nothing.',
+    ],
+    [
+      'R37',
+      'This town does not need a tiny subway that only goes from one thing to another thing. {what}. That is what all subways do and I am against all of them.',
+    ],
+    [
+      'R42',
+      '{what}. I just think it is time we stick a fork in it and call it good. The fork is 3.7 metres wide. It does not fit a train either.',
+    ],
+    [
+      'R6',
+      'Do not run this dangerous, quiet, cheap pod magnet through MY community. {what}. Who pays for the rest of the railway? Santa Claus?',
+    ],
   ],
   housing: [
-    'HOMES?! {what}. You want PEOPLE to live near a TRAIN. Where will the empty land live? Did you think about the empty land?',
-    'How dare you. {what}. Thousands of new neighbours and not one of them asked my permission to exist.',
-    'I moved here in 1987 for the uninterrupted view of a parking lot. {what} puts families in it. You have destroyed my life.',
-    'You are stupid. A six-storey building casts a shadow. On my HEDGE. {what}. The hedge was all I had.',
-    '{what}. My property value looked at me with fear this morning. We will be peasants. Peasants with only one guest bathroom.',
-    'Who will think of the neighbourhood character? It is mostly parking and it is beautiful. {what}. I am in mourning.',
-    'I am not against housing. I am against {what}, housing near me, housing far from me, and you.',
-    'The brine shrimp were here first. {what}. Not one shrimp was invited to the hearing. I speak for them. They are furious, tyrant.',
-    'Because of {what} a child might one day wave at me from a window. I did not consent to waving. You have ruined my street.',
-    'New people will park where I look at parking. {what}. How can you do this to a man and his view?',
-    '{what}?? I was the newest person on this block for thirty-eight years. It was my whole identity.',
-    'Are you stupid? If people live near the station they will USE it. Then it will be full of people. {what}. My life is over.',
+    [
+      'H2',
+      'I am writing to communicate our IMMENSE objection to {what}. It will MASSIVELY decrease our home values and IMMENSELY increase the number of other people.',
+    ],
+    ['H5', '{what}?? You could meet the whole housing target by counting all the pool houses. I have three. One is for the pool.'],
+    [
+      'H30',
+      'I brought a zucchini, because I love to garden. And in order to garden, you need sunlight. This zucchini exists because {what} did not exist yet. Look at it. LOOK at it.',
+    ],
+    [
+      'H26',
+      '{what} will put my deck in shade. Will kids want to play in moisture? Not even my dogs want to lay out on the deck when it is wet. Ask them.',
+    ],
+    [
+      'H39',
+      'It is not a question of being a NIMBY. It is a question of saving the hill. There is no hill. It is a question of saving the flat. {what}.',
+    ],
+    [
+      'H13',
+      '{what} is just too big, too high, too many apartments, too many people, too little parking. And too close to a train, which is where you put it on purpose.',
+    ],
+    [
+      'H57',
+      'If you make it eight storeys, it will fit in the neighbourhood, okay? You made it eight? Then four. {what}. That is too tall.',
+    ],
+    ['H55', 'Do you want the whole bay ringed with homes? Because {what} is how it begins.'],
+    [
+      'H56',
+      'On the bright side, with {what} so near the water, maybe the new neighbours will be able to sail away when the water rises. I will wave. From my hill.',
+    ],
+    [
+      'H49',
+      'This is the Peninsula, this is not Miami Beach. {what}. I do not want it to be like Hong Kong, where people live near where they are going.',
+    ],
+    [
+      'H50',
+      'I should not have to feel guilty for wanting to raise my son in a single-family home next to an empty lot the size of a town. {what} makes me feel guilty. Stop it.',
+    ],
+    [
+      'H53',
+      'We are not anti-housing, we are anti THIS housing: {what}. Also the last one, the next one, and the one you have not thought of yet.',
+    ],
+    ['H67', 'There is no land left, absolutely no land left. You found some? Next to the station? {what}. That land was busy being empty.'],
+    ['H60', 'I do not know who needs these houses. {what} is out of character, for one, in terms of people having somewhere to live.'],
+    [
+      'H4',
+      'With {what} you are making a town that is no longer suburban in nature but urban, which is not why I moved here in 1987 and closed the door behind me.',
+    ],
+    [
+      'H52',
+      'This region does not have a zoning problem. {what} is a major overreach. The problem is economic. The economic problem is that I got here first.',
+    ],
+    ['H66', '{what}. You will not get people out of their cars. I will personally stay in mine, in the station car park, to prove it.'],
+    [
+      'H19',
+      'We struggle for parking on a daily basis; with {what} it will be worse. It also blocks the sunshine. My car likes the sunshine.',
+    ],
+    [
+      'H47',
+      'Time for a wall around this town, because of {what}. The next town over will be mainly paying for it. We have a big problem with all these people coming through on trains.',
+    ],
+    [
+      'H70',
+      'When we heard you wanted to build homes we were actually very excited. Then we heard it was {what}, here. Whoa. That will turn our street into a thoroughfare.',
+    ],
+    [
+      'H18',
+      '{what}? Put folks in units presently vacant. Build without changing the footprint of anything. Build it inside the existing air.',
+    ],
+    ['H34', '{what} is a dangerous assault on neighbourhood character. The character is a frontage road and a fence, and it is OURS.'],
+    [
+      'H7',
+      'Very concerned about {what}: the traffic, the tree removal, the light and noise pollution, and the school resources. I listed all four so you know I mean none in particular.',
+    ],
+    ['H33', '{what} sets a precedent for what I believe is out-of-scale development. The scale I believe in is the one I already have.'],
+  ],
+  'housing.saltWorks': [
+    ['H23', 'You know there was an old marsh here. Then a salt works. Now {what}. I liked it better as an old marsh, which I never saw.'],
+    ['H11', 'The salt works, in its entirety, is habitat. For salt. With {what} you displace a candidate mineral.'],
+    [
+      'H21',
+      'Sampling at the site indicates an imminent and substantial amount of salt. {what}. Have you no shame, building on a seasoning?',
+    ],
+    [
+      'H74',
+      '{what} is a Luxury Condo Project on open space. The open space is an evaporation pond behind a fence. I have never been. It is precious to me.',
+    ],
+  ],
+  'housing.northBayshore': [
+    [
+      'H35',
+      'This is really a line in the sand for the birds. {what} means residents. Residents have cats. The burrowing owls would be gone forever, and so would my best argument.',
+    ],
+    [
+      'H36',
+      'I am not interested in creating an enclave of dense apartment blocks isolated from the rest of the city, next to forty thousand jobs. {what}. Resolve the traffic first. All of it. Everywhere.',
+    ],
+  ],
+  'housing.sanAntonioCenter': [
+    [
+      'H62',
+      'That shopping centre car park has a lot of historic significance, which is at the core of why some of us bought homes near it. {what}. We rely on the light from it.',
+    ],
+    [
+      'H63',
+      '{what} will be a super-clean and super-modern type of complex. It just does not fit in with the neighbourhood, which is a car park with a store in it.',
+    ],
+  ],
+  'housing.metaBayfront': [
+    [
+      'H54',
+      'It feels like a village here, separate from everything, in a business park. And along comes this behemoth right on the bay front. {what}.',
+    ],
+    ['H71', '{what} is another wall on the waterfront, plain and simple. Do you want a bay front that looks like people live there?'],
   ],
   ruin: [
-    'We will be like peasants. Poor people. All because of {what}. How dare you destroy my life?',
-    'You are stupid. How can you destroy me with {what}? I had a whole decade of meetings planned.',
-    'I was going to be poor in a normal way. Now I am poor near a train. {what} did this.',
-    'My grandchildren will ask what I did when {what} happened. I will say: I posted. I posted so hard.',
-    'I have not slept since I read about {what} four minutes ago. You have destroyed my life.',
-    'How dare you. {what} is the worst thing that has happened to me, and I once missed a ferry.',
-    'Are you stupid? I read about {what} out loud and my dog could tell I was upset. Now the dog is upset. You have ruined a dog.',
-    'Because of {what} I will have to move somewhere with worse trains, out of spite. I hope you are happy, dictator.',
-    'I showed {what} to my mother. She said she did not understand it. Then she wept. Look what you have done.',
-    'So it is {what}. This is how it ends for my family: on time and under budget, like animals.',
-    'You have taken everything from me. Well. {what} took one thing from me. It FELT like everything.',
-    'I had one thing to look forward to this decade and it was this project being late. Then came {what}. How dare you.',
-    'Stupid. Ugly. Wrong. {what} has cost me my peace, my parking and my faith in delay.',
-    'After {what} we will be living in huts. Huts near a railway. Is that what you wanted for us, tyrant?',
+    [
+      'H2',
+      '{what} will MASSIVELY decrease the quality of life of ourselves and our neighbours. I have not asked the neighbours. I am being IMMENSE on their behalf.',
+    ],
+    [
+      'H9',
+      'It is just heartbreaking and sickening to think we are facing {what} from you. I do not want anything to change. I said so in 1987.',
+    ],
+    ['H10', '{what} is a grave mistake that this town will regret forever. I have started regretting it early, to get ahead.'],
+    [
+      'H33',
+      '{what} sets a precedent. Today this. Tomorrow something else gets finished. You are destroying the character of the community, which was waiting.',
+    ],
+    [
+      'R27',
+      'We love this land. We feel betrayed by what you plan to do to it with {what}. What you plan is to go under it and leave it exactly as it was. BETRAYED.',
+    ],
+    ['H58', 'With {what} you are going to make our own neighbourhood unlivable. I will continue to live in it, loudly.'],
+    [
+      'R16',
+      'We do not want to have our modest and quaint neighbourhood destroyed by {what}. It has gates, a hedge fund and a hedge. Modest. Quaint.',
+    ],
+    [
+      'H22',
+      '{what} directly affects neighbours who will now have no natural sunlight, in the sense that I am indoors all day writing to you about it.',
+    ],
+    ['R3', 'Here comes {what}. There goes the neighbourhood. You did this.'],
+    ['H29', 'Because of {what}, any wet surfaces around here will continue to be wet, damp, and cold for a longer period. Including me.'],
+    ['H65', '{what}?? Come and see who lives in my neighbourhood. It is me. I live here. I object.'],
+    ['R30', 'We are not opposed to the train. We are just opposed to {what}, and to the way you are making the train go through places.'],
   ],
   money: [
-    '{usd} on {what}. That is {div:12} burritos. I counted. Not one of them was for me. How dare you.',
-    '{usd}!! That is {div:900000} parking spaces you will never build me. I had names for them.',
-    '{what} cost {usd}. That is {div:65} jars of artisanal bay salt taken from the table of my family.',
-    'With {usd} I could have sued this project {div:500000} times. {what}. You have destroyed my retirement plan.',
-    '{usd} for {what}? You could have bought me {div:3} lottery tickets. I would have won. Now we will be peasants.',
-    'For {usd} you could have hired {div:80000} people to hold SLOW signs for a year. I love those signs. You are stupid.',
-    '{usd} is {div:250000} consultant hours. Real families bill those hours. Mine did. You gave them to a machine.',
+    ['R6', '{usd} for {what}? And where is the other {usd} coming from? Santa Claus?'],
+    [
+      'R37',
+      'This city does not need {what} for {usd}. An extravagance. For that you could have bought {div:900000} parking spaces and left me alone.',
+    ],
+    [
+      'R3',
+      '{usd} on {what}. There goes the money for schools. I do not have children. It is the principle, and the principle is that it was yours.',
+    ],
   ],
   personal: [
-    'Worse than a leaf blower at 7 a.m. on a Sunday. I said it. You are worse.',
-    'You have the charm of a wet parking ticket.',
-    'I have met potholes with more empathy than you. Deeper, too.',
-    'Ugly. Uglier than the back of a strip mall. And the strip mall has parking.',
-    'I am told you walk on escalators. That is the kind of person we are dealing with.',
-    'You are worse than a raccoon in a compost bin. The raccoon at least looks sorry.',
-    'History will remember you next to whoever invented the roundabout.',
-    'I would call you a clown but clowns travel many to a car and that is basically transit.',
-    'You have the face of someone who has never sat through a four-hour design review. Smooth. Unbothered. Stupid.',
-    'You are worse than a group project. Worse than the one in the group project who does all the work and tells everyone.',
-    'A normal tyrant has the decency to run late. You have a schedule and you KEEP it.',
-    'Somewhere a seagull is choking on a french fry and it is still having a better day than you deserve.',
-    'I do not say this lightly: you are worse than the airport. Worse than both airports.',
-    'How do you sleep at night? I do not. I am up composing this.',
-    'My wife says I should let it go. My wife is on your side now. You have destroyed my marriage.',
-    'Stupid, stupid, stupid. I typed it three times so you would feel it.',
+    ['H41', 'Your whole plan looks like a Russian gulag. I have not seen the plan.'],
+    ['H56', 'I am absolutely appalled, both from a design perspective and from the sheer you on display.'],
+    ['H40', 'You can build 132,000 square feet of anything and you still cannot make it look like the Arc de Triomphe. That is on you.'],
+    ['R17', 'I am actually shocked. This is why we are not friendly.'],
+    ['H31', 'When people come and say that I am opposed to everything, that is not what I am. I am opposed to you.'],
+    ['R25', 'It is not so much a NIMBY thing as it is common sense. Common sense says no. To you. Specifically.'],
+    ['R42', 'I just think it is time we stick a fork in you and call it good.'],
+    ['R35', 'You will be a laughingstock in Congress. I will see to it. I have written to both of my senators and one of somebody else.'],
+    ['H8', 'If you are going to have to exist, ask the neighbourhood what they want. We want less of you.'],
+    ['R31', 'You are ill-conceived and free of common sense.'],
+    ['R9', 'I am like a mother bear with her cubs and you are standing between me and my parking.'],
+    ['R13', 'You are an albatross above us. You think you look good?'],
+    ['H20', 'Be kind to the adjacent community. That is me. I am the adjacent community. You were not kind.'],
+    ['R5', 'You are a monster that will destroy this city. On schedule, which is the monstrous part.'],
   ],
   pileOn: [
-    'Came here to say this. I have not read what happened. My life is ruined too.',
-    'This. All of this. And another thing: how dare you.',
-    'Finally someone is saying it. I have been saying it. Nobody listens to me. Nobody ever has.',
-    'Adding my name to the list of people who are angry. It is a long list. I made it.',
-    'Unfollowed. Followed again to see what comes next. Unfollowed. You did this to me.',
-    'My whole street is furious. I asked both of the other people.',
-    'Screenshotting this for my grandchildren, who will be peasants.',
-    'I was neutral on tyrants until today.',
-    'Same. Destroyed. Completely destroyed. I am typing this from the floor.',
-    'I do not know what this is about but I have not been this hurt since they moved the bus stop.',
+    ['R3', 'Boondoggle! Boondoggle! Boondoggle! (I am chanting. Join in.)'],
+    ['H20', 'Recall everybody. Recall you. Recall whoever comes next. I have the clipboard.'],
+    ['R41', 'Opposition on my street is vociferous and near unanimous. One of us is undecided. He is new.'],
+    ['H57', 'Too big, too everything.'],
+    ['H55', 'This is how it begins.'],
+    ['R10', 'Opposing this is a no-brainer. I have brought no brain to it.'],
+    ['H60', 'I do not want to look out my front window and see this monstrosity every day. I will, though. Every day. With binoculars.'],
+    ['R11', 'If I had known that voting for it meant putting it HERE. I voted for it, but not here. Not now. Not like this.'],
+    ['H33', 'Protect Our Community. From what? Unclear. From you. I have the lawn sign.'],
+    ['A1', 'I am not against it, but. That is the whole post. But.'],
+    ['H73', 'Not our responsibility. Whatever it is.'],
+    ['R18', 'The impacts will be significant and this town will continue to oppose you.'],
   ],
   eventSettle: [
-    'You SETTLED. {what}. My driveway and I were ready to go to the Supreme Court. We had outfits.',
-    '{what}. Four years of lawsuit, gone. What am I supposed to talk about at Thanksgiving now? How dare you.',
-    'Decided in a room I was not in. {what}. I am always in the room. You have destroyed the one thing I had, despot.',
-    'Are you stupid? {what}. A lawsuit is a family tradition. My son was going to inherit that lawsuit.',
+    [
+      'R14',
+      '{what}. Our fallback was always a stacked tunnel under the right of way, paid for by you, and failing that, court. You took court.',
+    ],
+    ['R4', 'You settled? If you cannot fight a lawsuit right, do not fight it at all. {what}. I had a former county supervisor ready.'],
+    [
+      'R8',
+      'Is there recourse, or do we all just have to lie down on the tracks? {what}. There was recourse. It was the lawsuit. You ended it.',
+    ],
+    ['R18', '{what}. The impacts on our town will be significant, and the town will continue to oppose the thing it just agreed to.'],
+    ['R9', 'I had my back against the rail and I was going to keep on fighting. {what}. Now my back is just against a rail.'],
   ],
   eventFunding: [
-    'Where did the money come from? {what}. I was enjoying the hole in the budget. It was the only hole I trusted.',
-    '{what}. Fixed in a DAY. I had cleared my whole spring to be worried about it. How dare you.',
-    'One phone call and there is a train again. {what}. I had told everyone it was dead. You have made me a liar.',
-    'How can you do this to me? {what}. The project was finally on its knees and I had a speech ready.',
+    ['R6', '{what}. So where did that money come from? Santa Claus? It came from YOU? I liked it better as a question.'],
+    [
+      'R35',
+      '{what}. They said it ran from a dairy to a state prison, a train to nowhere. Now it is funded all the way to somewhere. You have ruined a perfectly good nickname.',
+    ],
+    ['R42', 'I just thought it was time we stick a fork in it and call it good. Then {what}. You pulled the fork out.'],
+    [
+      'R37',
+      '{what}?? This city does not need a subway that only goes from the station to the other station. That is where the people are. Suspicious.',
+    ],
   ],
   any: [
-    '{what} and nobody asked me. Nobody ever asks me. How dare you.',
-    'I leave town for one weekend and you do {what}. I can never leave town again. You have made me a prisoner.',
-    'At this rate you will finish the railway. {what} was the warning sign. What will I be against then?',
-    'Has anyone checked whether {what} is even allowed? Asking as a victim.',
-    'You are stupid. I do not know what {what} does but I felt it in my hip.',
-    'After {what} we will be like peasants. Peasants who get places.',
+    ['H8', '{what}, and nobody asked the neighbourhood what it wants. It wants to be asked. Then it wants to say no.'],
+    [
+      'R28',
+      'It is amazing to me that you did {what} without any input from me or any of my neighbours. I was at the wrong meeting. On purpose. Still.',
+    ],
+    ['A1', 'I am not opposed to {what}. I am just opposed to the way you are doing it, the place, the timing, and it.'],
+    ['A15', '{what}. If you cannot do it right, do not do it at all. If you CAN do it right, also do not.'],
+    ['H51', '{what} is a response to a mandate for numbers without a vision. My vision is a blank map.'],
+    ['R10', 'We were hoodwinked. {what}. I was in the room and I voted yes, which is how I know.'],
   ],
 };
 
-/** Words for the player as a ruler. One joke: at most one post of a pile-on uses it, and at most a quarter of the templates. */
+function column(i: 0 | 1): Readonly<Record<string, readonly string[]>> {
+  return Object.fromEntries(Object.entries(TABLE).map(([group, list]) => [group, list.map((row) => row[i])]));
+}
+
+/** The texts by group. */
+export const SOCIAL_TEMPLATES: Readonly<Record<string, readonly string[]>> = column(1);
+
+/** For each text of SOCIAL_TEMPLATES, in the same order, the id in docs/research/12-opposition-comments.md it adapts. */
+export const SOCIAL_TEMPLATE_SOURCES: Readonly<Record<string, readonly string[]>> = column(0);
+
+/** Words for the player as a ruler. At most one post of a pile-on uses one, and at most a quarter of the templates. */
 export const SOCIAL_RULER_WORDS = /dictator|tyrant|despot|autocrat|emperor|tsar/i;
 
 /** What no post may say: the game's currency or any other mechanic. The posts are residents, not system messages. */
@@ -227,6 +504,8 @@ export const SOCIAL_BURST_MAX = 4;
 export interface SocialCause {
   cause: string;
   group: string;
+  /** A second, narrower group whose templates join those of `group` for the first post, when it exists. */
+  also?: string;
   what: string;
   /** Cash spent with it, integer cents; 0 or absent when no cash was spent. */
   cents?: number;
@@ -265,7 +544,9 @@ export function pushSocialBurst(state: SimState, why: SocialCause): SocialPost[]
   const posts = state.socialPosts ?? [];
   const count = SOCIAL_BURST_MIN + nextInt(rng, SOCIAL_BURST_MAX - SOCIAL_BURST_MIN + 1);
   const cents = why.cents ?? 0;
-  const lead = SOCIAL_TEMPLATES[why.group] ?? SOCIAL_TEMPLATES.any;
+  const own = SOCIAL_TEMPLATES[why.group] ?? SOCIAL_TEMPLATES.any;
+  const narrow = why.also === undefined ? undefined : SOCIAL_TEMPLATES[why.also];
+  const lead = narrow === undefined ? own : [...narrow, ...own];
   // Post 1 is about the thing itself, post 2 is the ruin it brought (in dollars when cash was spent), then it gets personal.
   const lists: (readonly string[])[] = [
     lead,

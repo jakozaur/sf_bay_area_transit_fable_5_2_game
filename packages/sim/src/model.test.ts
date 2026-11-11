@@ -151,11 +151,13 @@ describe('event cards', () => {
       ).toBe(true);
       expect(`event.${e.id}.rate` in STATUS_QUO_PROFILE, e.id).toBe(true);
       expect((e.title + e.description + e.evidence).includes(EM_DASH), e.id).toBe(false);
-      // Every card can be made rarer by at least one reform. The cash call is raised by the books, not by a hazard:
-      // the way to avoid it is to cost less.
+      // Every card can be made rarer by at least one reform, or has a way out that a reform puts on it (2026-11-11:
+      // the fish card always comes, and the Specustawa answers it for free). The cash call is raised by the books, not
+      // by a hazard: the way to avoid it is to cost less.
       if (e.id === 'cashCall') continue;
       expect(
-        REFORMS.some((r) => r.effects.some((x) => x.key === `event.${e.id}.rate` && x.value < 1)),
+        REFORMS.some((r) => r.effects.some((x) => x.key === `event.${e.id}.rate` && x.value < 1)) ||
+          e.options.some((o) => o.needsReform !== undefined && REFORMS.some((r) => r.id === o.needsReform)),
         `${e.id} is gated`,
       ).toBe(true);
     }

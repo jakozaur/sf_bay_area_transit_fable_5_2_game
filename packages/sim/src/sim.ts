@@ -766,16 +766,18 @@ function buildSim(state: SimState, world: WorldSink | null, ground: GroundQuery 
         projectId: pe.projectId,
         deadlineTick: pe.deadlineTick,
         defaultOption: def.defaultOption,
-        options: def.options.map((o) => ({
-          id: o.id,
-          label: o.label,
-          // Rounded the way the engine charges it, so the card and the ledger agree to the cent.
-          costCents: Math.round(Math.round(hard * o.hardShare) * state.escalation) + Math.round(raised * (o.feeShare ?? 0)),
-          ...(raised > 0 ? { gainCents: raised } : {}),
-          delayDays: def.id === 'lawsuit' ? Math.min(o.delayDays, p['event.lawsuit.delayCapDays']) : o.delayDays,
-          pc: o.pc,
-          affordable: state.politicalCapital >= o.pc,
-        })),
+        options: def.options
+          .filter((o) => o.needsReform === undefined || state.reforms.includes(o.needsReform))
+          .map((o) => ({
+            id: o.id,
+            label: o.label,
+            // Rounded the way the engine charges it, so the card and the ledger agree to the cent.
+            costCents: Math.round(Math.round(hard * o.hardShare) * state.escalation) + Math.round(raised * (o.feeShare ?? 0)),
+            ...(raised > 0 ? { gainCents: raised } : {}),
+            delayDays: def.id === 'lawsuit' ? Math.min(o.delayDays, p['event.lawsuit.delayCapDays']) : o.delayDays,
+            pc: o.pc,
+            affordable: state.politicalCapital >= o.pc,
+          })),
       };
     });
     let totalSpent = 0;

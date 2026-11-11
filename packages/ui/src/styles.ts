@@ -73,6 +73,7 @@ export const CSS = `
 /* A pressed button under the pointer keeps its own colours: the plain hover rule would put dark text on dark. */
 .bv .bv-btn.on-ink[aria-pressed='true']:hover:not(:disabled) { background: var(--paper-2); border-color: #fff; color: var(--ink); }
 .bv .bv-link { text-decoration: underline; text-underline-offset: 2px; font-weight: 700; }
+.bv a.bv-link { color: inherit; }
 .bv .bv-link:hover { color: var(--hi-ink); }
 .bv .bv-link.on-ink:hover { color: var(--hi); }
 
@@ -427,6 +428,7 @@ export const CSS = `
 .bv-sign .pitch { margin-top: 10px; font-size: 16px; line-height: 1.35; color: var(--fog); max-width: 36ch; }
 .bv-sign .target { margin-top: 6px; font-size: 13px; line-height: 1.35; color: var(--hi); max-width: 40ch; }
 /* The mission comparison: a sheet beside the mission list, over the map backdrop. */
+.bv-vibe { position: absolute; top: 14px; right: 16px; padding: 4px 9px 3px; background: var(--ink); color: #fff; border: 1px solid var(--hi); border-radius: 3px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; pointer-events: none; }
 .bv-cb { position: absolute; left: 442px; bottom: 16px; max-width: calc(100% - 458px); }
 .bv-cb-body { padding: 6px 12px 10px; overflow-x: auto; }
 .bv-cb table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
@@ -494,6 +496,7 @@ export const CSS = `
 .bv-stars { font-size: 15px; letter-spacing: 2px; white-space: nowrap; color: var(--hi); }
 .bv-stars .off { color: var(--ink-3); }
 .bv-sheet .bv-stars .off { color: var(--rule); }
+.bv-title-links { display: flex; gap: 12px; flex: none; align-items: flex-start; }
 .bv-title-foot { padding: 10px 26px 14px; font-size: 12px; color: var(--fog); border-top: 1px solid var(--ink-3); display: flex; justify-content: space-between; gap: 12px; }
 .bv-title-error { margin: 10px 26px 0; padding: 6px 10px; background: var(--bad); color: #fff; font-size: 13px; border-radius: 3px; }
 .bv-brief { position: absolute; top: 16px; left: 16px; bottom: 16px; width: 404px; display: flex; flex-direction: column; justify-content: center; }

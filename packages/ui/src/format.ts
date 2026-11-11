@@ -106,6 +106,7 @@ const EFFECT_LABEL: Readonly<Record<string, string>> = {
   'event.changeOrder.rate': 'Change orders',
   'event.fundingGap.rate': 'Funding reviews',
   'event.contractorBankruptcy.rate': 'Contractor bankruptcies',
+  'event.distantFish.rate': 'Wildlife fines',
 };
 const MANDATE_LABEL: Readonly<Record<string, string>> = {
   'design.threeTrack': 'The third track is no longer required',

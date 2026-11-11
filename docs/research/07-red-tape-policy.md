@@ -318,3 +318,97 @@ Design notes:
 - Checked and confirmed without change: BART SV II $12.2B/9.6 km and $12.746B, $5.1B (40%) CIG cap, FFGA July 2027, RSD February 2039 (PMOC); Portal $8.25B, 2.2 miles, $7.5B/2035/$750M at risk; SPUR figures (fig. 4, Berkeley Hills $284M vs $918M, 93 projects, 11%, Res. 3434, Central Subway, 270 days, 3-5%); TCP factors (1.85, 2.06, 1.35, 21%, GLX 4-6 vs 83, Purple Line $250M); Madrid 56 km/37 stations/$2.8B; Italy $120M/km and range; SB 71, SB 79, AB 130, SB 131 dates and sunsets; RTM rates, term, majority threshold, 57-62%; $590M loan; HSR parcels 2,276 of 2,294; FRA 2018 savings; GAO 3-14 years; Line 12 and Gdów-Szczyrzyc figures; RM3 suit.
 - Not checked (search budget exhausted): CEQ EIS statistics, H&K CEQA shares, Buy America details, Capitol Corridor/UP 18 months, Polish specustawa and CEF rates, CPK "Y" cost, SB 79 litigation items, Link21 scale-back.
 
+## Addendum 2026-11-11: wildlife consultations inside environmental review
+
+Extends 2.1 and 2.2; nothing there is repeated. Same conventions. "My count" = page or row counts I took from the downloaded PDFs (pdfinfo, text layer), so derived. "Search summary only" = seen in a search result, page not fetched, so UNVERIFIED.
+
+### A. The species list: which document
+
+- Match: California High-Speed Rail, San Francisco to San Jose Project Section, Final EIR/EIS (June 2022), Section 3.7 Biological and Aquatic Resources, plus Appendix 3.7-A. Confirmed from the document text, not from the thread. The X thread (@the_transit_guy, 2026-11-10) could not be found or fetched: its wording and its counts are UNVERIFIED; the document content below is verified. [Section 3.7 (CEQAnet, file V1-15)](https://ceqanet.lci.ca.gov/2016052019/4/Attachment/jm5str), [Appendix 3.7-A (file V2-30)](https://ceqanet.lci.ca.gov/2016052019/4/Attachment/uR7XdW), [CEQAnet filing](https://ceqanet.lci.ca.gov/2016052019/4)
+- Survey method, verbatim: "No presence-absence surveys for special-status plants or wildlife have been conducted. Therefore, these species are assumed potentially present in areas modeled as habitat." Reason given: access to most properties had not been granted, so most data is desktop analysis or unpublished 2009-2010 surveys; the same paragraph says the footprint is "almost entirely within the existing Caltrain right-of-way" and mostly has no habitat for special-status species (3.7.6.4).
+- Screening, my count from the Appendix 3.7-A text layer (approximate): about 86 plants and 51 wildlife species screened; 8 plants and 22 wildlife marked habitat "Present", so 30 carried into impact analysis. Consistent with the thread's "about 30".
+- Every species in the thread is in the document:
+  - Mountain lion: gets its own impact (BIO#11) whose finding is that "there is no habitat for mountain lion in the project corridor". Added after the species became a CESA candidate.
+  - Ringtail: carried forward because it is a state fully protected species, though the appendix records "no known occurrences within 10 miles"; pre-construction den surveys required (BIO-MM#28).
+  - Bats: Table 3.7-7 lists 8 species (4 are species of special concern).
+  - Butterflies: Bay checkerspot, callippe silverspot, Mission blue, on Icehouse Hill, Brisbane (light maintenance facility site); monarch added by a Revised/Supplemental Draft after it became an ESA candidate in December 2020.
+  - Also San Francisco dusky-footed woodrat, California red-legged frog, San Francisco garter snake, burrowing owl, Central California Coast steelhead, green sturgeon.
+- Why ocean fish: Magnuson-Stevens Essential Fish Habitat, not the Endangered Species Act.
+  - Federal agencies must consult NMFS on any action "authorized, funded, or undertaken" that may adversely affect EFH. [NOAA Fisheries](https://www.fisheries.noaa.gov/west-coast/habitat-conservation/essential-fish-habitat-west-coast)
+  - The study area holds EFH under three fishery management plans: Pacific Coast Salmon (Chinook, coho), Coastal Pelagic Species (northern anchovy, Pacific sardine, Pacific mackerel, jack mackerel, market squid), Pacific Coast Groundfish ("90-plus species").
+  - The units are huge: pelagic EFH is all marine and estuarine waters from the shoreline to 200 nautical miles; groundfish EFH runs up to mean higher high water or the upriver limit of saltwater.
+  - Streams count as Pacific salmon EFH "because they historically supported Chinook and coho salmon"; the same section says coho were last documented in the San Francisco estuary in the early to mid-1980s.
+  - Physical trigger is small: in-water work at the Guadalupe River bridge (pile driving) and a box culvert extension at Sanchez Creek. Groundfish EFH impact is tabulated at 2.4 to 3.0 acres, permanent plus temporary, depending on alternative.
+- NMFS issued a combined ESA section 7 biological opinion and EFH response for the section in 2022; subject keywords are steelhead and green sturgeon. Full text not fetched (403), so its terms are UNVERIFIED. [NOAA repository record](https://repository.library.noaa.gov/view/noaa/37558)
+- Fish and Game Code 3503 (unlawful to take or needlessly destroy nests or eggs) is cited as a governing rule; a separate impact covers non-special-status bird nests (BIO#16).
+- Size, my count: Section 3.7 is 150 pages; Appendix 3.7-A 25 pages; Volume 1 (main text) 2,879 pages in 41 files. The final document is 147 files in 4 volumes; Volumes 2 to 4 not fully counted (server rate limit; at least 2,188 appendix pages retrieved).
+- Duration: review started May 2016 (SCH 2016052019), Final EIR/EIS June 2022, six years, for a blended-service corridor already cleared and electrified by Caltrain. Board certification in August 2022 is search summary only: UNVERIFIED.
+
+### B. Review timelines for the two mission projects
+
+- The Portal (DTX), from [TJPA](https://www.tjpa.org/portaldtx/environmental-review):
+  - Final EIS/EIR April 2004; FTA ROD February 2005; six addenda 2006-2011; FRA re-evaluation and ROD 2010.
+  - Draft Supplemental EIS/EIR December 2015 (date from the Federal Register via search summary; TJPA page gives none); Final certified December 2018; amended ROD July 2019.
+  - CEQA Addendum 1 January 2023, FTA re-evaluation concurrence 2023-06-09; Addendum 2 on 2026-03-12 (value engineering: drops the intercity bus facility and the train box extension); second FTA concurrence 2026-08-26.
+  - 22 years of environmental paperwork: 8 addenda, one supplemental EIS/EIR, 3 federal re-evaluations; tunnel not started.
+  - Page counts (my count): Final SEIS/EIR 954 pages (Volume 1 496; Volume 2 173 + 90 + 195); Draft SEIS/EIR 996 pages (614 + 382). [Volume 1](https://www.tjpa.org/uploads/2015/12/Vol-1-TJPA-Final-SEIS-EIR_11-18.pdf)
+- BART Silicon Valley Phase II, from [VTA](https://www.vta.org/projects/bart-sv/phase-ii/planning-and-environmental):
+  - 2004 Draft EIS/EIR and Final EIR; 2007 SEIR; 2009 Draft and 2010 Final EIS; Draft SEIS/SEIR December 2016; Final 2018-02-21; VTA certification 2018-04-05; FTA ROD 2018-06-04.
+  - Four CEQA addenda since: December 2022, April 2023, June 2024, March 2026.
+  - Three full document generations over 14 years before the ROD. Page counts not obtained.
+- High-speed rail, system-wide: more than 130,000 pages of environmental material on the Authority's site and more than $677M spent on environmental review; change orders of $480,000 (burrows) and $352,490 (lizard surveys). Source is City Journal (2026-10-21), an advocacy outlet drawing on Daily Caller data; the Authority says it keeps no running page count. Treat like the H&K figures: cite with the label. [City Journal](https://www.city-journal.org/article/high-speed-rail-california-environmental-reports)
+- Additions to cases already in 2.1:
+  - SF bike plan: 1,353-page draft EIR costing "more than $1 million" for 60 projects and 34 miles of lanes; injunction mid-2006, partly lifted November 2009, fully lifted 2010-08-06. [Streetsblog 2008](https://la.streetsblog.org/2008/12/01/sf-responds-to-bike-injunction-with-1353-page-enviro-review), [Streetsblog 2010](https://sf.streetsblog.org/2010/08/06/the-day-has-come-judge-busch-lifts-san-franciscos-bike-injunction/)
+  - Geary BRT (6.2 miles): Final EIR certified 2017-01-05 after "a decade of project development"; federal EIS still pending at that point; San Franciscans for Sensible Transit suit rejected on the merits October 2018, no appeal expected. CEQA lead since 2008 and FTA ROD 2018-06-15 are search summary only: UNVERIFIED. [SFCTA](https://www.sfcta.org/press-releases/san-francisco-county-transportation-authority-board-approves-geary-bus-rapid-transit), [Richmond Sunset News](https://richmondsunsetnews.com/2018/11/12/judge-clears-way-for-geary-brt-plan-to-begin/)
+  - Caltrain electrification: Atherton plus two groups (case MSN15-0573); judgment for Caltrain 2016-09-26, 19-page opinion. About 19 months in court (derived from the February 2015 filing in the 2.1 source); no injunction; no sourced cost of delay. [Opinion](https://contracosta.courts.ca.gov/system/files/town_of_atherton_v_pcjpb_ceqa_opinion_and_order_final_9-26-16.pdf)
+  - HSR San Jose to Merced: Grassland Water District settlement 2024-09-04 releasing CEQA claims: longer sound wall near the Volta Wildlife Area, more construction-period wildlife measures, process for siting the avian enclosure. No dollar figure published. [Mass Transit](https://masstransitmag.com/rail/infrastructure/press-release/55137665/chsra-chsra-reaches-agreement-with-grassland-water-district-in-environmental-settlement)
+
+### C. Wildlife-triggered cost and delay: real precedents, ranked for an event card
+
+1. Caltrain Guadalupe River Bridge replacement, San Jose. Budget $63,698,593 to $171,389,598 (+$107.7M, 2.7x), approved June 2025 "to address environmental concerns, design and sequencing changes, new permit conditions, and construction delays".
+   - Work paused in 2024 "due to constructability issues with the existing environmental permits" while permits were amended: RWQCB 401, USACE 404 and 408, CDFW 1600, Valley Water encroachment.
+   - In-channel work only in the four-month dry season, June 15 to October 15; a missed season costs a year.
+   - Nesting birds are a listed schedule risk: deterrents on the new structure, tree removal pulled forward, dry-season work re-sequenced.
+   - In-water work supervised by approved fisheries biologists; off-site habitat mitigation at the Hicks Ranch site (Midpeninsula Regional Open Space District) runs through 2027. Distance from the bridge not sourced; my estimate about 10 miles, UNVERIFIED.
+   - Caveat: the board memo does not split the $107.7M between permit causes and a bad original estimate; local press blamed the estimate (San Mateo Daily Journal, 403 on fetch: UNVERIFIED).
+   - [Budget amendment, June 2025](https://www.caltrain.com/media/35440/download), [Progress report, August 2026](https://www.caltrain.com/media/37660/download)
+2. SMART pathway, Santa Rosa Plain. Permits required 7.04 acres of California tiger salamander conservation credits; single bid of $1,576,960 from Alton Lane Conservation Preserve LLC (derived: $224,000 per acre), June 2023. For a bike path beside the track. Distance from site to bank not sourced. [SMART board item](https://www.sonomamarintrain.org/sites/default/files/Documents/Agenda%20Item%20%239%20-%20Tiger%20Salamander%20Mitigation%20Contract_06.21.2023.pdf)
+3. NCTD Sprinter (22-mile rail line, San Diego County), 2007. Regional water board sought the maximum $160,000: 16 violations at $10,000 for sediment reaching San Marcos, Buena Vista and Loma Alta creeks, plus falsified self-inspection reports. Contractor to pay. Only real fine found on a California rail project, and it is a water-quality penalty, not a wildlife one. Final amount paid is search summary only: UNVERIFIED. [Water board file (Union-Tribune, 2007-09-29)](https://www.waterboards.ca.gov/sandiego/board_info/agendas/2008/jun_11/item8/suppdoc6.pdf)
+4. High-speed rail, Fresno to Madera, San Joaquin kit fox. USFWS letter of 2015-01-26: Authority and FRA "out of compliance with environmental commitments" after contractor work outside the permitted footprint. No fine. Remedy: reopened consultation and extra habitat elsewhere in the Central Valley. The 9-acre figure is search summary only: UNVERIFIED. [NBC Bay Area / AP](https://www.nbcbayarea.com/news/local/feds-california-rail-project-infringed-on-fox-habitat/114316/)
+5. Bay Bridge east span (highway; the precedent for any Bay tube or bridge work). Test piles in October 2000 produced underwater noise that "harassed and harmed listed fish". No fine. Result: the Fisheries Hydroacoustic Working Group (2004) and the 2008 interim criteria every in-water project now designs to: 206 dB peak, 187 dB cumulative SEL, 183 dB for fish under 2 g. Old-span pier demolition (2015-2018) used bubble curtains, seasonal windows and marine mammal exclusion zones. [Caltrans hydroacoustics](https://dot.ca.gov/programs/environmental-analysis/biology/hydroacoustics), [AASHTO case study](https://environment.transportation.org/case_study/caltrans-uses-air-bubble-curtain-technology-to-protect-wildlife-during-bridge-implosions)
+
+Search summary only, UNVERIFIED: Caltrans Willits bypass, $2M water board settlement for discharges to Haehl Creek (2018, highway); Sound Transit, $79,000 state fine for light rail stormwater violations; HSR mitigation bank for Bakersfield to Palmdale in Leona Valley.
+
+Distance, stated honestly:
+- No case found of a payment for disturbing a fish 100 miles from the site. Not one.
+- Real analysis radii are short: critical habitat is screened within 1,000 feet and 0.5 mile of the footprint in the HSR document.
+- What is real at that scale is the legal unit, not the effect: EFH for anchovy and squid reaches 200 nautical miles offshore, so a culvert in Burlingame sits inside a habitat designation larger than the state.
+- What is real as a payment is compensatory mitigation somewhere else: credits or restoration miles from the works (items 1, 2, 4), sized in acres and paid up front, not a fine after the fact.
+- Card that stays honest: trigger on in-water or creek work; cost is a missed dry-season window (+1 year) or a credit purchase (about $0.2M per acre, SMART); tooltip cites Guadalupe. If the "100 miles away" line is kept, attribute it to the map (EFH boundary), not to an injured fish.
+
+### D. Statutory fixes: what they remove, what survives
+
+Supplements the 2.2 table (AB 130, SB 131, SB 71 are there).
+
+| Law | Exempts | Limits | Source |
+|---|---|---|---|
+| SB 288 (2020) | Bike and pedestrian facilities, wayfinding, transit prioritization, bus-only lane conversion, new or increased BRT, bus or light rail service including stations, zero-emission bus charging | Public agency lead; urbanized area; existing public right-of-way; no new car capacity; no demolition of affordable housing; skilled and trained workforce. Over $100M: prior programmatic review within 10 years, construction impacts fully mitigated, business case, racial equity analysis, hearings. Sunset 2023-01-01 | [Senate EQ analysis of SB 922](https://senv.senate.ca.gov/sites/senv.senate.ca.gov/files/sb922_pca.pdf) |
+| SB 922 (signed 2022-09-30) | Extends and widens SB 288: local agencies may lead; urbanized-area requirement dropped for most types; adds station and terminal rehabilitation, zero-emission transit vehicle charging and maintenance, parking-minimum removal | Over $100M: displacement analysis where half the stops are in at-risk areas. Chaptered sunset 2030-01-01 is search summary only (the committee version had none; leginfo returned 403): UNVERIFIED. Signing date likewise | same |
+| AB 2503 (signed by 2024-09-30) | Zero-emission railway projects on existing rails (electrification); sponsor cites the Caltrain suits | Conditions and sunset not on the fetched page: UNVERIFIED | [Asm. Lee release](https://lee.asmdc.org/press-releases/20240930-assemblymember-alex-lees-bill-streamline-train-electrification-projects) |
+| SB 1375 (ch. 1030, signed 2026-09-30) | Urban intermodal rail station modernization where light, commuter and intercity rail converge (reads as Diridon; the bill names no station in the fetched summary) | Tier 4 or zero-emission stock; mostly public right-of-way or public land; construction, displacement and affordable housing plans; tribal consultation; notice of exemption filed before 2032-01-01 | [Digital Democracy](https://calmatters.digitaldemocracy.org/bills/ca_202520260sb1375) |
+| AB 1855 (2026) | Would widen the passenger rail exemption: drops the zero-emission or Tier 4 exclusivity, only the mainline must be in existing right-of-way | Last action found: referred to committee 2026-02-23. Final outcome UNVERIFIED | [Digital Democracy](https://calmatters.digitaldemocracy.org/bills/ca_202520260ab1855) |
+
+What no California exemption touches:
+- NEPA for anything with federal money or a federal permit; the Senate analysis says so directly. A CIG-funded tunnel keeps its EIS.
+- ESA section 7 and Magnuson-Stevens EFH consultation: both ride on the federal action, so they follow the grant or the Corps permit, not CEQA.
+- Responsible-agency permits. The Guadalupe list is the template: Clean Water Act 404 and 408 (USACE), 401 certification (regional water board), Fish and Game Code 1600 streambed agreement (CDFW), local flood agency; BCDC inside Bay jurisdiction. Each carries its own conditions, work windows and mitigation.
+- Fish and Game Code take rules: 3503 on nests, and fully protected species such as the ringtail.
+- So a CEQA-exempt project can still hit card C. Guadalupe is a bridge replacement, the class of project the exemptions were written for, and its cost was driven by permits rather than by an EIR.
+
+Mapping to sections 5 and 6:
+- E1 and E2 shorten CEQA only. A separate lever is missing from the tree: programmatic permits or a standing biological opinion per corridor (NOAA notes programmatic EFH consultations exist). Proposal, not sourced as enacted for any Bay Area rail corridor.
+- Presence-assumed analysis is the cheap path for the document and the expensive path for construction: mitigation is sized on modeled habitat, and pre-construction surveys for each assumed species return as schedule holds.
+
+Not found in this pass:
+- The thread itself; a wildlife fine (as opposed to water-quality penalty or mitigation purchase) on any Bay Area transit project; dollar value of in-water work windows on BART Transbay Tube work; page counts for the BART SV II documents; text of the 2022 NMFS opinion; distances from project to mitigation site for items 1 and 2.
+

@@ -136,6 +136,7 @@ export {
   SOCIAL_POSTS_KEPT,
   SOCIAL_RULER_WORDS,
   SOCIAL_TEMPLATE_COUNT,
+  SOCIAL_TEMPLATE_SOURCES,
   SOCIAL_TEMPLATES,
   type SocialCause,
 } from './social.ts';

@@ -25,6 +25,7 @@ export const EVENT_IDS = [
   'fundingGap',
   'contractorBankruptcy',
   'cashCall',
+  'distantFish',
 ] as const;
 export type EventId = (typeof EVENT_IDS)[number];
 
@@ -73,6 +74,7 @@ export const STATUS_QUO_PROFILE = {
   'event.contractorBankruptcy.rate': 1,
   /** The cash call is raised by the books, not by a hazard; the key exists so every card has one. */
   'event.cashCall.rate': 1,
+  'event.distantFish.rate': 1,
 } as const satisfies Record<string, number>;
 
 export type ProfileKey = keyof typeof STATUS_QUO_PROFILE;

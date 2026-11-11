@@ -1037,7 +1037,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       if (state.politicalCapital < def.capitalCost)
         return reject(state, cmd, `"${def.title}" costs ${def.capitalCost} political capital, you have ${state.politicalCapital}`);
       state.politicalCapital -= def.capitalCost;
-      if (def.capitalCost > 0 && !ctx.forecast) pushSocialBurst(state, { cause: `housing:${def.id}`, group: 'housing', what: def.title });
+      if (def.capitalCost > 0 && !ctx.forecast)
+        pushSocialBurst(state, { cause: `housing:${def.id}`, group: 'housing', also: `housing.${def.id}`, what: def.title });
       enacted.push(def.id);
       state.housing = enacted;
       // A line already in service gains the riders at once; one that is not yet open is counted when it opens.
@@ -1062,6 +1063,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       const def = eventById(pending.defId);
       const option = def?.options.find((o) => o.id === cmd.optionId);
       if (!def || !option) return reject(state, cmd, `event ${cmd.eventId} has no option "${cmd.optionId}"`);
+      if (option.needsReform !== undefined && !state.reforms.includes(option.needsReform))
+        return reject(state, cmd, `option "${option.id}" needs the reform "${option.needsReform}"`);
       if (state.politicalCapital < option.pc)
         return reject(state, cmd, `option "${option.id}" costs ${option.pc} political capital, you have ${state.politicalCapital}`);
       state.pendingEvents.splice(at, 1);
@@ -1273,7 +1276,7 @@ function rollEvents(state: SimState, project: ProjectState, p: Profile, rng: Uin
       if (!front) continue;
       frontId = front.id;
     }
-    if (_nextFloat(rng) >= hazard / YEAR) continue;
+    if (def.certainAt !== undefined ? project.phaseProgress < def.certainAt : _nextFloat(rng) >= hazard / YEAR) continue;
     project.eventCounts[def.id] = (project.eventCounts[def.id] ?? 0) + 1;
     state.pendingEvents.push({
       uid: state.nextEventUid,
