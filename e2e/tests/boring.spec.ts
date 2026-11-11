@@ -82,6 +82,12 @@ test('the title screen says Boring Game and where the railway goes', async ({ pa
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Boring Game');
   await expect(page.getByTestId('tagline')).toHaveText('Polish SF Bay transit rail to reach the HQ of the authors of Fable 5.2');
   await expect(page.getByTestId('screen-title')).not.toContainText('Polish the Public Transport');
+  // A small box in the top right corner says how the game was made.
+  await expect(page.getByTestId('title-vibe')).toHaveText('Heavily vibe coded project');
+  const vibe = await page.getByTestId('title-vibe').boundingBox();
+  if (vibe === null) throw new Error('no layout box for the vibe box');
+  expect(vibe.y).toBeLessThan(40);
+  expect(1280 - (vibe.x + vibe.width)).toBeLessThan(40);
   // The footer links to the source and says what the build cost at API prices.
   await expect(page.getByTestId('title-github')).toHaveAttribute('href', 'https://github.com/jakozaur/sf_bay_area_transit_fable_5_2_game');
   await expect(page.getByTestId('title-build-cost')).toHaveText(

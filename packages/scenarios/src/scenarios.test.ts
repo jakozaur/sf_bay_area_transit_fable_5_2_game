@@ -288,8 +288,8 @@ describe('reforms on The Portal', () => {
 
   /** What each reform is documented to improve. cost and time are measured on the played project; the rest on the profile. */
   const EXPECT: Record<string, ('cost' | 'time' | 'tbmRate' | `hazard:${string}`)[]> = {
-    railSpecustawa: ['time', 'cost', 'hazard:lawsuit', 'hazard:fundingGap', 'hazard:distantFish'],
-    specustawa: ['time', 'cost', 'hazard:lawsuit', 'hazard:distantFish'],
+    railSpecustawa: ['time', 'cost', 'hazard:lawsuit', 'hazard:fundingGap'],
+    specustawa: ['time', 'cost', 'hazard:lawsuit'],
     utilityStatute: ['time', 'cost', 'hazard:utilitySurprise'],
     inHouseEngineering: ['time', 'cost'],
     bestValueAward: ['time', 'cost', 'hazard:changeOrder', 'hazard:contractorBankruptcy'],

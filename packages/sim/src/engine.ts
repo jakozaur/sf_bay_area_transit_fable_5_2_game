@@ -2,7 +2,7 @@
  * Sim engine: initial state, command application, and the one-day step.
  * Pure over a JSON-serializable SimState. No DOM, no three, no wall clock; randomness only from the seeded core PRNG.
  */
-import { type Command, createRng, fnv1a32String, hashCoords, isInGrid, Material, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
+import { type Command, createRng, isInGrid, Material, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
 import { checkAlignment, minRadiusFor } from './checks.ts';
 import { DAYS_PER_YEAR, ESCALATION_DAILY, CONSTANTS as K, SUBSTEPS_PER_DAY } from './constants.ts';
 import { defaultMethod, designOption, optionLocks, reformSelects, stationBoxOf, stationSize } from './design.ts';
@@ -1063,6 +1063,8 @@ export function applyCommand(state: SimState, cmd: GameCommand, ctx: StepContext
       const def = eventById(pending.defId);
       const option = def?.options.find((o) => o.id === cmd.optionId);
       if (!def || !option) return reject(state, cmd, `event ${cmd.eventId} has no option "${cmd.optionId}"`);
+      if (option.needsReform !== undefined && !state.reforms.includes(option.needsReform))
+        return reject(state, cmd, `option "${option.id}" needs the reform "${option.needsReform}"`);
       if (state.politicalCapital < option.pc)
         return reject(state, cmd, `option "${option.id}" costs ${option.pc} political capital, you have ${state.politicalCapital}`);
       state.pendingEvents.splice(at, 1);
@@ -1274,10 +1276,7 @@ function rollEvents(state: SimState, project: ProjectState, p: Profile, rng: Uin
       if (!front) continue;
       frontId = front.id;
     }
-    const roll = def.ownRoll
-      ? hashCoords(state.tick, fnv1a32String(project.id), fnv1a32String(def.id), state.seed) / 2 ** 32
-      : _nextFloat(rng);
-    if (roll >= hazard / YEAR) continue;
+    if (def.certainAt !== undefined ? project.phaseProgress < def.certainAt : _nextFloat(rng) >= hazard / YEAR) continue;
     project.eventCounts[def.id] = (project.eventCounts[def.id] ?? 0) + 1;
     state.pendingEvents.push({
       uid: state.nextEventUid,

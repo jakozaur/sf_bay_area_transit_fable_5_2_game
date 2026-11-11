@@ -39,7 +39,7 @@ Built by Claude Fable 5.2 for about $700 at API prices: 15 prompts, 15 hours, 66
 | Working time   | about 15 hours over 3 days                                                          |
 | Model requests | about 3,500, with 5,300 tool calls                                                  |
 | Code           | 45,000 lines of TypeScript                                                          |
-| Tests          | 21,000 lines: 756 unit tests, 54 end-to-end tests                                   |
+| Tests          | 21,000 lines: 757 unit tests, 54 end-to-end tests                                   |
 | Tokens         | 6.9 million written, 848 million read from cache, 25 million written to cache       |
 | Cost           | about $700 at list API prices ($8 in, $40 out, $0.20 cache read per million tokens) |
 

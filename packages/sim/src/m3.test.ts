@@ -50,7 +50,7 @@ const OLD_IDS = [
 /**
  * profileFor of the old tree, recorded before the merge. `none` is the day-one profile of every mission (each
  * started with the shorter lawsuit record enacted), `all` every one of the 32, `poland` the old POLAND_PROFILE.
- * 2026-11-11: the wildlife card came after the merge; its rate key is added here with what the reforms do to it.
+ * 2026-11-11: the wildlife card came after the merge; its rate key is added here; no reform moves it.
  */
 const BEFORE: Record<'none' | 'all' | 'poland', Profile> = {
   none: {
@@ -121,7 +121,7 @@ const BEFORE: Record<'none' | 'all' | 'poland', Profile> = {
     'event.fundingGap.rate': 0.3,
     'event.contractorBankruptcy.rate': 0.25,
     'event.cashCall.rate': 1,
-    'event.distantFish.rate': 0,
+    'event.distantFish.rate': 1,
   },
   poland: {
     'unit.procurement': 1,
@@ -156,7 +156,7 @@ const BEFORE: Record<'none' | 'all' | 'poland', Profile> = {
     'event.fundingGap.rate': 0.3,
     'event.contractorBankruptcy.rate': 0.25,
     'event.cashCall.rate': 1,
-    'event.distantFish.rate': 0.5,
+    'event.distantFish.rate': 1,
   },
 };
 

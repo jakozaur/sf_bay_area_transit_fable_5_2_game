@@ -164,6 +164,9 @@ export function TitleScreen({ store }: StoreProps): JSX.Element {
           </span>
         </div>
       </main>
+      <div class="bv-vibe" data-testid="title-vibe">
+        Heavily vibe coded project
+      </div>
       <CostBenefit store={store} onPick={brief} />
     </>
   );

@@ -149,8 +149,6 @@ export const REFORMS: readonly ReformDef[] = [
       mul('event.lawsuit.rate', 0.25),
       set('event.lawsuit.delayCapDays', 270),
       mul('event.fundingGap.rate', 0.3),
-      // One permit: the wildlife consultations sit inside it and run on its clock.
-      mul('event.distantFish.rate', 0.5),
     ],
     'A short environmental statement, one permit on a 90-day clock, courts get 270 days, and no waiting for a federal grant. Compensation is paid; vetoes are not.',
     'doc 07 E3 (EIS 3.5 years to 2); doc 07 E2 (SPUR rec. 9: litigation capped at 0.75 years); doc 07 R1 and doc 11 section 1.4 (specustawa: single ZRID decision, 90 days); doc 07 F3 (no 2 to 4 year CIG stage; Madrid regional budget)',
@@ -161,13 +159,7 @@ export const REFORMS: readonly ReformDef[] = [
     'Specustawa: special zone, no permits',
     60,
     ['specustawa'],
-    [
-      set('time.planning', 0),
-      set('time.permitting', 0),
-      mul('time.utilities', 0.5),
-      mul('event.lawsuit.rate', 0),
-      mul('event.distantFish.rate', 0),
-    ],
+    [set('time.planning', 0), set('time.permitting', 0), mul('time.utilities', 0.5), mul('event.lawsuit.rate', 0)],
     'A special act draws a zone around the line. Inside it planning and permitting take no time, land is handed over by law and nobody may sue. Poland itself still takes 7 months.',
     'doc 11 section 1.4 (specustawa: one ZRID decision, immediately enforceable, title passes by law, no annulment after works start); doc 07 R1 (right-of-way time 2 to 8 years down to 1). Zero months goes past Polish practice, where the decision still takes 7: a game rule, not a measurement',
     true,

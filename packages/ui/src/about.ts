@@ -25,7 +25,7 @@ export const BUILD = {
   cacheWriteTokensM: 25,
   codeLines: 45_000,
   testLines: 21_000,
-  unitTests: 756,
+  unitTests: 757,
   e2eTests: 54,
 } as const;
 

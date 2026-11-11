@@ -428,6 +428,7 @@ export const CSS = `
 .bv-sign .pitch { margin-top: 10px; font-size: 16px; line-height: 1.35; color: var(--fog); max-width: 36ch; }
 .bv-sign .target { margin-top: 6px; font-size: 13px; line-height: 1.35; color: var(--hi); max-width: 40ch; }
 /* The mission comparison: a sheet beside the mission list, over the map backdrop. */
+.bv-vibe { position: absolute; top: 14px; right: 16px; padding: 4px 9px 3px; background: var(--ink); color: #fff; border: 1px solid var(--hi); border-radius: 3px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; pointer-events: none; }
 .bv-cb { position: absolute; left: 442px; bottom: 16px; max-width: calc(100% - 458px); }
 .bv-cb-body { padding: 6px 12px 10px; overflow-x: auto; }
 .bv-cb table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }

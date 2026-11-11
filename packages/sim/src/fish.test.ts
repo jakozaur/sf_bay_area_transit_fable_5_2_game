@@ -1,4 +1,4 @@
-/** The wildlife card: drawn during construction only, off the shared random stream, three ways out. */
+/** The wildlife card: every project draws it once construction starts; the Specustawa is the free way out. */
 import { describe, expect, test } from 'vitest';
 import { autopilotCommands, eventHazardPerYear } from './engine.ts';
 import { type EVENTS, eventById } from './events.ts';
@@ -9,8 +9,9 @@ import { TEST_DESIGN, TEST_PROJECT, testScenario } from './test-scenario.ts';
 const FISH = eventById('distantFish') as (typeof EVENTS)[number];
 
 /** Plays the test line until the fish card is on the table, answering every other card by its default. */
-function untilFish(seed: number): GameSim | null {
-  const sim = createSim(testScenario(), seed);
+function untilFish(seed: number, reforms: string[] = []): GameSim | null {
+  const scenario = testScenario();
+  const sim = createSim({ ...scenario, start: { ...scenario.start, policies: reforms } }, seed);
   sim.dispatch(TEST_DESIGN);
   sim.run(365 * 40, (s) => {
     if (s.state.pendingEvents.some((e) => e.defId === 'distantFish') || s.state.projects[0].status === 'open') return false;
@@ -20,7 +21,7 @@ function untilFish(seed: number): GameSim | null {
 }
 
 describe('the fish, 100 miles away', () => {
-  test('only a project under construction can draw it, and the two special acts make it rarer and then impossible', () => {
+  test('every project draws it once, half way through construction, and no reform keeps it away', () => {
     const sim = createSim(testScenario(), 1);
     sim.dispatch([...TEST_DESIGN, { t: 'approveProject', projectId: TEST_PROJECT }]);
     const p = sim.state.projects[0];
@@ -28,18 +29,22 @@ describe('the fish, 100 miles away', () => {
     expect(p.phase).toBe('planning');
     expect(hazard([])).toBe(0);
     p.phase = 'construction';
-    expect(hazard([])).toBeCloseTo(0.2, 9);
-    expect(hazard(['railSpecustawa'])).toBeCloseTo(0.1, 9);
-    expect(hazard(['specustawa'])).toBe(0);
+    expect(FISH.certainAt).toBe(0.5);
+    for (const reforms of [[], ['railSpecustawa'], ['specustawa']]) expect(hazard(reforms)).toBeGreaterThan(0);
     p.eventCounts.distantFish = 1;
     expect(hazard([])).toBe(0);
+    for (const seed of [1, 2, 3]) {
+      const drawn = untilFish(seed);
+      if (drawn === null) throw new Error(`seed ${seed}: the line opened without the fish card`);
+      expect(drawn.state.projects[0].phase).toBe('construction');
+      expect(drawn.state.projects[0].phaseProgress).toBeGreaterThanOrEqual(0.5);
+      expect(drawn.state.projects[0].phaseProgress).toBeLessThan(0.6);
+    }
   });
 
-  test('pay costs money, stop costs 150 days, the exemption costs political capital, and silence stops the work', () => {
-    let seed = 1;
-    let sim = untilFish(seed);
-    while (sim === null && seed < 40) sim = untilFish(++seed);
-    if (sim === null) throw new Error('no seed under 40 draws the fish card on the test line');
+  test('pay costs money, stop costs 150 days, the exemption costs political capital, and silence pays the fine', () => {
+    const sim = untilFish(1);
+    if (sim === null) throw new Error('the fish card was not drawn on the test line');
     const card = sim.snapshot().events.find((e) => e.id === 'distantFish');
     if (card === undefined) throw new Error('the fish card is pending and not in the snapshot');
     expect(card.title).toBe('A Fish, 100 Miles Away');
@@ -62,8 +67,29 @@ describe('the fish, 100 miles away', () => {
     expect(exempt.projects[0].spent.events).toBe(before.spent.events);
     expect(exempt.projects[0].delayDays).toBe(before.delayDays);
     expect(exempt.politicalCapital).toBe(sim.state.politicalCapital - 15);
+    // Without the Specustawa its way out is not on the card and cannot be taken by command.
+    const refused = answer('specustawa');
+    expect(refused.state.pendingEvents.some((e) => e.uid === card.uid)).toBe(true);
+    expect(refused.snapshot().notices.at(-1)?.reason).toMatch(/needs the reform "specustawa"/);
 
     sim.run(31);
-    expect(sim.state.eventLog.find((e) => e.uid === card.uid)).toMatchObject({ optionId: 'stop', byDefault: true });
+    expect(sim.state.eventLog.find((e) => e.uid === card.uid)).toMatchObject({ optionId: 'pay', byDefault: true });
+  });
+
+  test('with the Specustawa enacted the card has a fourth way out that costs nothing', () => {
+    const sim = untilFish(1, ['specustawa']);
+    if (sim === null) throw new Error('the fish card was not drawn on the test line under the Specustawa');
+    const card = sim.snapshot().events.find((e) => e.id === 'distantFish');
+    if (card === undefined) throw new Error('the fish card is pending and not in the snapshot');
+    expect(card.options.map((o) => o.id)).toEqual(['pay', 'stop', 'exempt', 'specustawa']);
+    const free = card.options[3];
+    expect([free.costCents, free.delayDays, free.pc]).toEqual([0, 0, 0]);
+    const before = { ...sim.state.projects[0], spent: { ...sim.state.projects[0].spent } };
+    const capital = sim.state.politicalCapital;
+    sim.dispatch([{ t: 'resolveEvent', eventId: card.uid, optionId: 'specustawa' }]);
+    expect(sim.state.pendingEvents.some((e) => e.uid === card.uid)).toBe(false);
+    expect(sim.state.projects[0].spent.events).toBe(before.spent.events);
+    expect(sim.state.projects[0].delayDays).toBe(before.delayDays);
+    expect(sim.state.politicalCapital).toBe(capital);
   });
 });
