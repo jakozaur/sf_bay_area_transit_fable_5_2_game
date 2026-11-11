@@ -1,6 +1,7 @@
 # Boring Game
 
 Voxel San Francisco Bay Area in the browser: plan alignments, bore tunnels, build stations, cut red tape.
+Play it: https://jakozaur.github.io/sf_bay_area_transit_fable_5_2_game/ (built and published from `main` by `.github/workflows/pages.yml`).
 Research and architecture: `docs/research/` (start with `10-architecture-tooling.md`); shared interfaces of the current round: `docs/CONTRACTS.md`. Needs Node 26+, pnpm 11.
 
 ```sh
