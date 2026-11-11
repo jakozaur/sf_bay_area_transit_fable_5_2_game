@@ -47,7 +47,7 @@ test('the title screen boots over the whole Bay with the mission list', async ({
   await expect(page.getByTestId('screen-title')).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Boring Game');
   await expect(page.getByTestId('tagline')).toHaveText('Polish SF Bay transit rail to reach the HQ of the authors of Fable 5.2');
-  await expect(page).toHaveTitle('Boring Game');
+  await expect(page).toHaveTitle('Polishing SF Bay Area transit: a Fable 5.2 game from a few prompts');
   await expect(page.getByTestId('title-play')).toBeEnabled();
   // Every mission can be picked on a fresh profile: no ordering, no lock.
   for (const id of ['the-portal', 'googleplex-spur', 'dumbarton-to-meta', 'siliconBranch', 'sandbox'])
