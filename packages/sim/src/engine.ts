@@ -2,7 +2,7 @@
  * Sim engine: initial state, command application, and the one-day step.
  * Pure over a JSON-serializable SimState. No DOM, no three, no wall clock; randomness only from the seeded core PRNG.
  */
-import { type Command, createRng, isInGrid, Material, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
+import { type Command, createRng, fnv1a32String, hashCoords, isInGrid, Material, nextFloat, nextInt, type WorldEdit } from '@bayvox/core';
 import { checkAlignment, minRadiusFor } from './checks.ts';
 import { DAYS_PER_YEAR, ESCALATION_DAILY, CONSTANTS as K, SUBSTEPS_PER_DAY } from './constants.ts';
 import { defaultMethod, designOption, optionLocks, reformSelects, stationBoxOf, stationSize } from './design.ts';
@@ -1274,7 +1274,10 @@ function rollEvents(state: SimState, project: ProjectState, p: Profile, rng: Uin
       if (!front) continue;
       frontId = front.id;
     }
-    if (_nextFloat(rng) >= hazard / YEAR) continue;
+    const roll = def.ownRoll
+      ? hashCoords(state.tick, fnv1a32String(project.id), fnv1a32String(def.id), state.seed) / 2 ** 32
+      : _nextFloat(rng);
+    if (roll >= hazard / YEAR) continue;
     project.eventCounts[def.id] = (project.eventCounts[def.id] ?? 0) + 1;
     state.pendingEvents.push({
       uid: state.nextEventUid,

@@ -30,6 +30,11 @@ export interface EventDef {
   maxPerProject: number;
   /** Only projects that build one of these effective methods can draw the card. */
   needsMethod?: Method[];
+  /**
+   * Rolled from a hash of the seed, the day and the project, not from the shared stream: the card was added after the
+   * game was tuned, and a draw from the stream would have moved every later roll of every other card and machine.
+   */
+  ownRoll?: boolean;
   /** Card stops one tunnelling machine rather than the whole project. */
   targetsFront?: boolean;
   options: EventOption[];
@@ -131,6 +136,25 @@ export const EVENTS: readonly EventDef[] = [
       { id: 'stepIn', label: 'Step in and pay the subcontractors directly.', hardShare: 0.08, delayDays: 60, pc: 0 },
     ],
     defaultOption: 'retender',
+    deadlineDays: 30,
+  },
+  {
+    id: 'distantFish',
+    title: 'A Fish, 100 Miles Away',
+    description:
+      'A green sturgeon was startled near Red Bluff. Your site is in San Francisco. No survey was done, so the agency assumes a connection.',
+    evidence:
+      'doc 07 addendum 2026-11-11: Caltrain Guadalupe River bridge (+$107.7M, work paused in 2024 to amend permits, in-channel work 15 Jun to 15 Oct only); SMART ($1.58M of salamander credits). No real fine for a fish 100 miles away was found: the distance is satire of the fish-habitat unit, which runs 200 nautical miles offshore',
+    phases: ['construction'],
+    annualRate: 0.2,
+    maxPerProject: 1,
+    ownRoll: true,
+    options: [
+      { id: 'pay', label: 'Pay the fine and buy mitigation credits.', hardShare: 0.004, delayDays: 0, pc: 0 },
+      { id: 'stop', label: 'Stop work until the survey season ends.', hardShare: 0, delayDays: 150, pc: 0 },
+      { id: 'exempt', label: 'Get the Legislature to exempt you.', hardShare: 0, delayDays: 0, pc: 15 },
+    ],
+    defaultOption: 'stop',
     deadlineDays: 30,
   },
   {
